@@ -1,0 +1,78 @@
+enum RoomClass {
+    STANDARD
+    SEMI_PRIVATE
+    PRIVATE
+    SUITE
+}
+
+model RoomPrice {
+    id        Int       @id @default(autoincrement())
+    class     RoomClass @unique
+    price     Decimal   @db.Decimal(10, 2)
+    clinic    Clinic    @relation(fields: [clinicId], references: [id])
+    clinicId  Int
+    branch    Branch?   @relation(fields: [branchId], references: [id])
+    branchId  Int?
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+
+    @@unique([clinicId, class])
+    @@unique([branchId, class])
+    @@index([clinicId])
+    @@index([branchId])
+}
+
+model Room {
+    id               Int               @id @default(autoincrement())
+    number           String            @unique
+    class            RoomClass
+    isOccupied       Boolean           @default(false)
+    clinic           Clinic            @relation(fields: [clinicId], references: [id])
+    clinicId         Int
+    branch           Branch?           @relation(fields: [branchId], references: [id])
+    branchId         Int?
+    hospitalizations Hospitalization[]
+    createdAt        DateTime          @default(now())
+    updatedAt        DateTime          @updatedAt
+
+    @@index([clinicId])
+    @@index([branchId])
+}
+
+model Hospitalization {
+    id                     Int       @id @default(autoincrement())
+    clinic                 Clinic    @relation(fields: [clinicId], references: [id])
+    clinicId               Int
+    branch                 Branch?   @relation(fields: [branchId], references: [id])
+    branchId               Int?
+    room                   Room      @relation(fields: [roomId], references: [id])
+    roomId                 Int
+    patient                Patient   @relation(fields: [patientId], references: [id])
+    patientId              Int
+    visit                  Visit     @relation(fields: [visitId], references: [id])
+    visitId                Int       @unique
+    admittedAt             DateTime  @default(now())
+    dischargedAt           DateTime?
+    roomCoveredByInsurance Boolean   @default(false)
+    createdAt              DateTime  @default(now())
+    updatedAt              DateTime  @updatedAt
+
+    @@index([roomId])
+    @@index([patientId])
+    @@index([visitId])
+    @@index([branchId])
+}
+
+model HospitalizationProduct {
+    id        Int      @id @default(autoincrement())
+    visit     Visit    @relation(fields: [visitId], references: [id])
+    visitId   Int
+    product   Product  @relation(fields: [productId], references: [id])
+    productId Int
+    quantity  Int
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([visitId])
+    @@index([productId])
+}

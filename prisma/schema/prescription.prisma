@@ -1,0 +1,44 @@
+model Prescription {
+    id        Int                @id @default(autoincrement())
+    clinic    Clinic             @relation(fields: [clinicId], references: [id])
+    clinicId  Int
+    visit     Visit              @relation(fields: [visitId], references: [id])
+    visitId   Int
+    doctor    User               @relation(fields: [doctorId], references: [id])
+    doctorId  Int
+    status    PrescriptionStatus @default(ISSUED)
+    createdAt DateTime           @default(now())
+    updatedAt DateTime           @updatedAt
+    items     PrescriptionItem[]
+    branch    Branch?            @relation(fields: [branchId], references: [id])
+    branchId  Int?
+
+    @@unique([clinicId, visitId, doctorId])
+    @@index([clinicId])
+    @@index([visitId])
+    @@index([doctorId])
+    @@index([branchId])
+}
+
+model PrescriptionItem {
+    id             Int          @id @default(autoincrement())
+    prescription   Prescription @relation(fields: [prescriptionId], references: [id])
+    prescriptionId Int
+    medicationName String
+    dosage         String
+    frequency      String
+    duration       String
+    instructions   String?
+    createdAt      DateTime     @default(now())
+    updatedAt      DateTime     @updatedAt
+
+    @@unique([prescriptionId, medicationName, dosage])
+    @@index([prescriptionId])
+}
+
+enum PrescriptionStatus {
+    ISSUED // Prescription has been issued to the patient
+    PARTIALLY_SERVED // Patient has been given some of the medication
+    FULLY_SERVED // Patient has been given all the medication
+    CANCELLED // Prescription has been cancelled
+}

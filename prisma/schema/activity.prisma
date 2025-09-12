@@ -1,0 +1,33 @@
+model ActivityLog {
+    id        Int          @id @default(autoincrement())
+    visitId   Int?
+    visit     Visit?       @relation(fields: [visitId], references: [id])
+    eventId   Int?
+    event     Event?       @relation(fields: [eventId], references: [id])
+    action    String
+    timestamp DateTime     @default(now())
+    duration  Int?
+    userId    Int
+    user      User         @relation(fields: [userId], references: [id])
+    type      ActivityType @default(STATUS_UPDATE)
+
+    @@index([visitId])
+    @@index([userId])
+    @@index([timestamp])
+}
+
+enum ActivityType {
+    PAYMENT
+    STATUS_UPDATE
+    TASK
+    HOSPITALIZATION
+    BILL_UPDATE
+    INSURANCE_CLAIM
+    INSURANCE_CLAIM_UPDATE
+    INSURANCE_CLAIM_ITEM
+    INSURANCE_CLAIM_DOCUMENT
+    INSURANCE_CLAIM_STATUS_UPDATE
+    VISIT_DISCHARGED
+    SPECTACLE_PRESCRIPTION_CREATED
+    HANDOFF
+}

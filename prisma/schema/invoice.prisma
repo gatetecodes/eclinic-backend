@@ -1,0 +1,34 @@
+enum InvoiceStatus {
+    PENDING
+    PAID
+    OVERDUE
+    CANCELLED
+}
+
+model Invoice {
+    id           Int           @id @default(autoincrement())
+    dueDate      DateTime?
+    totalAmount  Decimal       @db.Decimal(10, 2)
+    paidAmount   Decimal       @default(0) @db.Decimal(10, 2)
+    status       InvoiceStatus @default(PENDING)
+    visit        Visit         @relation(fields: [visitId], references: [id])
+    visitId      Int
+    products     Product[]
+    invoiceItems InvoiceItem[]
+    createdAt    DateTime      @default(now())
+    updatedAt    DateTime      @updatedAt
+
+    @@unique([visitId])
+}
+
+model InvoiceItem {
+    id                       Int     @id @default(autoincrement())
+    invoice                  Invoice @relation(fields: [invoiceId], references: [id])
+    invoiceId                Int
+    description              String
+    quantity                 Int
+    unitPrice                Decimal
+    totalPrice               Decimal
+    amountCoveredByInsurance Decimal
+    patientResponsibility    Decimal
+}

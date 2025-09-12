@@ -1,0 +1,63 @@
+model DoctorAvailability {
+    id             Int      @id @default(autoincrement())
+    doctor         User     @relation(fields: [doctorId], references: [id])
+    doctorId       Int
+    dayOfWeek      Int? // 0-6 (Sunday-Saturday) //NO LONGER USED
+    startDayOfWeek Int? // 0-6 (Sunday-Saturday)
+    startTime      String? // Format: "HH:mm"
+    endDayOfWeek   Int? // 0-6 (Sunday-Saturday)
+    endTime        String? // Format: "HH:mm"
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
+
+    @@index([doctorId, dayOfWeek, startDayOfWeek, endDayOfWeek])
+}
+
+model Event {
+    id                 Int                 @id @default(autoincrement())
+    title              String?
+    description        String?
+    startTime          DateTime
+    endTime            DateTime
+    doctor             User                @relation(fields: [doctorId], references: [id])
+    doctorId           Int
+    patient            Patient?            @relation(fields: [patientId], references: [id])
+    patientId          Int?
+    clinic             Clinic              @relation(fields: [clinicId], references: [id])
+    clinicId           Int
+    branch             Branch?             @relation(fields: [branchId], references: [id])
+    branchId           Int?
+    type               EventType
+    status             EventStatus         @default(SCHEDULED)
+    treatment          String?
+    visit              Visit?              @relation(fields: [visitId], references: [id])
+    visitId            Int?                @unique
+    payments           Payment[]
+    activityLog        ActivityLog[]
+    appointmentType    AppointmentType?    @default(NEW_PATIENT)
+    patientAppointment PatientAppointment?
+    createdAt          DateTime            @default(now())
+    updatedAt          DateTime            @updatedAt
+
+    @@index([doctorId, startTime, endTime])
+    @@index([patientId])
+    @@index([clinicId])
+}
+
+enum EventType {
+    APPOINTMENT
+    MEETING
+    TASK
+    OTHER
+}
+
+enum AppointmentType {
+    NEW_PATIENT
+    FOLLOW_UP
+}
+
+enum EventStatus {
+    SCHEDULED
+    COMPLETED
+    CANCELLED
+}

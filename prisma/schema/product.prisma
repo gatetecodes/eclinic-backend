@@ -1,0 +1,53 @@
+enum ProductCategory {
+    TREATMENT
+    EXAM
+    MEDICATION
+    SUPPLY
+    // Add other categories as needed
+}
+
+model Product {
+    id                      Int                      @id @default(autoincrement())
+    code                    String                   @unique
+    name                    String
+    description             String?
+    basePrice               Decimal?                 @db.Decimal(10, 2) //Default price if no insurance is present
+    foreignersPrice         Decimal?                 @db.Decimal(10, 2) //Price for foreigners
+    unit                    String?
+    normalRange             String?
+    consumables             Json? // Json array of consumable items, each item has a name and quantity
+    isActive                Boolean                  @default(true)
+    clinics                 Clinic[]
+    category                ProductCategory?         @default(TREATMENT)
+    departments             Department[]
+    payments                Payment[]
+    invoices                Invoice[]
+    exams                   Exam[]
+    insurancePrices         InsurancePrice[]
+    hospitalizationProducts HospitalizationProduct[]
+    insuranceClaimItems     InsuranceClaimItem[]
+    consultations           Visit[]
+    visitConsultations      Visit[]                  @relation("ConsultationProducts")
+    treatments              Treatment[]
+    tests                   ExamTest[]
+    createdAt               DateTime                 @default(now())
+    updatedAt               DateTime                 @updatedAt
+}
+
+model InsurancePrice {
+    id                 Int              @id @default(autoincrement())
+    product            Product          @relation(fields: [productId], references: [id])
+    productId          Int
+    price              Decimal
+    priceWithCo        Decimal?
+    insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
+    insuranceCompanyId Int
+    priceType          PriceType?
+
+    @@unique([productId, insuranceCompanyId])
+}
+
+enum PriceType {
+    PRIVATE
+    GOV
+}

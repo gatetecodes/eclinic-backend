@@ -1,0 +1,20 @@
+model SpectaclePrescription {
+    id                     Int      @id @default(autoincrement())
+    branch                 Branch   @relation(fields: [branchId], references: [id])
+    branchId               Int
+    visit                  Visit    @relation(fields: [visitId], references: [id])
+    visitId                Int      @unique
+    doctor                 User     @relation(fields: [doctorId], references: [id])
+    doctorId               Int
+    rightEye               Json
+    leftEye                Json
+    interpupillaryDistance Json
+    lensType               Json?
+    createdAt              DateTime @default(now())
+    updatedAt              DateTime @updatedAt
+
+    @@unique([branchId, visitId, doctorId])
+    @@index([branchId])
+    @@index([visitId])
+    @@index([doctorId])
+}

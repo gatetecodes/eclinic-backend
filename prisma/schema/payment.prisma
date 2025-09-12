@@ -1,0 +1,57 @@
+model Payment {
+    id              Int           @id @default(autoincrement())
+    clinic          Clinic        @relation(fields: [clinicId], references: [id])
+    clinicId        Int
+    branch          Branch?       @relation(fields: [branchId], references: [id])
+    branchId        Int?
+    visit           Visit?        @relation(fields: [visitId], references: [id])
+    visitId         Int?
+    appointment     Event?        @relation(fields: [appointmentId], references: [id])
+    appointmentId   Int?
+    amount          Decimal       @db.Decimal(10, 2)
+    insuranceAmount Decimal?      @db.Decimal(10, 2)
+    patientAmount   Decimal       @db.Decimal(10, 2)
+    paymentDetails  Json?
+    products        Product[]
+    paymentType     PaymentType
+    paymentMode     PaymentMode
+    paymentMethod   PaymentMethod @default(CASH)
+    paymentStatus   PaymentStatus @default(PENDING)
+    discounts       Discount[]
+    processedBy     User?         @relation("ProcessedPayments", fields: [processedById], references: [id])
+    processedById   Int?
+    createdAt       DateTime      @default(now())
+    updatedAt       DateTime      @updatedAt
+
+    @@index([clinicId])
+    @@index([visitId])
+    @@index([appointmentId])
+}
+
+enum PaymentType {
+    CONSULTATION
+    MEDICATION
+    ADDITIONAL_EXAM
+    HOSPITALIZATION
+    TREATMENT
+}
+
+enum PaymentStatus {
+    PENDING
+    PAID //After patient amount is fully paid
+    FULLY_PAID //After insurance amount is fully paid
+    CANCELLED
+}
+
+enum DiscountStatus {
+    PENDING
+    APPROVED
+    REJECTED
+}
+
+enum PaymentMethod {
+    CASH
+    MOBILE_MONEY
+    CARD
+    BANK_TRANSFER
+}

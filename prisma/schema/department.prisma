@@ -1,0 +1,25 @@
+model Department { //For Products
+    id                  Int                  @id @default(autoincrement())
+    name                String
+    isActive            Boolean              @default(true)
+    products            Product[]
+    createdAt           DateTime             @default(now())
+    updatedAt           DateTime             @updatedAt
+
+    @@unique([name])
+}
+
+model ClinicalDepartment { //For operational care
+    id                  Int                  @id @default(autoincrement())
+    name                String
+    isActive            Boolean              @default(true)
+    clinics             Clinic[]
+    users               User[]
+    visits              Visit[]
+    branches            Branch[]
+    patientAppointments PatientAppointment[] //For Appointments
+    createdAt           DateTime             @default(now())
+    updatedAt           DateTime             @updatedAt
+
+    @@unique([name])
+}

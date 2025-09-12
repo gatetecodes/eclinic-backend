@@ -1,0 +1,28 @@
+model Notification {
+    id        Int              @id @default(autoincrement())
+    userId    Int
+    user      User             @relation(fields: [userId], references: [id])
+    title     String
+    message   String
+    isRead    Boolean          @default(false)
+    type      NotificationType
+    visitId   Int?
+    visit     Visit?           @relation(fields: [visitId], references: [id])
+    createdAt DateTime         @default(now())
+    updatedAt DateTime         @updatedAt
+
+    @@index([userId])
+}
+
+enum NotificationType {
+    APPROVAL_REQUEST
+    APPOINTMENT_REMINDER
+    VISIT_UPDATE
+    PAYMENT_CONFIRMATION
+    SYSTEM_UPDATE
+    INVENTORY_ALERT
+    NEW_PAYMENT_BILL
+    LAB_EXAM_RESULTS
+    LAB_EXAM_REQUEST
+    HANDOFF_REQUEST
+}

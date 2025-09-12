@@ -1,0 +1,82 @@
+// Patient Portal Authentication
+model PatientPortalAccount {
+    id                Int       @id @default(autoincrement())
+    patient           Patient   @relation(fields: [patientId], references: [id])
+    patientId         Int       @unique
+    password          String
+    verified          DateTime?
+    verificationToken String?
+    resetToken        String?
+    resetTokenExpiry  DateTime?
+    lastLoginAt       DateTime?
+    createdAt         DateTime  @default(now())
+    updatedAt         DateTime  @updatedAt
+}
+
+// Patient Portal Appointments (separate from internal appointments)
+model PatientAppointment {
+    id              Int                      @id @default(autoincrement())
+    patient         Patient                  @relation(fields: [patientId], references: [id])
+    patientId       Int
+    clinic          Clinic                   @relation(fields: [clinicId], references: [id])
+    clinicId        Int
+    branch          Branch?                  @relation(fields: [branchId], references: [id])
+    branchId        Int?
+    department      ClinicalDepartment       @relation(fields: [departmentId], references: [id])
+    departmentId    Int
+    doctor          User                     @relation(fields: [doctorId], references: [id])
+    doctorId        Int
+    appointmentDate DateTime
+    startTime       String // Format: "HH:mm"
+    endTime         String // Format: "HH:mm"
+    status          PatientAppointmentStatus @default(PENDING)
+    reason          String?
+    symptoms        String?
+    isFollowUp      Boolean                  @default(false)
+    previousVisitId Int? // Reference to previous visit if follow-up
+    internalEventId Int?                     @unique // Reference to internal Event when confirmed
+    event           Event?                   @relation(fields: [internalEventId], references: [id])
+    createdAt       DateTime                 @default(now())
+    updatedAt       DateTime                 @updatedAt
+
+    @@index([patientId])
+    @@index([clinicId])
+    @@index([branchId])
+    @@index([doctorId])
+    @@index([appointmentDate])
+    @@index([status])
+}
+
+enum PatientAppointmentStatus {
+    PENDING
+    CONFIRMED
+    CANCELLED
+    COMPLETED
+    NO_SHOW
+}
+
+// Patient Portal Notifications
+model PatientNotification {
+    id                   Int                     @id @default(autoincrement())
+    patient              Patient                 @relation(fields: [patientId], references: [id])
+    patientId            Int
+    title                String
+    message              String
+    type                 PatientNotificationType
+    isRead               Boolean                 @default(false)
+    relatedAppointmentId Int?
+    createdAt            DateTime                @default(now())
+
+    @@index([patientId])
+    @@index([isRead])
+}
+
+enum PatientNotificationType {
+    APPOINTMENT_CONFIRMED
+    APPOINTMENT_REMINDER
+    APPOINTMENT_CANCELLED
+    APPOINTMENT_RESCHEDULED
+    RESULTS_READY
+    PRESCRIPTION_READY
+    GENERAL
+}

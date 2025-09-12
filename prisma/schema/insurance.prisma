@@ -1,0 +1,36 @@
+model InsuranceCompany {
+    id               Int                @id @default(autoincrement())
+    companyName      String             @unique
+    contactPhone     String?
+    contactEmail     String?
+    patientInsurance PatientInsurance[]
+    insurancePrices  InsurancePrice[]
+}
+
+model Employer {
+    id               Int                @id @default(autoincrement())
+    employerName     String             @unique
+    contactPhone     String?
+    contactEmail     String?
+    patientInsurance PatientInsurance[]
+}
+
+model PatientInsurance {
+    id                 Int              @id @default(autoincrement())
+    patient            Patient          @relation(fields: [patientId], references: [id])
+    patientId          Int
+    insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
+    insuranceCompanyId Int
+    insuranceNumber    String           @unique
+    employer           Employer?        @relation(fields: [employerId], references: [id])
+    employerId         Int?
+    coveragePercentage Decimal         @db.Decimal(10, 2)
+    startDate          DateTime?
+    endDate            DateTime?
+    visits             Visit[]
+    insuranceClaims    InsuranceClaim[]
+    createdAt          DateTime         @default(now())
+
+    @@unique([insuranceNumber, patientId])
+    @@index([patientId])
+}

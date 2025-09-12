@@ -1,0 +1,37 @@
+enum Gender {
+    MALE
+    FEMALE
+}
+
+model Patient {
+    id                   Int                   @id @default(autoincrement())
+    patientId            String?               @unique //A UNIQUE ID for the patient
+    firstName            String
+    lastName             String
+    dateOfBirth          DateTime
+    gender               Gender
+    phoneNumber          String? // Make phone number optional
+    isChild              Boolean?              @default(false) // Flag for child patient
+    guardianPhoneNumber  String? // Optional guardian phone number
+    email                String?
+    medicalInfo          Json? //Blood type, weight, height, heart rate, blood sugar, etc.
+    address              String?
+    nationality          String?
+    isAForeigner         Boolean?              @default(false) // Flag for foreign patient who has a rwandan phone
+    createdAt            DateTime              @default(now())
+    updatedAt            DateTime              @updatedAt
+    clinics              Clinic[]
+    branches             Branch[]
+    events               Event[]
+    medicalRecords       MedicalRecord[]
+    visits               Visit[]
+    patientInsurance     PatientInsurance[]
+    hospitalizations     Hospitalization[]
+    portalAccount        PatientPortalAccount?
+    patientAppointments  PatientAppointment[]
+    patientNotifications PatientNotification[]
+
+    @@index([phoneNumber, lastName, firstName])
+    @@index([guardianPhoneNumber]) // Add index for guardian phone
+    @@index([phoneNumber]) // Add index for phone number since clinicId is now optional
+}

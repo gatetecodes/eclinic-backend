@@ -1,0 +1,89 @@
+enum SubscriptionStatus {
+    ACTIVE
+    INACTIVE
+    TRIAL
+}
+
+enum SubscriptionPlan {
+    CLINIC_STARTER
+    MEDICAL_PLUS
+    HOSPITAL_SUITE
+}
+
+enum BranchStatus {
+    ACTIVE
+    INACTIVE
+    SUSPENDED
+}
+
+model Clinic {
+    id                     Int                  @id @default(autoincrement())
+    name                   String
+    logo                   String?
+    subscriptionStatus     SubscriptionStatus   @default(TRIAL)
+    subscriptionPlan       SubscriptionPlan
+    contactPhone           String?
+    contactEmail           String?
+    subscriptionExpiryDate DateTime?
+    createdAt              DateTime             @default(now())
+    updatedAt              DateTime             @updatedAt
+    users                  User[]
+    patients               Patient[]
+    payments               Payment[]
+    inventoryItems         InventoryItem[]
+    prescriptions          Prescription[]
+    medicalRecords         MedicalRecord[]
+    examResults            ExamResult[]
+    visits                 Visit[]
+    departments            ClinicalDepartment[]
+    products               Product[]
+    events                 Event[]
+    expenses               Expense[]
+    discounts              Discount[]
+    approvals              Approval[]
+    roomPrices             RoomPrice[]
+    rooms                  Room[]
+    hospitalizations       Hospitalization[]
+    insuranceClaims        InsuranceClaim[]
+    branches               Branch[]
+    patientAppointments    PatientAppointment[]
+    isPatientPortalEnabled Boolean              @default(false)
+    portalSettings         Json? // Store portal configuration
+}
+
+model Branch {
+    id                     Int                     @id @default(autoincrement())
+    name                   String
+    code                   String
+    address                String?
+    contactPhone           String?
+    contactEmail           String?
+    isHeadOffice           Boolean                 @default(false)
+    status                 BranchStatus            @default(ACTIVE)
+    users                  User[]
+    patients               Patient[]
+    payments               Payment[]
+    inventory              InventoryItem[]
+    prescriptions          Prescription[]
+    medicalRecords         MedicalRecord[]
+    examResults            ExamResult[]
+    visits                 Visit[]
+    departments            ClinicalDepartment[]
+    events                 Event[]
+    approvals              Approval[]
+    roomPrices             RoomPrice[]
+    rooms                  Room[]
+    hospitalizations       Hospitalization[]
+    insuranceClaims        InsuranceClaim[]
+    discounts              Discount[]
+    spectaclePrescriptions SpectaclePrescription[]
+    patientAppointments    PatientAppointment[]
+    isPatientPortalEnabled Boolean                 @default(false)
+    clinicId               Int
+    clinic                 Clinic                  @relation(fields: [clinicId], references: [id])
+    createdAt              DateTime                @default(now())
+    updatedAt              DateTime                @updatedAt
+
+    @@index([clinicId])
+    @@index([code])
+}

@@ -1,0 +1,125 @@
+// Master inventory item record
+model InventoryItem {
+    id               Int             @id @default(autoincrement())
+    clinic           Clinic          @relation(fields: [clinicId], references: [id])
+    clinicId         Int
+    itemName         String
+    itemType         ItemType
+    reorderLevel     Int
+    manufacturer     String?
+    unit             Unit?           @default(PIECE) // Unit of measurement
+    minOrderQuantity Int?
+    notes            String?
+    unitPrice        Decimal?        @db.Decimal(10, 2)
+    status           InventoryStatus @default(IN_STOCK)
+    createdAt        DateTime        @default(now())
+    updatedAt        DateTime        @updatedAt
+
+    // Relations
+    batches      InventoryBatch[]
+    transactions Transaction[]
+    currentStock InventoryStock? // One-to-one relation with current stock
+    branch       Branch?          @relation(fields: [branchId], references: [id])
+    branchId     Int?
+
+    @@unique([clinicId, itemName])
+}
+
+// Current stock levels
+model InventoryStock {
+    id        Int           @id @default(autoincrement())
+    item      InventoryItem @relation(fields: [itemId], references: [id])
+    itemId    Int           @unique // One-to-one relation
+    quantity  Int
+    updatedAt DateTime      @updatedAt
+}
+
+// Batch tracking
+model InventoryBatch {
+    id              Int           @id @default(autoincrement())
+    item            InventoryItem @relation(fields: [itemId], references: [id])
+    itemId          Int
+    batchNumber     String
+    expiryDate      DateTime?
+    initialQuantity Int // Original quantity received
+    currentQuantity Int // Current quantity remaining
+    unitPrice       Decimal?      @db.Decimal(10, 2)
+    location        String?
+    createdAt       DateTime      @default(now())
+    updatedAt       DateTime      @updatedAt
+
+    // Relations
+    transactions Transaction[]
+
+    @@unique([itemId, batchNumber])
+}
+
+// Transaction history
+model Transaction {
+    id          Int               @id @default(autoincrement())
+    item        InventoryItem     @relation(fields: [itemId], references: [id])
+    itemId      Int
+    batch       InventoryBatch?   @relation(fields: [batchId], references: [id])
+    batchId     Int?
+    type        TransactionType
+    quantity    Int // Positive for in, negative for out
+    unitPrice   Decimal?          @db.Decimal(10, 2)
+    totalAmount Decimal?          @db.Decimal(10, 2)
+    status      TransactionStatus @default(COMPLETED)
+    sourceType  SourceType
+    visitId     Int? // Reference to external source (e.g., visitId, orderId)
+    visit       Visit?            @relation(fields: [visitId], references: [id])
+    notes       String?
+    performedBy User              @relation(fields: [userId], references: [id])
+    userId      Int
+    createdAt   DateTime          @default(now())
+    updatedAt   DateTime          @updatedAt
+}
+
+enum ItemType {
+    MEDICATION
+    SUPPLY
+    LAB_MATERIAL
+    CONSUMABLE
+    EQUIPMENT
+    OTHER
+}
+
+enum InventoryStatus {
+    IN_STOCK
+    LOW_STOCK
+    OUT_OF_STOCK
+}
+
+enum TransactionType {
+    PURCHASE // Buying new stock
+    SALE // Regular sale to patients
+    ADJUSTMENT // Manual adjustment
+    TRANSFER // Transfer between locations
+    RETURN // Return from patient/to supplier
+    DISPOSAL // Disposing expired/damaged items
+    CONSUMPTION // Internal usage
+}
+
+enum TransactionStatus {
+    PENDING
+    COMPLETED
+    CANCELLED
+    FAILED
+}
+
+enum SourceType {
+    VISIT // From patient visit
+    PURCHASE_ORDER // From purchase order
+    MANUAL // Manual adjustment
+    TRANSFER // Internal transfer
+    RETURN // Return processing
+    DISPOSAL // Disposal record
+    STOCKTAKE // Inventory count adjustment
+}
+
+enum Unit {
+    ML
+    MG
+    PIECE // For countable items
+}

@@ -1,0 +1,9 @@
+model Expense {
+    id          Int      @id @default(autoincrement())
+    clinic      Clinic   @relation(fields: [clinicId], references: [id])
+    clinicId    Int
+    amount      Decimal  @db.Decimal(10, 2)
+    description String
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+}

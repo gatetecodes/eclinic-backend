@@ -1,0 +1,66 @@
+model Exam {
+    id          Int          @id @default(autoincrement())
+    name        String?
+    description String?
+    visit       Visit        @relation(fields: [visitId], references: [id])
+    visitId     Int
+    products    Product[]
+    status      ExamStatus   @default(PENDING)
+    createdAt   DateTime     @default(now())
+    updatedAt   DateTime     @updatedAt
+    results     ExamResult[]
+    tests       ExamTest[]
+}
+
+model ExamTest {
+    id          Int      @id @default(autoincrement())
+    name        String
+    description String?
+    normalRange String?
+    unit        String?
+    consumables Json? // Json array of consumable items, each item has a name and quantity
+    exam        Exam?    @relation(fields: [examId], references: [id])
+    product     Product  @relation(fields: [productId], references: [id])
+    productId   Int
+    examId      Int?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@unique([name, productId])
+}
+
+model ExamResult {
+    id          Int      @id @default(autoincrement())
+    clinic      Clinic   @relation(fields: [clinicId], references: [id])
+    clinicId    Int
+    visit       Visit    @relation(fields: [visitId], references: [id])
+    visitId     Int
+    exam        Exam     @relation(fields: [examId], references: [id])
+    examId      Int
+    examDate    DateTime
+    results     Json
+    notes       String?
+    createdBy   User?    @relation("ExamResultCreatedBy", fields: [createdById], references: [id])
+    createdById Int?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+    branch      Branch?  @relation(fields: [branchId], references: [id])
+    branchId    Int?
+
+    @@index([branchId])
+}
+
+model Treatment {
+    id        Int       @id @default(autoincrement())
+    name      String?
+    visit     Visit     @relation(fields: [visitId], references: [id])
+    visitId   Int
+    products  Product[]
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+}
+
+enum ExamStatus {
+    PENDING
+    COMPLETED
+}

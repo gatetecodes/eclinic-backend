@@ -1,0 +1,118 @@
+model Visit {
+    id                      Int                      @id @default(autoincrement())
+    patient                 Patient                  @relation(fields: [patientId], references: [id])
+    patientId               Int
+    clinic                  Clinic                   @relation(fields: [clinicId], references: [id])
+    clinicId                Int
+    branch                  Branch?                  @relation(fields: [branchId], references: [id])
+    branchId                Int?
+    department              ClinicalDepartment?      @relation(fields: [departmentId], references: [id])
+    departmentId            Int?
+    doctor                  User?                    @relation("DoctorVisits", fields: [doctorId], references: [id])
+    doctorId                Int?
+    transferredTo           User?                    @relation("VisitsTransferredTo", fields: [transferredToId], references: [id])
+    transferredToId         Int?
+    status                  VisitStatus              @default(CHECKED_IN)
+    startTime               DateTime                 @default(now())
+    endTime                 DateTime?
+    notes                   String?
+    checkedInBy             User?                    @relation("CheckedInVisits", fields: [checkedInById], references: [id])
+    checkedInById           Int?
+    paymentMode             PaymentMode?
+    patientInsurance        PatientInsurance?        @relation(fields: [patientInsuranceId], references: [id])
+    patientInsuranceId      Int?
+    invoice                 Invoice?
+    payments                Payment[]
+    prescriptions           Prescription[]
+    exams                   Exam[]
+    treatments              Treatment[]
+    examResults             ExamResult[]
+    activityLogs            ActivityLog[]
+    appointment             Event?
+    hospitalization         Hospitalization?
+    hospitalizationProducts HospitalizationProduct[]
+    createdAt               DateTime                 @default(now())
+    updatedAt               DateTime                 @updatedAt
+    userId                  Int?
+    basicTriage             Json?
+    medicConsumables        Json?
+    isNewPatient            Boolean                  @default(false)
+    priority                Priority
+    transactions            Transaction[]
+    consultationNote        String?
+    transferReason          String?
+    chiefComplaint          String?
+    diagnosis               String?
+    examConclusions         String?
+    treatmentComments       String?
+    followUpDate            DateTime?
+    isLabOnly               Boolean                  @default(false)
+    requiresConsultation    Boolean                  @default(true)
+    insuranceClaims         InsuranceClaim[]
+    consultation            Product?                 @relation(fields: [consultationId], references: [id])
+    consultationId          Int?
+    consultations           Product[]                @relation("ConsultationProducts")
+    spectaclePrescription   SpectaclePrescription?
+    notifications           Notification[]
+    handoffs                Handoff[]
+
+    @@index([patientId])
+    @@index([clinicId])
+    @@index([departmentId])
+    @@index([doctorId])
+    @@index([status])
+    @@index([startTime])
+    @@index([createdAt])
+    @@index([updatedAt])
+}
+
+enum VisitStatus {
+    CHECKED_IN //Recorded by Nurse. Sent to Cachier to pay Consultation Fee.
+    TRIAGE_COMPLETED //Doctor can now see the patient.
+    IN_CONSULTATION //Doctor is seeing the patient. Can require exams or not.
+    PENDING_TESTS //Patient goes back to cachier to pay for exams.
+    RESULTS_READY //Doctor can now see results and write prescription.
+    FINALIZED //Doctor has finalized the visit.
+    DISCHARGED
+    DISCHARGED_WITH_PRESCRIPTION
+    ADMITTED
+    CANCELLED
+}
+
+enum PaymentMode {
+    PRIVATE
+    INSURANCE
+}
+
+enum Priority {
+    LOW
+    MEDIUM
+    HIGH
+}
+
+enum HandoffStatus {
+    PENDING
+    ACCEPTED
+    REJECTED
+    COMPLETED
+}
+
+model Handoff {
+    id            Int           @id @default(autoincrement())
+    visit         Visit         @relation(fields: [visitId], references: [id])
+    visitId       Int
+    fromDoctor    User          @relation("HandoffFrom", fields: [fromDoctorId], references: [id])
+    fromDoctorId  Int
+    toDoctor      User          @relation("HandoffTo", fields: [toDoctorId], references: [id])
+    toDoctorId    Int
+    handoffNotes  String
+    handoffStatus HandoffStatus @default(ACCEPTED)
+    handoffTime   DateTime      @default(now())
+    acceptedAt    DateTime?
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+
+    @@index([visitId])
+    @@index([fromDoctorId])
+    @@index([toDoctorId])
+}

@@ -1,0 +1,20 @@
+model MedicalRecord {
+    id            Int         @id @default(autoincrement())
+    clinic        Clinic      @relation(fields: [clinicId], references: [id])
+    clinicId      Int
+    patient       Patient     @relation(fields: [patientId], references: [id])
+    patientId     Int
+    visitDate     DateTime
+    symptoms      String
+    diagnosis     String
+    treatmentPlan String
+    notes         String?
+    createdAt     DateTime    @default(now())
+    updatedAt     DateTime    @updatedAt
+    branch        Branch?     @relation(fields: [branchId], references: [id])
+    branchId      Int?
+
+    @@index([clinicId])
+    @@index([patientId])
+    @@index([branchId])
+}

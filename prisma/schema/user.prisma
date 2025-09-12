@@ -1,0 +1,111 @@
+enum Role {
+    SUPER_ADMIN
+    CLINIC_ADMIN
+    BRANCH_ADMIN
+    DOCTOR
+    NURSE
+    LAB_TECHNICIAN
+    RECEPTIONIST
+    PHARMACIST
+    CASHIER
+    MARKETING
+    FLOW_MANAGER
+    STOCK_MANAGER
+}
+
+enum UserStatus {
+    ACTIVE
+    INACTIVE
+    BLOCKED
+}
+
+enum EducationLevel {
+    A0
+    A1
+    A2
+}
+
+model User {
+    id                     Int                     @id @default(autoincrement())
+    clinic                 Clinic?                 @relation(fields: [clinicId], references: [id])
+    clinicId               Int?
+    name                   String
+    password               String
+    role                   Role
+    status                 UserStatus              @default(ACTIVE)
+    email                  String                  @unique
+    emailVerified          DateTime?
+    phone_number           String
+    phone_number_verified  DateTime?
+    consultationFee        Float?
+    licenseExpiration      DateTime?
+    licenseNumber          String?
+    license_document       String? //The license document of the doctor
+    diploma_document       String? //The diploma document of the doctor/nurse
+    highestEducation       EducationLevel?
+    createdAt              DateTime                @default(now())
+    updatedAt              DateTime                @updatedAt
+    doctorVisits           Visit[]                 @relation("DoctorVisits")
+    checkedInVisits        Visit[]                 @relation("CheckedInVisits")
+    handoffsInitiated      Handoff[]               @relation("HandoffFrom")
+    handoffsReceived       Handoff[]               @relation("HandoffTo")
+    clinicalDepartments    ClinicalDepartment[]
+    prescriptions          Prescription[]
+    accounts               Account[]
+    doctorAvailabilities   DoctorAvailability[] //When the user is a doctor
+    doctorEvents           Event[] //When the user is a doctor
+    isTwoFactorEnabled     Boolean                 @default(false)
+    twoFactorConfirmation  TwoFactorConfirmation?
+    activityLogs           ActivityLog[]
+    discountsCreated       Discount[]              @relation("DiscountCreator")
+    approvalsRequested     Approval[]              @relation("ApprovalRequester")
+    approvalsApproved      Approval[]              @relation("ApprovalApprover")
+    notifications          Notification[]
+    inventoryTransactions  Transaction[]
+    branch                 Branch?                 @relation(fields: [branchId], references: [id])
+    branchId               Int?
+    examResults            ExamResult[]            @relation("ExamResultCreatedBy")
+    spectaclePrescriptions SpectaclePrescription[]
+    processedPayments      Payment[]               @relation("ProcessedPayments")
+    patientAppointments    PatientAppointment[]
+    visitsTransferredTo    Visit[]               @relation("VisitsTransferredTo")
+    sessions               Session[]
+    @@unique([clinicId, email])
+    @@index([email])
+    @@index([role])
+}
+
+model VerificationToken {
+    id      Int      @id @default(autoincrement())
+    email   String
+    token   String   @unique
+    expires DateTime
+
+    @@unique([email, token])
+}
+
+model PasswordResetToken {
+    id      Int      @id @default(autoincrement())
+    email   String
+    token   String   @unique
+    expires DateTime
+
+    @@unique([email, token])
+}
+
+model TwoFactorToken {
+    id      Int      @id @default(autoincrement())
+    email   String
+    token   String   @unique
+    expires DateTime
+
+    @@unique([email, token])
+}
+
+model TwoFactorConfirmation {
+    id     Int  @id @default(autoincrement())
+    userId Int
+    user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([userId])
+}

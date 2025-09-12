@@ -1,0 +1,68 @@
+model InsuranceClaim {
+    id                 Int                      @id @default(autoincrement())
+    claimNumber        String                   @unique
+    visit              Visit                    @relation(fields: [visitId], references: [id])
+    visitId            Int
+    patientInsurance   PatientInsurance         @relation(fields: [patientInsuranceId], references: [id])
+    patientInsuranceId Int
+    totalAmount        Decimal                  @db.Decimal(10, 2)
+    claimStatus        ClaimStatus              @default(PENDING)
+    submissionDate     DateTime?
+    processedDate      DateTime?
+    rejectionReason    String?
+    items              InsuranceClaimItem[]
+    documents          InsuranceClaimDocument[]
+    createdAt          DateTime                 @default(now())
+    updatedAt          DateTime                 @updatedAt
+    clinic             Clinic?                  @relation(fields: [clinicId], references: [id])
+    clinicId           Int?
+    branch             Branch?                  @relation(fields: [branchId], references: [id])
+    branchId           Int?
+}
+
+model InsuranceClaimItem {
+    id              Int             @id @default(autoincrement())
+    claim           InsuranceClaim  @relation(fields: [claimId], references: [id])
+    claimId         Int
+    product         Product         @relation(fields: [productId], references: [id])
+    productId       Int
+    quantity        Int
+    amount          Decimal         @db.Decimal(10, 2)
+    insuranceAmount Decimal         @db.Decimal(10, 2)
+    itemStatus      ClaimItemStatus
+    remarks         String?
+}
+
+model InsuranceClaimDocument {
+    id           Int               @id @default(autoincrement())
+    claim        InsuranceClaim    @relation(fields: [claimId], references: [id])
+    claimId      Int
+    documentType ClaimDocumentType
+    documentUrl  String
+    uploadedAt   DateTime          @default(now())
+}
+
+enum ClaimStatus {
+    PENDING
+    SUBMITTED
+    IN_REVIEW
+    APPROVED
+    PARTIALLY_APPROVED
+    REJECTED
+    RESUBMITTED
+}
+
+enum ClaimDocumentType {
+    PRESCRIPTION
+    MEDICAL_REPORT
+    LAB_RESULT
+    INVOICE
+    OTHER
+}
+
+enum ClaimItemStatus {
+    PENDING
+    APPROVED
+    REJECTED
+    PARTIALLY_APPROVED
+}
