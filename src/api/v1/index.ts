@@ -11,7 +11,6 @@ import inventoryRouter from "./inventory/routes.ts";
 import analyticsRouter from "./analytics/routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
 import adminRouter from "./admin/routes.ts";
-import authRouter from "./auth/routes.ts";
 import filesRouter from "./files/routes.ts";
 import activityRouter from "./activity/routes.ts";
 import appointmentsRouter from "./appointments/routes.ts";
@@ -23,7 +22,6 @@ const v1 = new Hono();
 v1.use("*", requireAuth);
 
 // Mount resources
-v1.route("/auth", authRouter);
 v1.route("/users", usersRouter);
 v1.route("/patients", patientsRouter);
 v1.route("/clinics", clinicsRouter);

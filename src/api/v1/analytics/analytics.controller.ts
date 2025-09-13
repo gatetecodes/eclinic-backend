@@ -1,6 +1,7 @@
 import { type Context } from "hono";
 import { db } from "../../../database/db";
 import { z } from "zod";
+import type { Decimal } from "@prisma/client/runtime/library";
 import {
   eachDayOfInterval,
   eachMonthOfInterval,
@@ -361,7 +362,7 @@ async function getDataForRange(
       _sum,
     }: {
       createdAt: Date;
-      _sum: { amount: number | null };
+      _sum: { amount: Decimal | null };
     }) => {
       const monthKey = format(createdAt, "MMM");
       monthlyIncome[monthKey] =
@@ -375,7 +376,7 @@ async function getDataForRange(
       _sum,
     }: {
       createdAt: Date;
-      _sum: { amount: number | null };
+      _sum: { amount: Decimal | null };
     }) => {
       const monthKey = format(createdAt, "MMM");
       monthlyIncome[monthKey] =
@@ -389,7 +390,7 @@ async function getDataForRange(
       _sum,
     }: {
       createdAt: Date;
-      _sum: { amount: number | null };
+      _sum: { amount: Decimal | null };
     }) => {
       const monthKey = format(createdAt, "MMM");
       monthlyExpenses[monthKey] =

@@ -2,6 +2,12 @@ import { type Context } from "hono";
 import { z } from "zod";
 import { db } from "../../../database/db";
 import { updateUserSchema } from "./users.validation.ts";
+import type {
+  Prisma,
+  Role,
+  UserStatus,
+  EducationLevel,
+} from "../../../../generated/prisma";
 
 export const listUsers = async (c: Context) => {
   try {
@@ -10,12 +16,7 @@ export const listUsers = async (c: Context) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    type StringFilter = { contains: string; mode: "insensitive" };
-    type UserWhereInputLite = {
-      role?: string;
-      OR?: Array<{ name?: StringFilter; email?: StringFilter }>;
-    };
-    const where: UserWhereInputLite = {};
+    const where: Prisma.UserWhereInput = {};
 
     if (search) {
       where.OR = [
@@ -25,7 +26,7 @@ export const listUsers = async (c: Context) => {
     }
 
     if (role) {
-      where.role = role;
+      where.role = role as Role;
     }
 
     const [users, total] = await Promise.all([
@@ -58,7 +59,7 @@ export const getUserById = async (c: Context) => {
   try {
     const { id } = c.req.param();
     const user = await db.user.findUnique({
-      where: { id },
+      where: { id: Number(id) },
       include: { clinic: true, branch: true },
     });
     if (!user) return c.json({ error: "User not found" }, 404);
@@ -74,9 +75,29 @@ export const updateUser = async (c: Context) => {
     const { id } = c.req.param();
     const body = await c.req.json();
     const validatedData = updateUserSchema.parse(body);
+
+    const {
+      clinicId,
+      branchId,
+      role,
+      status,
+      highestEducation,
+      ...updateData
+    } = validatedData;
+    const data: Prisma.UserUpdateInput = {
+      ...updateData,
+      ...(role && { role: role as Role }),
+      ...(status && { status: status as UserStatus }),
+      ...(highestEducation && {
+        highestEducation: highestEducation as EducationLevel,
+      }),
+      ...(clinicId && { clinic: { connect: { id: clinicId } } }),
+      ...(branchId && { branch: { connect: { id: branchId } } }),
+    };
+
     const user = await db.user.update({
-      where: { id },
-      data: validatedData,
+      where: { id: Number(id) },
+      data,
       include: { clinic: true, branch: true },
     });
     return c.json({ data: user });
@@ -92,7 +113,7 @@ export const updateUser = async (c: Context) => {
 export const deleteUser = async (c: Context) => {
   try {
     const { id } = c.req.param();
-    await db.user.delete({ where: { id } });
+    await db.user.delete({ where: { id: Number(id) } });
     return c.json({ success: true });
   } catch (error) {
     console.error("Delete user error:", error);

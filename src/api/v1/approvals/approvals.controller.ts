@@ -58,7 +58,7 @@ export const processApprovalRequest = async (c: Context) => {
     if (approval.type === "DISCOUNT" && approval.discountId) {
       await db.discount.update({
         where: { id: approval.discountId },
-        data: { approvalId: approvalId },
+        data: { approval: { connect: { id: approvalId } } },
       });
     }
 

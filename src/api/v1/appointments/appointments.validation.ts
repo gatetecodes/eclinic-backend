@@ -20,6 +20,8 @@ export const eventSchema = z.object({
       lastName: z.string(),
       phoneNumber: z.string().optional(),
       id: z.number().int().optional(),
+      dateOfBirth: z.string().optional(),
+      gender: z.string().optional(),
     })
     .optional(),
   treatment: z.string().optional(),

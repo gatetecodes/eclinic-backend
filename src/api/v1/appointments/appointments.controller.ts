@@ -21,7 +21,7 @@ import {
   subDays,
   addMonths,
 } from "date-fns";
-import type { Prisma } from "../../../../generated/prisma";
+import type { EventType, Gender, Prisma } from "../../../../generated/prisma";
 
 export const getDoctorAvailability = async (c: Context) => {
   try {
@@ -186,13 +186,13 @@ export const createEvent = async (c: Context) => {
       patient,
     } = parsed.data;
 
-    let data = {
-      type,
+    let data: Prisma.EventCreateInput = {
+      type: type as EventType,
       startTime,
       endTime,
-      doctorId,
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      doctor: { connect: { id: doctorId } },
+      clinic: { connect: { id: user.clinic.id } },
+      branch: { connect: { id: user.branch.id } },
     };
     if (type === "APPOINTMENT") {
       let patientId = patient?.id;
@@ -202,6 +202,10 @@ export const createEvent = async (c: Context) => {
             firstName: patient?.firstName || "",
             lastName: patient?.lastName || "",
             phoneNumber: patient?.phoneNumber,
+            dateOfBirth: patient?.dateOfBirth
+              ? new Date(patient.dateOfBirth)
+              : new Date(),
+            gender: (patient?.gender as Gender) || "OTHER",
           },
           select: { id: true },
         });
@@ -211,7 +215,7 @@ export const createEvent = async (c: Context) => {
         ...data,
         title:
           `Appointment with ${patient?.firstName ?? ""} ${patient?.lastName ?? ""}`.trim(),
-        patientId,
+        patient: { connect: { id: patientId } },
         treatment,
       };
     } else {

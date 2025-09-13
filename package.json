@@ -14,6 +14,7 @@
     "test": "bun test",
     "lint": "bunx eslint src --ext .ts",
     "format": "bunx prettier --write src",
+    "typecheck": "tsc --noEmit",
     "prepare": "husky"
   },
   "devDependencies": {

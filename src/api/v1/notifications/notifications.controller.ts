@@ -9,7 +9,9 @@ export const listNotifications = async (c: Context) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    const where: { userId: string; read?: boolean } = { userId: user.id };
+    const where: { userId: number; read?: boolean } = {
+      userId: Number(user.id),
+    };
     if (unread === "true") where.read = false;
 
     const [notifications, total] = await Promise.all([

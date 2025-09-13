@@ -14,7 +14,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (!session) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    c.set("user", session.user);
+    c.set("user", session.user as User);
     await next();
   } catch (error) {
     console.error("Auth middleware error:", error);
