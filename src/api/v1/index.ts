@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { requireAuth } from "../../middlewares/auth";
+import { auth } from "../../lib/auth";
 
 // Resource routers
 import usersRouter from "./users/routes.ts";
 import patientsRouter from "./patients/routes.ts";
-import clinicsRouter from "./clinics/routes.ts";
+import clinicsRouter from "./clinics/clinics.routes.ts";
 import visitsRouter from "./visits/routes.ts";
 import paymentsRouter from "./payments/routes.ts";
 import inventoryRouter from "./inventory/routes.ts";
@@ -18,7 +19,11 @@ import approvalsRouter from "./approvals/routes.ts";
 
 const v1 = new Hono();
 
-// Global auth for v1
+// Public auth routes must be mounted BEFORE global auth middleware
+// This exposes endpoints like POST /api/v1/auth/login
+v1.all("/auth/*", (c) => auth.handler(c.req.raw));
+
+// Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
 
 // Mount resources

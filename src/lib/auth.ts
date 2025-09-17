@@ -1,8 +1,76 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../../generated/prisma";
 
 const prisma = new PrismaClient();
+
+// Wrap Prisma client to coerce string userId -> number for auth models
+function createCoercingPrisma(client: PrismaClient): PrismaClient {
+  const targetModels = new Set(["account", "session", "twofactorconfirmation"]);
+
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+
+  const isNumericString = (s: unknown): s is string =>
+    typeof s === "string" && /^-?\d+$/.test(s);
+
+  const coerceDeep = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      for (const item of v) coerceDeep(item);
+      return;
+    }
+    if (!isObject(v)) return;
+    // Convert digit-only strings to numbers for auth models
+    for (const key of Object.keys(v)) {
+      const value = (v as Record<string, unknown>)[key];
+      if (isNumericString(value)) {
+        (v as Record<string, unknown>)[key] = Number(
+          value,
+        ) as unknown as number;
+      } else {
+        coerceDeep(value);
+      }
+    }
+  };
+
+  const proxied = new Proxy(client as unknown as Record<string, unknown>, {
+    get(target, prop, receiver) {
+      const original = Reflect.get(target, prop, receiver);
+      if (typeof prop !== "string") return original;
+      const model = prop.toLowerCase();
+      if (!targetModels.has(model)) return original;
+      if (!isObject(original)) return original;
+      return new Proxy(original as Record<string, unknown>, {
+        get(modelTarget, methodProp, r2) {
+          const method = Reflect.get(modelTarget, methodProp, r2);
+          if (typeof method !== "function") return method;
+          return (
+            args: Record<string, unknown> | undefined,
+            ...rest: unknown[]
+          ) => {
+            if (isObject(args)) coerceDeep(args);
+            if (model === "account") {
+              const where = (args as Record<string, unknown> | undefined)
+                ?.where;
+              // debug log
+              console.log("[Auth Prisma] account.", String(methodProp), {
+                where,
+              });
+            }
+            return (method as (...a: unknown[]) => unknown).apply(modelTarget, [
+              args,
+              ...rest,
+            ]);
+          };
+        },
+      });
+    },
+  });
+
+  return proxied as unknown as PrismaClient;
+}
+
+const prismaForAuth = createCoercingPrisma(prisma);
 
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
@@ -18,10 +86,11 @@ if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
 export const auth = betterAuth({
   baseURL: backendUrl,
   trustedOrigins: [frontendUrl],
-  database: prismaAdapter(prisma, {
+  database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),
-  basePath: "/api/v1/auth",
+  // Mount under v1 router at /auth so the final path is /api/v1/auth/*
+  basePath: "/auth",
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
