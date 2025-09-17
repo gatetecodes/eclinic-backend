@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import * as ClinicsController from "./clinics.controller.ts";
-import type { AppEnv } from "../../../middlewares/auth";
+import type { AppEnv } from "../../../middlewares/auth.ts";
 
 const router = new Hono<AppEnv>();
 

@@ -30,7 +30,7 @@ model User {
     clinic                 Clinic?                 @relation(fields: [clinicId], references: [id])
     clinicId               Int?
     name                   String
-    password               String
+    password               String?
     role                   Role
     status                 UserStatus              @default(ACTIVE)
     email                  String                  @unique
