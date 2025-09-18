@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "../../generated/prisma";
+import { type Branch, type Clinic, PrismaClient } from "../../generated/prisma";
 
 const prisma = new PrismaClient();
 
@@ -12,7 +12,12 @@ const IS_NUMERIC_STRING = /^-?\d+$/;
 
 // Wrap Prisma client to coerce string userId -> number for auth models
 function createCoercingPrisma(client: PrismaClient): PrismaClient {
-  const targetModels = new Set(["account", "session", "twofactorconfirmation"]);
+  const targetModels = new Set([
+    "account",
+    "session",
+    "twofactorconfirmation",
+    "user",
+  ]);
 
   const isObject = (v: unknown): v is Record<string, unknown> =>
     v !== null && typeof v === "object" && !Array.isArray(v);
@@ -20,26 +25,73 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
   const isNumericString = (s: unknown): s is string =>
     typeof s === "string" && IS_NUMERIC_STRING.test(s);
 
-  const coerceDeep = (v: unknown): void => {
+  type CoerceResult =
+    | { coerced: true; value: number | string | Date | null }
+    | { coerced: false };
+
+  const coerceUserField = (key: string, value: unknown): CoerceResult => {
+    if (key === "emailVerified" && typeof value === "boolean") {
+      return { coerced: true, value: value ? new Date() : null };
+    }
+    if ((key === "clinicId" || key === "branchId") && isNumericString(value)) {
+      return { coerced: true, value: Number(value) };
+    }
+    return { coerced: false };
+  };
+  const coerceAccountRelatedField = (
+    model: string,
+    key: string,
+    value: unknown
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
+  ): CoerceResult => {
+    if (model === "account") {
+      if (key === "userId" && isNumericString(value)) {
+        return { coerced: true, value: Number(value) };
+      }
+      if (key === "accountId" && typeof value === "number") {
+        return { coerced: true, value: String(value) };
+      }
+      return { coerced: false };
+    }
+    if (model === "session" || model === "twofactorconfirmation") {
+      if (key === "userId" && isNumericString(value)) {
+        return { coerced: true, value: Number(value) };
+      }
+      return { coerced: false };
+    }
+    return { coerced: false };
+  };
+
+  const coerceValue = (
+    model: string,
+    key: string,
+    value: unknown
+  ): CoerceResult => {
+    // Only coerce on allowlisted keys per model
+    if (model === "user") {
+      return coerceUserField(key, value);
+    }
+    return coerceAccountRelatedField(model, key, value);
+  };
+
+  const coerceDeep = (v: unknown, model: string): void => {
     if (Array.isArray(v)) {
       for (const item of v) {
-        coerceDeep(item);
+        coerceDeep(item, model);
       }
       return;
     }
     if (!isObject(v)) {
       return;
     }
-    // Convert digit-only strings to numbers for auth models
     for (const key of Object.keys(v)) {
       const value = (v as Record<string, unknown>)[key];
-      if (isNumericString(value)) {
-        (v as Record<string, unknown>)[key] = Number(
-          value
-        ) as unknown as number;
-      } else {
-        coerceDeep(value);
+      const result = coerceValue(model, key, value);
+      if (result.coerced) {
+        (v as Record<string, unknown>)[key] = result.value as unknown;
+        continue;
       }
+      coerceDeep(value, model);
     }
   };
 
@@ -67,7 +119,7 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
             ...rest: unknown[]
           ) => {
             if (isObject(args)) {
-              coerceDeep(args);
+              coerceDeep(args, model);
             }
             if (model === "account") {
               const _where = (args as Record<string, unknown> | undefined)
@@ -109,7 +161,7 @@ export const auth = betterAuth({
   basePath: "/auth",
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true,
+    requireEmailVerification: false,
   },
   socialProviders: {
     // google: {
@@ -174,9 +226,14 @@ export const auth = betterAuth({
       },
       isTwoFactorEnabled: {
         type: "boolean",
-        required: true,
+        required: false,
         defaultValue: false,
       },
+    },
+  },
+  advanced: {
+    database: {
+      generateId: false,
     },
   },
   plugins: [
@@ -185,6 +242,10 @@ export const auth = betterAuth({
 });
 
 export type Session = Omit<typeof auth.$Infer.Session, "user"> & {
-  user: typeof auth.$Infer.Session.user & { role: string };
+  user: typeof auth.$Infer.Session.user & {
+    role: string;
+    clinic: Clinic;
+    branch: Branch;
+  };
 };
 export type User = Session["user"];
