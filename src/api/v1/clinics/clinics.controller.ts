@@ -57,11 +57,26 @@ export const createClinic = async (c: Context) => {
         status: httpCodes.BAD_REQUEST,
       });
     }
+    const user = c.get("user");
+
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
     const clinic = await db.$transaction(async (tx) => {
       const { admin, ...clinicData } = validatedFields.data;
       const newClinic = await tx.clinic.create({ data: clinicData });
       const branch = await tx.branch.create({
-        data: { name: "Main Branch", code: "MAIN", clinicId: newClinic.id },
+        data: {
+          name: "Main Branch",
+          code: "MAIN",
+          clinicId: newClinic.id,
+          isHeadOffice: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       });
       const hashedPassword = await hash(
         process.env.DEFAULT_USER_PASSWORD as string,
@@ -69,12 +84,15 @@ export const createClinic = async (c: Context) => {
       );
       const adminUser = await tx.user.create({
         data: {
-          ...admin,
+          name: admin.name,
+          email: admin.email,
+          phone_number: admin.phone_number,
           branchId: branch.id,
           clinicId: newClinic.id,
           role: Role.CLINIC_ADMIN,
           status: UserStatus.ACTIVE,
           password: hashedPassword,
+          emailVerified: null, // Explicitly set to avoid coercion issues
         },
       });
       return { newClinic, branch, adminUser };
