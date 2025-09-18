@@ -1,21 +1,20 @@
 import { Hono } from "hono";
-import { requireAuth } from "../../middlewares/auth";
 import { auth } from "../../lib/auth";
-
-// Resource routers
-import usersRouter from "./users/routes.ts";
-import patientsRouter from "./patients/routes.ts";
-import clinicsRouter from "./clinics/clinics.routes.ts";
-import visitsRouter from "./visits/routes.ts";
-import paymentsRouter from "./payments/routes.ts";
-import inventoryRouter from "./inventory/routes.ts";
-import analyticsRouter from "./analytics/routes.ts";
-import notificationsRouter from "./notifications/routes.ts";
-import adminRouter from "./admin/routes.ts";
-import filesRouter from "./files/routes.ts";
+import { requireAuth } from "../../middlewares/auth";
 import activityRouter from "./activity/routes.ts";
+import adminRouter from "./admin/routes.ts";
+import analyticsRouter from "./analytics/routes.ts";
 import appointmentsRouter from "./appointments/routes.ts";
 import approvalsRouter from "./approvals/routes.ts";
+import clinicsRouter from "./clinics/clinics.routes.ts";
+import filesRouter from "./files/routes.ts";
+import inventoryRouter from "./inventory/routes.ts";
+import notificationsRouter from "./notifications/routes.ts";
+import patientsRouter from "./patients/routes.ts";
+import paymentsRouter from "./payments/routes.ts";
+// Resource routers
+import usersRouter from "./users/routes.ts";
+import visitsRouter from "./visits/routes.ts";
 
 const v1 = new Hono();
 

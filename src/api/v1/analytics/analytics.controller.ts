@@ -1,6 +1,3 @@
-import { type Context } from "hono";
-import { db } from "../../../database/db";
-import { z } from "zod";
 import type { Decimal } from "@prisma/client/runtime/library";
 import {
   eachDayOfInterval,
@@ -15,6 +12,14 @@ import {
   subWeeks,
   subYears,
 } from "date-fns";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
+import { httpCodes } from "@/lib/constants";
+import { db } from "../../../database/db";
+
+const MONTHS_IN_6_MONTHS = 6;
+const MONTHS_IN_3_MONTHS = 3;
 
 export const getDashboard = async (c: Context) => {
   try {
@@ -34,9 +39,11 @@ export const getDashboard = async (c: Context) => {
         totalUsers,
       },
     });
-  } catch (error) {
-    console.error("Get analytics error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -100,7 +107,9 @@ export const getDashboardOverview = async (c: Context) => {
     ]);
 
     const calculateTrend = (current: number, previous: number) => {
-      if (!previous) return 100;
+      if (!previous) {
+        return 100;
+      }
       return ((current - previous) / previous) * 100;
     };
     const calculateTrendText = (current: number, previous: number) => {
@@ -129,22 +138,25 @@ export const getDashboardOverview = async (c: Context) => {
           count: Number(currentDay[3]._sum.amount || 0),
           trend: calculateTrend(
             Number(currentDay[3]._sum.amount || 0),
-            Number(previousDay[3]._sum.amount || 0),
+            Number(previousDay[3]._sum.amount || 0)
           ),
           trendText: calculateTrendText(
             Number(currentDay[3]._sum.amount || 0),
-            Number(previousDay[3]._sum.amount || 0),
+            Number(previousDay[3]._sum.amount || 0)
           ),
         },
       },
     });
-  } catch (error) {
-    console.error("getDashboardOverview error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
 // Frontend parity: getPatientsByAge
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getPatientsByAge = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -154,7 +166,10 @@ export const getPatientsByAge = async (c: Context) => {
     });
     const parsed = querySchema.safeParse(c.req.query());
     if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
     const { timeRange, doctorId } = parsed.data;
 
@@ -167,9 +182,8 @@ export const getPatientsByAge = async (c: Context) => {
       case "month":
         startDate = subMonths(now, 1);
         break;
-      case "3months":
       default:
-        startDate = subMonths(now, 3);
+        startDate = subMonths(now, MONTHS_IN_3_MONTHS);
     }
 
     const patients = await db.patient.findMany({
@@ -196,36 +210,34 @@ export const getPatientsByAge = async (c: Context) => {
       string,
       { child: number; adult: number; elderly: number }
     > = {};
-    days.forEach((day) => {
+    for (const day of days) {
       dailyGroups[format(day, "yyyy-MM-dd")] = {
         child: 0,
         adult: 0,
         elderly: 0,
       };
-    });
+    }
 
-    patients.forEach(
-      (patient: {
-        dateOfBirth: Date | null;
-        visits: { createdAt: Date }[];
-      }) => {
-        const yearOfBirth = patient.dateOfBirth
-          ? new Date(patient.dateOfBirth as unknown as string).getFullYear()
+    for (const patient of patients) {
+      const yearOfBirth = patient.dateOfBirth
+        ? new Date(patient.dateOfBirth as unknown as string).getFullYear()
+        : undefined;
+      for (const visit of patient.visits) {
+        const visitDate = format(new Date(visit.createdAt), "yyyy-MM-dd");
+        const age = yearOfBirth
+          ? new Date(visit.createdAt).getFullYear() - yearOfBirth
           : undefined;
-        patient.visits.forEach((visit: { createdAt: Date }) => {
-          const visitDate = format(new Date(visit.createdAt), "yyyy-MM-dd");
-          const age = yearOfBirth
-            ? new Date(visit.createdAt).getFullYear() - yearOfBirth
-            : undefined;
-          if (dailyGroups[visitDate]) {
-            if (age && age < 18) dailyGroups[visitDate].child++;
-            else if (age && age >= 18 && age <= 65)
-              dailyGroups[visitDate].adult++;
-            else dailyGroups[visitDate].elderly++;
+        if (dailyGroups[visitDate]) {
+          if (age && age < 18) {
+            dailyGroups[visitDate].child++;
+          } else if (age && age >= 18 && age <= 65) {
+            dailyGroups[visitDate].adult++;
+          } else {
+            dailyGroups[visitDate].elderly++;
           }
-        });
-      },
-    );
+        }
+      }
+    }
 
     const result = Object.entries(dailyGroups).map(([date, groups]) => ({
       date,
@@ -234,8 +246,7 @@ export const getPatientsByAge = async (c: Context) => {
       elderly: groups.elderly,
     }));
     return c.json({ data: result });
-  } catch (error) {
-    console.error("getPatientsByAge error:", error);
+  } catch (_error) {
     return c.json({ error: "Internal Server Error" }, 500);
   }
 };
@@ -248,7 +259,12 @@ export const getCashFlow = async (c: Context) => {
       timeRange: z.enum(["year", "6months", "3months"]).default("year"),
     });
     const parsed = querySchema.safeParse(c.req.query());
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { timeRange } = parsed.data;
 
     const now = new Date();
@@ -260,13 +276,12 @@ export const getCashFlow = async (c: Context) => {
         previousStartDate = subYears(startDate, 1);
         break;
       case "6months":
-        startDate = subMonths(now, 6);
-        previousStartDate = subMonths(startDate, 6);
+        startDate = subMonths(now, MONTHS_IN_6_MONTHS);
+        previousStartDate = subMonths(startDate, MONTHS_IN_6_MONTHS);
         break;
-      case "3months":
       default:
-        startDate = subMonths(now, 3);
-        previousStartDate = subMonths(startDate, 3);
+        startDate = subMonths(now, MONTHS_IN_3_MONTHS);
+        previousStartDate = subMonths(startDate, MONTHS_IN_3_MONTHS);
         break;
     }
 
@@ -305,14 +320,18 @@ export const getCashFlow = async (c: Context) => {
         trendText: calculateTrendText(totalCashFlow, previousTotalCashFlow),
       },
     });
-  } catch (error) {
-    console.error("getCashFlow error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
 const calculateTrend = (current: number, previous: number) => {
-  if (!previous) return 100;
+  if (!previous) {
+    return 100;
+  }
   return ((current - previous) / previous) * 100;
 };
 const calculateTrendText = (current: number, previous: number) => {
@@ -323,7 +342,7 @@ const calculateTrendText = (current: number, previous: number) => {
 async function getDataForRange(
   startDate: Date,
   endDate: Date,
-  clinicId: number,
+  clinicId: number
 ) {
   const [incomeData, expenseData, discountData] = await Promise.all([
     db.payment.groupBy({
@@ -356,48 +375,36 @@ async function getDataForRange(
   let totalIncome = 0;
   let totalExpenses = 0;
 
-  incomeData.forEach(
-    ({
+  for (const item of incomeData) {
+    const {
       createdAt,
       _sum,
-    }: {
-      createdAt: Date;
-      _sum: { amount: Decimal | null };
-    }) => {
-      const monthKey = format(createdAt, "MMM");
-      monthlyIncome[monthKey] =
-        (monthlyIncome[monthKey] || 0) + Number(_sum.amount || 0);
-      totalIncome += Number(_sum.amount || 0);
-    },
-  );
-  discountData.forEach(
-    ({
+    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    const monthKey = format(createdAt, "MMM");
+    monthlyIncome[monthKey] =
+      (monthlyIncome[monthKey] || 0) + Number(_sum.amount || 0);
+    totalIncome += Number(_sum.amount || 0);
+  }
+  for (const item of discountData) {
+    const {
       createdAt,
       _sum,
-    }: {
-      createdAt: Date;
-      _sum: { amount: Decimal | null };
-    }) => {
-      const monthKey = format(createdAt, "MMM");
-      monthlyIncome[monthKey] =
-        (monthlyIncome[monthKey] || 0) - Number(_sum.amount || 0);
-      totalIncome -= Number(_sum.amount || 0);
-    },
-  );
-  expenseData.forEach(
-    ({
+    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    const monthKey = format(createdAt, "MMM");
+    monthlyIncome[monthKey] =
+      (monthlyIncome[monthKey] || 0) - Number(_sum.amount || 0);
+    totalIncome -= Number(_sum.amount || 0);
+  }
+  for (const item of expenseData) {
+    const {
       createdAt,
       _sum,
-    }: {
-      createdAt: Date;
-      _sum: { amount: Decimal | null };
-    }) => {
-      const monthKey = format(createdAt, "MMM");
-      monthlyExpenses[monthKey] =
-        (monthlyExpenses[monthKey] || 0) + Number(_sum.amount || 0);
-      totalExpenses += Number(_sum.amount || 0);
-    },
-  );
+    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    const monthKey = format(createdAt, "MMM");
+    monthlyExpenses[monthKey] =
+      (monthlyExpenses[monthKey] || 0) + Number(_sum.amount || 0);
+    totalExpenses += Number(_sum.amount || 0);
+  }
 
   return { monthlyIncome, monthlyExpenses, totalIncome, totalExpenses };
 }
@@ -408,7 +415,12 @@ export const countVisitsByDepartments = async (c: Context) => {
     const user = c.get("user");
     const querySchema = z.object({ userId: z.string().optional() });
     const parsed = querySchema.safeParse(c.req.query());
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { userId } = parsed.data;
 
     const visits = await db.visit.groupBy({
@@ -440,9 +452,11 @@ export const countVisitsByDepartments = async (c: Context) => {
       top5.push({ departmentName: "Others", count: othersCount });
     }
     return c.json({ data: top5 });
-  } catch (error) {
-    console.error("countVisitsByDepartments error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -508,11 +522,11 @@ export const getClinicsOverview = async (c: Context) => {
           count: Number(currentDay[2]._sum.amount || 0),
           trend: calculateTrend(
             Number(currentDay[2]._sum.amount || 0),
-            Number(previousDay[2]._sum.amount || 0),
+            Number(previousDay[2]._sum.amount || 0)
           ),
           trendText: calculateTrendText(
             Number(currentDay[2]._sum.amount || 0),
-            Number(previousDay[2]._sum.amount || 0),
+            Number(previousDay[2]._sum.amount || 0)
           ),
         },
         newRegistrations: {
@@ -522,9 +536,11 @@ export const getClinicsOverview = async (c: Context) => {
         },
       },
     });
-  } catch (error) {
-    console.error("getClinicsOverview error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -539,12 +555,14 @@ export const getClinicGrowthData = async (c: Context) => {
         (clinic: {
           subscriptionPlan: string | null;
           _count: { id: number };
-        }) => ({ plan: clinic.subscriptionPlan, count: clinic._count.id }),
+        }) => ({ plan: clinic.subscriptionPlan, count: clinic._count.id })
       ),
     });
-  } catch (error) {
-    console.error("getClinicGrowthData error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -559,15 +577,17 @@ export const getTopPerformingClinics = async (c: Context) => {
       },
     });
     return c.json({ data });
-  } catch (error) {
-    console.error("getTopPerformingClinics error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
 export const getClinicsRevenue = async (c: Context) => {
   try {
-    const sixMonthsAgo = subMonths(new Date(), 6);
+    const sixMonthsAgo = subMonths(new Date(), MONTHS_IN_6_MONTHS);
     const monthlyRevenue = await db.$queryRaw<
       Array<{ month: Date; revenue: number }>
     >`
@@ -582,11 +602,13 @@ export const getClinicsRevenue = async (c: Context) => {
       (item: { month: Date; revenue: number }) => ({
         month: format(item.month, "MMM yyyy"),
         revenue: Number(item.revenue) || 0,
-      }),
+      })
     );
     return c.json({ data });
-  } catch (error) {
-    console.error("getClinicsRevenue error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };

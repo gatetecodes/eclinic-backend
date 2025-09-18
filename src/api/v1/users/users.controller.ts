@@ -1,20 +1,22 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
-import { db } from "../../../database/db";
-import { updateUserSchema } from "./users.validation.ts";
+import { httpCodes } from "@/lib/constants.ts";
 import type {
+  EducationLevel,
   Prisma,
   Role,
   UserStatus,
-  EducationLevel,
 } from "../../../../generated/prisma";
+import { db } from "../../../database/db";
+import { updateUserSchema } from "./users.validation.ts";
 
 export const listUsers = async (c: Context) => {
   try {
     const { page = "1", limit = "10", search = "", role = "" } = c.req.query();
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
+    const take = Number.parseInt(limit, 10);
 
     const where: Prisma.UserWhereInput = {};
 
@@ -43,13 +45,15 @@ export const listUsers = async (c: Context) => {
     return c.json({
       data: users,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
     });
-  } catch (error) {
-    console.error("Get users error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -62,11 +66,18 @@ export const getUserById = async (c: Context) => {
       where: { id: Number(id) },
       include: { clinic: true, branch: true },
     });
-    if (!user) return c.json({ error: "User not found" }, 404);
+    if (!user) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
     return c.json({ data: user });
-  } catch (error) {
-    console.error("Get user error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -102,11 +113,16 @@ export const updateUser = async (c: Context) => {
     });
     return c.json({ data: user });
   } catch (error) {
-    console.error("Update user error:", error);
     if (error instanceof z.ZodError) {
-      return c.json({ error: "Validation error", details: error.issues }, 400);
+      return c.json(
+        { error: "Validation error", details: error.issues },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -115,8 +131,10 @@ export const deleteUser = async (c: Context) => {
     const { id } = c.req.param();
     await db.user.delete({ where: { id: Number(id) } });
     return c.json({ success: true });
-  } catch (error) {
-    console.error("Delete user error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };

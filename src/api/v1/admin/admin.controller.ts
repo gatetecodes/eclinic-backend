@@ -1,4 +1,4 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
 import { db } from "../../../database/db";
 
 export const getStats = async (c: Context) => {
@@ -21,8 +21,7 @@ export const getStats = async (c: Context) => {
         totalRevenue: totalRevenue._sum.amount || 0,
       },
     });
-  } catch (error) {
-    console.error("Get admin stats error:", error);
+  } catch (_error) {
     return c.json({ error: "Internal Server Error" }, 500);
   }
 };

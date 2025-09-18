@@ -1,6 +1,8 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { httpCodes } from "@/lib/constants";
+import type { ItemType, Prisma } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
-import type { Prisma, ItemType } from "../../../../generated/prisma";
 
 export const listInventory = async (c: Context) => {
   try {
@@ -11,8 +13,8 @@ export const listInventory = async (c: Context) => {
       category = "",
     } = c.req.query();
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
+    const take = Number.parseInt(limit, 10);
 
     const where: Prisma.InventoryItemWhereInput = {};
     if (search) {
@@ -22,7 +24,9 @@ export const listInventory = async (c: Context) => {
         { notes: { contains: search, mode: "insensitive" } },
       ];
     }
-    if (category) where.itemType = category as ItemType;
+    if (category) {
+      where.itemType = category as ItemType;
+    }
 
     const [items, total] = await Promise.all([
       db.inventoryItem.findMany({
@@ -38,12 +42,14 @@ export const listInventory = async (c: Context) => {
     return c.json({
       data: items,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
     });
-  } catch (error) {
-    console.error("Get inventory error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };

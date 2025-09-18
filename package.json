@@ -18,6 +18,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.2.2",
     "@eslint/js": "^9.35.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.19",
@@ -30,7 +31,8 @@
     "prettier": "^3.6.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.43.0"
+    "typescript-eslint": "^8.43.0",
+    "ultracite": "5.3.4"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
@@ -39,6 +41,9 @@
     ],
     "*.{json,md,yml,yaml}": [
       "prettier --write"
+    ],
+    "*.{js,jsx,ts,tsx,json,jsonc,css,scss,md,mdx}": [
+      "bun x ultracite fix"
     ]
   },
   "dependencies": {

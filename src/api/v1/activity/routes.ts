@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth";
 import {
-  logActivity,
   getVisitActivitiesTimeline,
+  logActivity,
 } from "./activity.controller.ts";
 
 const router = new Hono<AppEnv>();

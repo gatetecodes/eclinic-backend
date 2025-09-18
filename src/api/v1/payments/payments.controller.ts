@@ -1,21 +1,25 @@
-import { type Context } from "hono";
-import { db } from "../../../database/db";
+import type { Context } from "hono";
 import type {
-  Prisma,
   PaymentStatus,
   PaymentType,
+  Prisma,
 } from "../../../../generated/prisma";
+import { db } from "../../../database/db";
 
 export const listPayments = async (c: Context) => {
   try {
     const { page = "1", limit = "10", type = "", status = "" } = c.req.query();
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
+    const take = Number.parseInt(limit, 10);
 
     const where: Prisma.PaymentWhereInput = {};
-    if (type) where.paymentType = type as PaymentType;
-    if (status) where.paymentStatus = status as PaymentStatus;
+    if (type) {
+      where.paymentType = type as PaymentType;
+    }
+    if (status) {
+      where.paymentStatus = status as PaymentStatus;
+    }
 
     const [payments, total] = await Promise.all([
       db.payment.findMany({
@@ -35,12 +39,11 @@ export const listPayments = async (c: Context) => {
     return c.json({
       data: payments,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
     });
-  } catch (error) {
-    console.error("Get payments error:", error);
+  } catch (_error) {
     return c.json({ error: "Internal Server Error" }, 500);
   }
 };

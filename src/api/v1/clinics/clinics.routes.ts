@@ -1,13 +1,17 @@
 import { Hono } from "hono";
-import * as ClinicsController from "./clinics.controller.ts";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import {
+  createClinic,
+  getClinicById,
+  getClinics,
+} from "./clinics.controller.ts";
 
 const router = new Hono<AppEnv>();
 
-router.get("/", ClinicsController.getClinics);
+router.get("/", getClinics);
 
-router.post("/", ClinicsController.createClinic);
+router.post("/", createClinic);
 
-router.get("/:id", ClinicsController.getClinicById);
+router.get("/:id", getClinicById);
 
 export default router;

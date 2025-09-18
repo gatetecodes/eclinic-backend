@@ -1,5 +1,5 @@
-import { SubscriptionPlan } from "../../../../generated/prisma";
 import { z } from "zod";
+import { SubscriptionPlan } from "../../../../generated/prisma";
 
 export const getClinicParamsSchema = z.object({ id: z.string() });
 

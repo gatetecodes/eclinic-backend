@@ -1,11 +1,16 @@
 import { Hono } from "hono";
-import * as UsersController from "./users.controller.ts";
+import {
+  deleteUser,
+  getUserById,
+  listUsers,
+  updateUser,
+} from "./users.controller.ts";
 
 const router = new Hono();
 
-router.get("/", UsersController.listUsers);
-router.get("/:id", UsersController.getUserById);
-router.put("/:id", UsersController.updateUser);
-router.delete("/:id", UsersController.deleteUser);
+router.get("/", listUsers);
+router.get("/:id", getUserById);
+router.put("/:id", updateUser);
+router.delete("/:id", deleteUser);
 
 export default router;

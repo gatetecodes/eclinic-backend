@@ -1,6 +1,8 @@
-import { type Context } from "hono";
-import { db } from "../../../database/db";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { httpCodes } from "@/lib/constants";
 import type { Prisma, VisitStatus } from "../../../../generated/prisma";
+import { db } from "../../../database/db";
 
 export const listVisits = async (c: Context) => {
   try {
@@ -12,13 +14,19 @@ export const listVisits = async (c: Context) => {
       patientId = "",
     } = c.req.query();
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
+    const take = Number.parseInt(limit, 10);
 
     const where: Prisma.VisitWhereInput = {};
-    if (status) where.status = status as VisitStatus;
-    if (doctorId) where.doctorId = parseInt(doctorId);
-    if (patientId) where.patientId = parseInt(patientId);
+    if (status) {
+      where.status = status as VisitStatus;
+    }
+    if (doctorId) {
+      where.doctorId = Number.parseInt(doctorId, 10);
+    }
+    if (patientId) {
+      where.patientId = Number.parseInt(patientId, 10);
+    }
 
     const [visits, total] = await Promise.all([
       db.visit.findMany({
@@ -42,13 +50,15 @@ export const listVisits = async (c: Context) => {
     return c.json({
       data: visits,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
     });
-  } catch (error) {
-    console.error("Get visits error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -56,7 +66,7 @@ export const getVisitById = async (c: Context) => {
   try {
     const { id } = c.req.param();
     const visit = await db.visit.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: Number.parseInt(id, 10) },
       include: {
         patient: true,
         doctor: true,
@@ -70,10 +80,17 @@ export const getVisitById = async (c: Context) => {
       },
     });
 
-    if (!visit) return c.json({ error: "Visit not found" }, 404);
+    if (!visit) {
+      return c.json(
+        { error: "Visit not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
     return c.json({ data: visit });
-  } catch (error) {
-    console.error("Get visit error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
