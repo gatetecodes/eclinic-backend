@@ -1,25 +1,28 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth";
-import * as AppointmentsController from "./appointments.controller.ts";
+import {
+  cancelAppointment,
+  createEvent,
+  getDoctorAppointments,
+  getDoctorAvailability,
+  getDoctorWeeklySchedule,
+  listAppointments,
+  markAppointmentAsCompleted,
+  updateDoctorAvailability,
+} from "./appointments.controller.ts";
 
 const router = new Hono<AppEnv>();
 
 // Availability
-router.get("/availability", AppointmentsController.getDoctorAvailability);
-router.put(
-  "/doctors/:doctorId/schedule",
-  AppointmentsController.updateDoctorAvailability,
-);
-router.get(
-  "/doctors/:doctorId/schedule",
-  AppointmentsController.getDoctorWeeklySchedule,
-);
+router.get("/availability", getDoctorAvailability);
+router.put("/doctors/:doctorId/schedule", updateDoctorAvailability);
+router.get("/doctors/:doctorId/schedule", getDoctorWeeklySchedule);
 
 // Events/Appointments
-router.post("/events", AppointmentsController.createEvent);
-router.get("/events", AppointmentsController.getDoctorAppointments);
-router.get("/", AppointmentsController.listAppointments);
-router.post("/:id/complete", AppointmentsController.markAppointmentAsCompleted);
-router.post("/:id/cancel", AppointmentsController.cancelAppointment);
+router.post("/events", createEvent);
+router.get("/events", getDoctorAppointments);
+router.get("/", listAppointments);
+router.post("/:id/complete", markAppointmentAsCompleted);
+router.post("/:id/cancel", cancelAppointment);
 
 export default router;

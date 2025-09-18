@@ -1,50 +1,56 @@
-import { hash } from "bcryptjs";
-import { scryptSync, randomBytes } from "node:crypto";
+//biome-ignore-all lint/suspicious/noConsole: <>
+import { randomBytes, scryptSync } from "node:crypto";
 import {
   PrismaClient,
+  Role,
   SubscriptionPlan,
   SubscriptionStatus,
   UserStatus,
 } from "../generated/prisma";
-import { Role } from "../generated/prisma";
 
-enum InsuranceCompanies {
-  SONARWA = "SONARWA",
-  SANLAM = "SANLAM",
-  PRIME = "PRIME",
-  MUA = "MUA",
-  OLD_MUTUAL = "OLD MUTUAL",
-  RADIANT = "RADIANT",
-  BRITAM = "BRITAM",
-  BK_INSURANCE = "BK INSURANCE",
-  MAYFAIR = "MAYFAIR",
-  DEFENCE_CAPTIVE = "DEFENCE CAPTIVE",
-  EDEN_CARE = "EDEN CARE",
-  CIMERWA = "CIMERWA",
-  SINALAC = "SINALAC",
-  UBUZIMA_BWIZA = "UBUZIMA BWIZA",
-}
+const InsuranceCompanies = {
+  SONARWA: "SONARWA",
+  SANLAM: "SANLAM",
+  PRIME: "PRIME",
+  MUA: "MUA",
+  OLD_MUTUAL: "OLD MUTUAL",
+  RADIANT: "RADIANT",
+  BRITAM: "BRITAM",
+  BK_INSURANCE: "BK INSURANCE",
+  MAYFAIR: "MAYFAIR",
+  DEFENCE_CAPTIVE: "DEFENCE CAPTIVE",
+  EDEN_CARE: "EDEN CARE",
+  CIMERWA: "CIMERWA",
+  SINALAC: "SINALAC",
+  UBUZIMA_BWIZA: "UBUZIMA BWIZA",
+};
 
-enum SpecialInsurers {
-  RSSB = "RSSB",
-  MMI = "MMI",
-  MIS_UR = "MIS_UR",
-}
+const SpecialInsurers = {
+  RSSB: "RSSB",
+  MMI: "MMI",
+  MIS_UR: "MIS_UR",
+};
+
+const SALT_LENGTH = 16;
+const DERIVED_KEY_LENGTH = 64;
+const N = 16_384;
+const r = 16;
+const p = 1;
+const SCRYPT_MAXMEM_BASE = 128;
+const SCRYPT_MAXMEM_FACTOR = 2;
+const maxmem = SCRYPT_MAXMEM_BASE * N * r * SCRYPT_MAXMEM_FACTOR;
 
 const db = new PrismaClient();
 
 // Better Auth-compatible scrypt password hash: `${saltHex}:${keyHex}`
-async function hashCredentialPassword(password: string): Promise<string> {
-  const N = 16384;
-  const r = 16;
-  const p = 1;
-  const dkLen = 64;
-  const saltHex = randomBytes(16).toString("hex");
+function hashCredentialPassword(password: string): string {
+  const dkLen = DERIVED_KEY_LENGTH;
+  const saltHex = randomBytes(SALT_LENGTH).toString("hex");
   const key = scryptSync(password.normalize("NFKC"), saltHex, dkLen, {
     N,
     r,
     p,
-    maxmem: 128 * N * r * 2,
+    maxmem,
   });
   return `${saltHex}:${key.toString("hex")}`;
 }
@@ -166,16 +172,13 @@ const clinicSeed = async () => {
 const userSeed = async () => {
   try {
     const superPlain = process.env.ECLINIC_SUPER_ADMIN_PASSWORD as string;
-    const hashedPassword = await hash(superPlain, 10);
     const superCredentialHash = await hashCredentialPassword(superPlain);
 
     const user = await db.user.upsert({
       where: {
         email: process.env.ECLINIC_SUPER_ADMIN_EMAIL as string,
       },
-      update: {
-        password: hashedPassword,
-      },
+      update: {},
       create: {
         name: `${process.env.ECLINIC_SUPER_ADMIN_FIRST_NAME} ${process.env.ECLINIC_SUPER_ADMIN_LAST_NAME}`,
         email: process.env.ECLINIC_SUPER_ADMIN_EMAIL as string,

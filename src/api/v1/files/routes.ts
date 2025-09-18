@@ -1,13 +1,20 @@
 import { Hono } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { httpCodes } from "@/lib/constants";
 
 const router = new Hono();
 
-router.post("/upload", async (c) => {
+router.post("/upload", (c) => {
   try {
-    return c.json({ message: "File upload endpoint - to be implemented" });
-  } catch (error) {
-    console.error("File upload error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { message: "File upload endpoint - to be implemented" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 });
 

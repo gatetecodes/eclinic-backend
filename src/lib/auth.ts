@@ -4,6 +4,12 @@ import { PrismaClient } from "../../generated/prisma";
 
 const prisma = new PrismaClient();
 
+const SESSION_EXPIRES_IN_DAYS = 7;
+const SESSION_EXPIRES_IN = 60 * 60 * 24 * SESSION_EXPIRES_IN_DAYS; // 7 days
+const SESSION_UPDATE_AGE = 60 * 60 * 24; // 1 day
+
+const IS_NUMERIC_STRING = /^-?\d+$/;
+
 // Wrap Prisma client to coerce string userId -> number for auth models
 function createCoercingPrisma(client: PrismaClient): PrismaClient {
   const targetModels = new Set(["account", "session", "twofactorconfirmation"]);
@@ -12,20 +18,24 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
     v !== null && typeof v === "object" && !Array.isArray(v);
 
   const isNumericString = (s: unknown): s is string =>
-    typeof s === "string" && /^-?\d+$/.test(s);
+    typeof s === "string" && IS_NUMERIC_STRING.test(s);
 
   const coerceDeep = (v: unknown): void => {
     if (Array.isArray(v)) {
-      for (const item of v) coerceDeep(item);
+      for (const item of v) {
+        coerceDeep(item);
+      }
       return;
     }
-    if (!isObject(v)) return;
+    if (!isObject(v)) {
+      return;
+    }
     // Convert digit-only strings to numbers for auth models
     for (const key of Object.keys(v)) {
       const value = (v as Record<string, unknown>)[key];
       if (isNumericString(value)) {
         (v as Record<string, unknown>)[key] = Number(
-          value,
+          value
         ) as unknown as number;
       } else {
         coerceDeep(value);
@@ -36,26 +46,32 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
   const proxied = new Proxy(client as unknown as Record<string, unknown>, {
     get(target, prop, receiver) {
       const original = Reflect.get(target, prop, receiver);
-      if (typeof prop !== "string") return original;
+      if (typeof prop !== "string") {
+        return original;
+      }
       const model = prop.toLowerCase();
-      if (!targetModels.has(model)) return original;
-      if (!isObject(original)) return original;
+      if (!targetModels.has(model)) {
+        return original;
+      }
+      if (!isObject(original)) {
+        return original;
+      }
       return new Proxy(original as Record<string, unknown>, {
         get(modelTarget, methodProp, r2) {
           const method = Reflect.get(modelTarget, methodProp, r2);
-          if (typeof method !== "function") return method;
+          if (typeof method !== "function") {
+            return method;
+          }
           return (
             args: Record<string, unknown> | undefined,
             ...rest: unknown[]
           ) => {
-            if (isObject(args)) coerceDeep(args);
+            if (isObject(args)) {
+              coerceDeep(args);
+            }
             if (model === "account") {
-              const where = (args as Record<string, unknown> | undefined)
+              const _where = (args as Record<string, unknown> | undefined)
                 ?.where;
-              // debug log
-              console.log("[Auth Prisma] account.", String(methodProp), {
-                where,
-              });
             }
             return (method as (...a: unknown[]) => unknown).apply(modelTarget, [
               args,
@@ -75,11 +91,11 @@ const prismaForAuth = createCoercingPrisma(prisma);
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
 
-if (!backendUrl || !frontendUrl) {
+if (!(backendUrl && frontendUrl)) {
   throw new Error("BACKEND_URL or APP_URL is not set");
 }
 
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
   throw new Error("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set");
 }
 
@@ -106,8 +122,8 @@ export const auth = betterAuth({
     // },
   },
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day
+    expiresIn: SESSION_EXPIRES_IN,
+    updateAge: SESSION_UPDATE_AGE,
   },
   user: {
     additionalFields: {

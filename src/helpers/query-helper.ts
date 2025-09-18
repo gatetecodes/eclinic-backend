@@ -1,6 +1,6 @@
-import type { ParamsSchema } from "../lib/common-validation";
+import { format, parseISO } from "date-fns";
 import type { Gender, Role } from "../../generated/prisma";
-import { parseISO, format } from "date-fns";
+import type { ParamsSchema } from "../lib/common-validation";
 
 type SortableEntity = {
   createdAt: Date;
@@ -10,7 +10,7 @@ type SortableEntity = {
 
 export function buildQueryOptions<T extends SortableEntity>(
   params: ParamsSchema,
-  additionalWhere: Record<string, unknown> = {},
+  additionalWhere: Record<string, unknown> = {}
 ): {
   skip?: number;
   take?: number;
@@ -32,7 +32,7 @@ export function buildQueryOptions<T extends SortableEntity>(
 
 function getPaginationOptions(
   page?: number,
-  per_page?: number,
+  per_page?: number
 ): {
   skip?: number;
   take?: number;
@@ -69,7 +69,7 @@ function getWhereConditions(
     processedById,
   }: Partial<ParamsSchema>,
   from?: string,
-  to?: string,
+  to?: string
 ): Record<string, unknown> {
   const whereConditions = {
     ...getNameCondition(name),
@@ -94,7 +94,9 @@ function getProcessedByIdCondition(processedById?: string) {
 }
 
 function getNameCondition(name?: string) {
-  if (!name) return {};
+  if (!name) {
+    return {};
+  }
   const searchTerms = name.split(" ").filter((term) => term.length > 2);
   return {
     OR: [
@@ -127,14 +129,14 @@ function getDateCondition(from?: string, to?: string) {
   if (fromDay) {
     // Set to start of day in local time, then format to UTC
     const fromStart = new Date(
-      format(fromDay, "yyyy-MM-dd") + "T00:00:00.000Z",
+      `${format(fromDay, "yyyy-MM-dd")}T00:00:00.000Z`
     );
     fromDay.setTime(fromStart.getTime());
   }
 
   if (toDay) {
     // Set to end of day in local time, then format to UTC
-    const toEnd = new Date(format(toDay, "yyyy-MM-dd") + "T23:59:59.999Z");
+    const toEnd = new Date(`${format(toDay, "yyyy-MM-dd")}T23:59:59.999Z`);
     toDay.setTime(toEnd.getTime());
   }
 
@@ -159,9 +161,7 @@ function getStatusCondition(status?: string): {
 
 function getRoleCondition(role?: string) {
   const roleArray = role?.split(".");
-  return roleArray
-    ? { OR: roleArray.map((role) => ({ role: role as Role })) }
-    : {};
+  return roleArray ? { OR: roleArray.map((r) => ({ role: r as Role })) } : {};
 }
 
 function getGenderCondition(gender?: string) {

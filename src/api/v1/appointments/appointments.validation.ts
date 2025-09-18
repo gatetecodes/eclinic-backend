@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const DAYS_OF_WEEK_MIN = 0;
+const DAYS_OF_WEEK_MAX = 6;
 export const eventTypeValues = ["APPOINTMENT", "BLOCK", "OTHER"] as const;
 export const eventStatusValues = [
   "SCHEDULED",
@@ -30,7 +32,7 @@ export const eventSchema = z.object({
 export type CreateEventInput = z.infer<typeof eventSchema>;
 
 export const scheduleSlotSchema = z.object({
-  dayOfWeek: z.number().int().min(0).max(6),
+  dayOfWeek: z.number().int().min(DAYS_OF_WEEK_MIN).max(DAYS_OF_WEEK_MAX),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
 });

@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import * as NotificationsController from "./notifications.controller.ts";
 import type { AppEnv } from "../../../middlewares/auth";
+import { listNotifications } from "./notifications.controller.ts";
 
 const router = new Hono<AppEnv>();
 
-router.get("/", NotificationsController.listNotifications);
+router.get("/", listNotifications);
 
 export default router;

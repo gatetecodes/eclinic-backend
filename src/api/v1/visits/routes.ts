@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import * as VisitsController from "./visits.controller.ts";
 import type { AppEnv } from "../../../middlewares/auth";
+import { getVisitById, listVisits } from "./visits.controller.ts";
 
 const router = new Hono<AppEnv>();
 
-router.get("/", VisitsController.listVisits);
-router.get("/:id", VisitsController.getVisitById);
+router.get("/", listVisits);
+router.get("/:id", getVisitById);
 
 export default router;

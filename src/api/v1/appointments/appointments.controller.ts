@@ -1,13 +1,6 @@
-import { type Context } from "hono";
-import { z } from "zod";
-import { db } from "../../../database/db";
-import type {
-  CreateEventInput,
-  UpdateScheduleInput,
-} from "./appointments.validation.ts";
-import { eventSchema, scheduleSchema } from "./appointments.validation.ts";
 import {
   addMinutes,
+  addMonths,
   endOfDay,
   endOfMonth,
   format,
@@ -19,10 +12,20 @@ import {
   startOfDay,
   startOfMonth,
   subDays,
-  addMonths,
 } from "date-fns";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
+import { httpCodes } from "@/lib/constants.ts";
 import type { EventType, Gender, Prisma } from "../../../../generated/prisma";
+import { db } from "../../../database/db";
+import type {
+  CreateEventInput,
+  UpdateScheduleInput,
+} from "./appointments.validation.ts";
+import { eventSchema, scheduleSchema } from "./appointments.validation.ts";
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getDoctorAvailability = async (c: Context) => {
   try {
     const query = z.object({
@@ -30,7 +33,12 @@ export const getDoctorAvailability = async (c: Context) => {
       date: z.coerce.date(),
     });
     const parsed = query.safeParse(c.req.query());
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { doctorId, date } = parsed.data;
 
     const targetDay = date.getDay();
@@ -42,8 +50,9 @@ export const getDoctorAvailability = async (c: Context) => {
         OR: [{ startDayOfWeek: targetDay }, { startDayOfWeek: prevDay }],
       },
     });
-    if (potentialSchedules.length === 0)
+    if (potentialSchedules.length === 0) {
       return c.json({ data: { availableTimes: [] } });
+    }
 
     const startOfTargetDay = startOfDay(date);
     const endOfTargetDay = endOfDay(date);
@@ -57,7 +66,7 @@ export const getDoctorAvailability = async (c: Context) => {
       select: { startTime: true },
     });
     const bookedTimes = new Set(
-      existingAppointments.map((a) => format(a.startTime, "HH:mm")),
+      existingAppointments.map((a) => format(a.startTime, "HH:mm"))
     );
 
     const availableTimesSet = new Set<string>();
@@ -67,32 +76,37 @@ export const getDoctorAvailability = async (c: Context) => {
         schedule.endDayOfWeek == null ||
         schedule.startTime == null ||
         schedule.endTime == null
-      )
+      ) {
         continue;
+      }
       const scheduleStartDate = subDays(
         date,
-        targetDay - schedule.startDayOfWeek,
+        targetDay - schedule.startDayOfWeek
       );
       const scheduleEndDate = subDays(date, targetDay - schedule.endDayOfWeek);
       const startTime = parse(
         schedule.startTime as string,
         "HH:mm",
-        scheduleStartDate,
+        scheduleStartDate
       );
       let endTime = parse(schedule.endTime as string, "HH:mm", scheduleEndDate);
-      if (isBefore(endTime, startTime)) endTime = addMinutes(endTime, 24 * 60);
+      if (isBefore(endTime, startTime)) {
+        endTime = addMinutes(endTime, 24 * 60);
+      }
       const effectiveStartTime = new Date(
-        Math.max(startTime.getTime(), startOfTargetDay.getTime()),
+        Math.max(startTime.getTime(), startOfTargetDay.getTime())
       );
       const effectiveEndTime = new Date(
-        Math.min(endTime.getTime(), endOfTargetDay.getTime()),
+        Math.min(endTime.getTime(), endOfTargetDay.getTime())
       );
       let currentTime = effectiveStartTime;
       if (isBefore(currentTime, effectiveEndTime)) {
         while (isBefore(currentTime, effectiveEndTime)) {
           if (currentTime.getMinutes() === 0) {
             const timeSlot = format(currentTime, "HH:mm");
-            if (!bookedTimes.has(timeSlot)) availableTimesSet.add(timeSlot);
+            if (!bookedTimes.has(timeSlot)) {
+              availableTimesSet.add(timeSlot);
+            }
           }
           currentTime = addMinutes(currentTime, 1);
           if (
@@ -103,11 +117,11 @@ export const getDoctorAvailability = async (c: Context) => {
               setSeconds(
                 setMilliseconds(
                   addMinutes(currentTime, 60 - currentTime.getMinutes()),
-                  0,
+                  0
                 ),
-                0,
+                0
               ),
-              0,
+              0
             );
           }
         }
@@ -116,9 +130,11 @@ export const getDoctorAvailability = async (c: Context) => {
 
     const availableTimes = Array.from(availableTimesSet).sort();
     return c.json({ data: { availableTimes } });
-  } catch (error) {
-    console.error("getDoctorAvailability error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -127,16 +143,22 @@ export const updateDoctorAvailability = async (c: Context) => {
     const doctorId = Number(c.req.param("doctorId"));
     const json = await c.req.json();
     const parsed = scheduleSchema.safeParse(json as UpdateScheduleInput);
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
 
     const scheduleByDay = parsed.data.reduce(
       (acc, slot) => {
-        if (!acc[slot.dayOfWeek])
+        if (!acc[slot.dayOfWeek]) {
           acc[slot.dayOfWeek] = [] as UpdateScheduleInput;
-        acc[slot.dayOfWeek]!.push(slot);
+        }
+        acc[slot.dayOfWeek]?.push(slot);
         return acc;
       },
-      {} as Record<number, UpdateScheduleInput | undefined>,
+      {} as Record<number, UpdateScheduleInput | undefined>
     );
 
     await db.$transaction(async (tx) => {
@@ -163,9 +185,11 @@ export const updateDoctorAvailability = async (c: Context) => {
     });
 
     return c.json({ success: true, message: "Schedule updated successfully." });
-  } catch (error) {
-    console.error("updateDoctorAvailability error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -174,7 +198,12 @@ export const createEvent = async (c: Context) => {
     const user = c.get("user");
     const json = await c.req.json();
     const parsed = eventSchema.safeParse(json as CreateEventInput);
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const {
       doctorId,
       type,
@@ -223,10 +252,15 @@ export const createEvent = async (c: Context) => {
     }
 
     const event = await db.event.create({ data, include: { patient: true } });
-    return c.json({ success: true, data: event }, 201);
-  } catch (error) {
-    console.error("createEvent error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { success: true, data: event },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -258,9 +292,11 @@ export const getDoctorAppointments = async (c: Context) => {
       orderBy: { startTime: "asc" },
     });
     return c.json({ data: { appointments } });
-  } catch (error) {
-    console.error("getDoctorAppointments error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -277,9 +313,11 @@ export const getDoctorWeeklySchedule = async (c: Context) => {
       },
     });
     return c.json({ data: weeklySchedule });
-  } catch (error) {
-    console.error("getDoctorWeeklySchedule error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -292,7 +330,9 @@ export const listAppointments = async (c: Context) => {
       branchId: Number(user.branch.id),
       type: "APPOINTMENT",
     };
-    if (query["doctorId"]) where.doctorId = Number(query["doctorId"]);
+    if (query.doctorId) {
+      where.doctorId = Number(query.doctorId);
+    }
     const appointments = await db.event.findMany({
       where,
       select: {
@@ -309,9 +349,11 @@ export const listAppointments = async (c: Context) => {
       orderBy: { startTime: "asc" },
     });
     return c.json({ data: appointments });
-  } catch (error) {
-    console.error("listAppointments error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -324,9 +366,11 @@ export const markAppointmentAsCompleted = async (c: Context) => {
       select: { id: true },
     });
     return c.json({ success: true, data: appointment });
-  } catch (error) {
-    console.error("markAppointmentAsCompleted error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -339,8 +383,10 @@ export const cancelAppointment = async (c: Context) => {
       select: { id: true },
     });
     return c.json({ success: true, data: appointment });
-  } catch (error) {
-    console.error("cancelAppointment error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
