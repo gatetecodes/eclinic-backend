@@ -14,6 +14,8 @@ export const adminSchema = z.object({
 export const clinicSchema = z.object({
   name: z.string().min(1),
   subscriptionPlan: z.nativeEnum(SubscriptionPlan),
+  contactPhone: z.string(),
+  contactEmail: z.string().email(),
   admin: adminSchema,
   expiryDate: z.any().optional(),
 });

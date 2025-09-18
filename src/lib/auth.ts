@@ -33,7 +33,10 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
     if (key === "emailVerified" && typeof value === "boolean") {
       return { coerced: true, value: value ? new Date() : null };
     }
-    if ((key === "clinicId" || key === "branchId") && isNumericString(value)) {
+    if (
+      (key === "clinicId" || key === "branchId" || key === "id") &&
+      isNumericString(value)
+    ) {
       return { coerced: true, value: Number(value) };
     }
     return { coerced: false };
@@ -45,7 +48,7 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
   ): CoerceResult => {
     if (model === "account") {
-      if (key === "userId" && isNumericString(value)) {
+      if ((key === "userId" || key === "id") && isNumericString(value)) {
         return { coerced: true, value: Number(value) };
       }
       if (key === "accountId" && typeof value === "number") {
@@ -54,7 +57,7 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
       return { coerced: false };
     }
     if (model === "session" || model === "twofactorconfirmation") {
-      if (key === "userId" && isNumericString(value)) {
+      if ((key === "userId" || key === "id") && isNumericString(value)) {
         return { coerced: true, value: Number(value) };
       }
       return { coerced: false };
@@ -74,6 +77,7 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
     return coerceAccountRelatedField(model, key, value);
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Recursive coercion for Prisma args
   const coerceDeep = (v: unknown, model: string): void => {
     if (Array.isArray(v)) {
       for (const item of v) {
@@ -89,6 +93,11 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
       const result = coerceValue(model, key, value);
       if (result.coerced) {
         (v as Record<string, unknown>)[key] = result.value as unknown;
+        continue;
+      }
+      // Handle nested where clauses like { where: { id: "1" } }
+      if (key === "where" && isObject(value)) {
+        coerceDeep(value, model);
         continue;
       }
       coerceDeep(value, model);

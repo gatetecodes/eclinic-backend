@@ -20,7 +20,14 @@ const v1 = new Hono();
 
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login
-v1.all("/auth/*", (c) => auth.handler(c.req.raw));
+v1.all("/auth/*", (c) => {
+  const request = new Request(c.req.url, {
+    method: c.req.method,
+    headers: c.req.header(),
+    body: c.req.raw.body,
+  });
+  return auth.handler(request);
+});
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
