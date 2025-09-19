@@ -17,12 +17,19 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import { httpCodes } from "@/lib/constants.ts";
-import type { EventType, Gender, Prisma } from "../../../../generated/prisma";
+import {
+  ActivityType,
+  EventType,
+  type Prisma,
+} from "../../../../generated/prisma";
 import { db } from "../../../database/db";
-import type {
-  CreateEventInput,
-  UpdateScheduleInput,
-} from "./appointments.validation.ts";
+import { logActivity } from "../../../helpers/activity-helpers.ts";
+import { getOrCreatePatient } from "../../../helpers/visit-helper.ts";
+import { invalidateAppointmentRelatedCaches } from "../../../lib/cache-utils.ts";
+import {
+  DEFAULT_CACHE_TTL,
+  getCachedData,
+} from "../../../services/redis.service.ts";
 import { eventSchema, scheduleSchema } from "./appointments.validation.ts";
 
 //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
@@ -142,7 +149,7 @@ export const updateDoctorAvailability = async (c: Context) => {
   try {
     const doctorId = Number(c.req.param("doctorId"));
     const json = await c.req.json();
-    const parsed = scheduleSchema.safeParse(json as UpdateScheduleInput);
+    const parsed = scheduleSchema.safeParse(json);
     if (!parsed.success) {
       return c.json(
         { error: parsed.error.flatten() },
@@ -153,12 +160,12 @@ export const updateDoctorAvailability = async (c: Context) => {
     const scheduleByDay = parsed.data.reduce(
       (acc, slot) => {
         if (!acc[slot.dayOfWeek]) {
-          acc[slot.dayOfWeek] = [] as UpdateScheduleInput;
+          acc[slot.dayOfWeek] = [] as z.infer<typeof scheduleSchema>;
         }
         acc[slot.dayOfWeek]?.push(slot);
         return acc;
       },
-      {} as Record<number, UpdateScheduleInput | undefined>
+      {} as Record<number, z.infer<typeof scheduleSchema> | undefined>
     );
 
     await db.$transaction(async (tx) => {
@@ -197,23 +204,15 @@ export const createEvent = async (c: Context) => {
   try {
     const user = c.get("user");
     const json = await c.req.json();
-    const parsed = eventSchema.safeParse(json as CreateEventInput);
+    const parsed = eventSchema.safeParse(json);
     if (!parsed.success) {
       return c.json(
         { error: parsed.error.flatten() },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const {
-      doctorId,
-      type,
-      startTime,
-      endTime,
-      title,
-      description,
-      treatment,
-      patient,
-    } = parsed.data;
+    const { doctorId, type, startTime, endTime, title, description } =
+      parsed.data;
 
     let data: Prisma.EventCreateInput = {
       type: type as EventType,
@@ -223,35 +222,33 @@ export const createEvent = async (c: Context) => {
       clinic: { connect: { id: user.clinic.id } },
       branch: { connect: { id: user.branch.id } },
     };
-    if (type === "APPOINTMENT") {
-      let patientId = patient?.id;
-      if (!patientId) {
-        const created = await db.patient.create({
-          data: {
-            firstName: patient?.firstName || "",
-            lastName: patient?.lastName || "",
-            phoneNumber: patient?.phoneNumber,
-            dateOfBirth: patient?.dateOfBirth
-              ? new Date(patient.dateOfBirth)
-              : new Date(),
-            gender: (patient?.gender as Gender) || "OTHER",
-          },
-          select: { id: true },
-        });
-        patientId = created.id;
-      }
+    if (type === EventType.APPOINTMENT) {
+      const { patientId } = await getOrCreatePatient(parsed.data.patient, user);
+
       data = {
         ...data,
         title:
-          `Appointment with ${patient?.firstName ?? ""} ${patient?.lastName ?? ""}`.trim(),
+          `Appointment with ${parsed.data.patient.firstName ?? ""} ${parsed.data.patient.lastName ?? ""}`.trim(),
         patient: { connect: { id: patientId } },
-        treatment,
+        treatment: parsed.data.treatment,
       };
     } else {
-      data = { ...data, title, description };
+      data = { ...data, title: title ?? "", description: description ?? "" };
     }
 
     const event = await db.event.create({ data, include: { patient: true } });
+
+    //Invalidate the appointment cache
+    await invalidateAppointmentRelatedCaches({ doctorId, date: startTime });
+
+    //Log activity
+    await logActivity({
+      userId: Number(user.id),
+      eventId: event.id,
+      type: ActivityType.STATUS_UPDATE,
+      action: `Appointment scheduled for ${event.patient?.firstName} ${event.patient?.lastName}`,
+    });
+
     return c.json(
       { success: true, data: event },
       httpCodes.CREATED as ContentfulStatusCode
@@ -271,27 +268,85 @@ export const getDoctorAppointments = async (c: Context) => {
     const startDate = startDateStr ? new Date(startDateStr) : new Date();
     const start = startOfMonth(startDate);
     const end = endOfMonth(addMonths(startDate, 2));
-    const appointments = await db.event.findMany({
-      where: { doctorId, startTime: { gte: start, lte: end } },
-      select: {
-        title: true,
-        startTime: true,
-        endTime: true,
-        type: true,
-        status: true,
-        treatment: true,
-        patient: {
+    const formattedMonth = format(startDate, "yyyy-MM");
+    const cacheKey = `doctor:appointments:${doctorId}:${formattedMonth}`;
+    const data = await getCachedData(
+      cacheKey,
+      async () => {
+        const appointments = await db.event.findMany({
+          where: { doctorId, startTime: { gte: start, lte: end } },
           select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phoneNumber: true,
+            title: true,
+            startTime: true,
+            endTime: true,
+            type: true,
+            status: true,
+            treatment: true,
+            patient: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phoneNumber: true,
+              },
+            },
           },
-        },
+          orderBy: { startTime: "asc" },
+        });
+        return { appointments };
       },
-      orderBy: { startTime: "asc" },
-    });
-    return c.json({ data: { appointments } });
+      DEFAULT_CACHE_TTL.SHORT // Short TTL since appointments change frequently
+    );
+    return c.json({ message: "Appointments fetched successfully", data });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+    return c.json(
+      { error: message },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getDoctorAppointmentsPublic = async (c: Context) => {
+  try {
+    const startDateStr = c.req.query("startDate");
+    const startDate = startDateStr ? new Date(startDateStr) : new Date();
+    const doctorId = Number(c.req.query("doctorId"));
+    //Format the date to YYYY-MM for the cache key
+    const formattedMonth = format(startDate, "yyyy-MM");
+    const cacheKey = `doctor:appointments:public:${doctorId}:${formattedMonth}`;
+
+    const data = await getCachedData(
+      cacheKey,
+      async () => {
+        const start = startOfMonth(startDate);
+        const end = endOfMonth(addMonths(startDate, 2));
+        const appointments = await db.event.findMany({
+          where: { doctorId, startTime: { gte: start, lte: end } },
+          select: {
+            title: true,
+            startTime: true,
+            endTime: true,
+            type: true,
+            status: true,
+            treatment: true,
+            patient: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phoneNumber: true,
+              },
+            },
+          },
+          orderBy: { startTime: "asc" },
+        });
+        return { appointments };
+      },
+      DEFAULT_CACHE_TTL.SHORT // Short TTL since appointments change frequently
+    );
+    return c.json({ message: "Appointments fetched successfully", data });
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

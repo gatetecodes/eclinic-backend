@@ -15,6 +15,13 @@ import { clinicSchema } from "./clinics.validation";
 
 export const getClinics = async (c: Context) => {
   try {
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
     const params = searchParamsSchema.parse(c.req.query());
     const queryOptions = buildQueryOptions<Clinic>(params);
     const { where, orderBy, ...restOptions } = queryOptions;

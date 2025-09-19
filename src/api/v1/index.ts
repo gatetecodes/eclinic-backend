@@ -4,7 +4,7 @@ import { requireAuth } from "../../middlewares/auth";
 import activityRouter from "./activity/routes.ts";
 import adminRouter from "./admin/routes.ts";
 import analyticsRouter from "./analytics/routes.ts";
-import appointmentsRouter from "./appointments/routes.ts";
+import appointmentsRouter from "./appointments/appointments.routes.ts";
 import approvalsRouter from "./approvals/routes.ts";
 import clinicsRouter from "./clinics/clinics.routes.ts";
 import filesRouter from "./files/routes.ts";
