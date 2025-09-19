@@ -15,7 +15,7 @@ import {
 } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { z } from "zod";
+import type { z } from "zod";
 import { httpCodes } from "@/lib/constants.ts";
 import {
   ActivityType,
@@ -30,19 +30,19 @@ import {
   DEFAULT_CACHE_TTL,
   getCachedData,
 } from "../../../services/redis.service.ts";
-import { eventSchema, scheduleSchema } from "./appointments.validation.ts";
+import {
+  eventSchema,
+  getDoctorAvailabilityParamsSchema,
+  scheduleSchema,
+} from "./appointments.validation.ts";
 
 //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getDoctorAvailability = async (c: Context) => {
   try {
-    const query = z.object({
-      doctorId: z.coerce.number(),
-      date: z.coerce.date(),
-    });
-    const parsed = query.safeParse(c.req.query());
+    const parsed = getDoctorAvailabilityParamsSchema.safeParse(c.req.query());
     if (!parsed.success) {
       return c.json(
-        { error: parsed.error.flatten() },
+        { error: parsed.error.flatten().fieldErrors },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -152,7 +152,7 @@ export const updateDoctorAvailability = async (c: Context) => {
     const parsed = scheduleSchema.safeParse(json);
     if (!parsed.success) {
       return c.json(
-        { error: parsed.error.flatten() },
+        { error: parsed.error.flatten().fieldErrors },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
