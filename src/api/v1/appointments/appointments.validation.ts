@@ -48,3 +48,25 @@ export const eventSchema = z
     message: "End time must be after start time",
     path: ["endTime"],
   });
+
+export const getDoctorAppointmentsParamsSchema = z.object({
+  doctorId: z.coerce.number(),
+  startDate: z.coerce.date().optional(),
+});
+
+export const getDoctorAvailabilityParamsSchema = z.object({
+  doctorId: z.coerce.number(),
+  date: z.coerce.date(),
+});
+
+export const getWeeklyScheduleParamsSchema = z.object({
+  doctorId: z.coerce.number(),
+});
+
+export type GetDoctorAvailabilityParams = z.infer<
+  typeof getDoctorAvailabilityParamsSchema
+>;
+
+export type GetDoctorAppointmentsParams = z.infer<
+  typeof getDoctorAppointmentsParamsSchema
+>;
