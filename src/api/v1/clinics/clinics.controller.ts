@@ -53,7 +53,7 @@ export const createClinic = async (c: Context) => {
     const validatedFields = clinicSchema.safeParse(await c.req.json());
     if (!validatedFields.success) {
       return c.json({
-        error: validatedFields.error,
+        error: validatedFields.error.flatten().fieldErrors,
         status: httpCodes.BAD_REQUEST,
       });
     }

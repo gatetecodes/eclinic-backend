@@ -7,15 +7,15 @@ export type GetClinicParams = z.infer<typeof getClinicParamsSchema>;
 
 export const adminSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  email: z.email(),
   phone_number: z.string().min(10),
 });
 
 export const clinicSchema = z.object({
   name: z.string().min(1),
-  subscriptionPlan: z.nativeEnum(SubscriptionPlan),
+  subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
-  contactEmail: z.string().email(),
+  contactEmail: z.email(),
   admin: adminSchema,
   expiryDate: z.any().optional(),
 });
