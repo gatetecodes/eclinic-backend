@@ -1,42 +1,50 @@
+import { EventType } from "@prisma/client";
 import { z } from "zod";
+import { patientSchema } from "../visits/visits.validation";
 
-const DAYS_OF_WEEK_MIN = 0;
-const DAYS_OF_WEEK_MAX = 6;
-export const eventTypeValues = ["APPOINTMENT", "BLOCK", "OTHER"] as const;
-export const eventStatusValues = [
-  "SCHEDULED",
-  "COMPLETED",
-  "CANCELLED",
-] as const;
+const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-export const eventSchema = z.object({
-  type: z.enum(eventTypeValues),
-  startTime: z.coerce.date(),
-  endTime: z.coerce.date(),
-  doctorId: z.number().int().positive(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  patient: z
-    .object({
-      firstName: z.string(),
-      lastName: z.string(),
-      phoneNumber: z.string().optional(),
-      id: z.number().int().optional(),
-      dateOfBirth: z.string().optional(),
-      gender: z.string().optional(),
+export const scheduleSchema = z
+  .array(
+    z.object({
+      dayOfWeek: z.number().min(0).max(6),
+      startTime: z.string().regex(timeRegex, "Invalid time format. Use HH:mm"),
+      endTime: z.string().regex(timeRegex, "Invalid time format. Use HH:mm"),
     })
-    .optional(),
-  treatment: z.string().optional(),
-});
+  )
+  .refine(
+    (schedule) => {
+      return schedule.every((slot) => slot.endTime > slot.startTime);
+    },
+    {
+      message: "End time must be after start time for all slots",
+    }
+  );
 
-export type CreateEventInput = z.infer<typeof eventSchema>;
-
-export const scheduleSlotSchema = z.object({
-  dayOfWeek: z.number().int().min(DAYS_OF_WEEK_MIN).max(DAYS_OF_WEEK_MAX),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/),
-});
-
-export const scheduleSchema = z.array(scheduleSlotSchema).min(1);
-
-export type UpdateScheduleInput = z.infer<typeof scheduleSchema>;
+export const eventSchema = z
+  .discriminatedUnion("type", [
+    z.object({
+      type: z.literal(EventType.APPOINTMENT),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      startTime: z.coerce.date(),
+      endTime: z.coerce.date(),
+      patient: patientSchema,
+      treatment: z.string(),
+      doctorId: z.coerce.number(),
+      clinicId: z.coerce.number().optional(),
+    }),
+    z.object({
+      type: z.enum([EventType.MEETING, EventType.TASK, EventType.OTHER]),
+      title: z.string(),
+      description: z.string().optional(),
+      startTime: z.coerce.date(),
+      endTime: z.coerce.date(),
+      doctorId: z.coerce.number(),
+      clinicId: z.coerce.number().optional(),
+    }),
+  ])
+  .refine((event) => event.startTime < event.endTime, {
+    message: "End time must be after start time",
+    path: ["endTime"],
+  });
