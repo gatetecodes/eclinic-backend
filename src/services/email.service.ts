@@ -4,6 +4,10 @@ import handlebars from "handlebars";
 import { Resend } from "resend";
 import { logger } from "../lib/logger";
 
+if (!process.env.RESEND_API_KEY) {
+  throw new Error("RESEND_API_KEY is not set");
+}
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 type ResendEmailOptions = {
@@ -31,14 +35,29 @@ const compileTemplate = async (
   context: Record<string, unknown>
 ): Promise<string> => {
   try {
-    const templatePath = path.join(
-      __dirname,
-      "../templates",
-      `${templateName}.hbs`
-    );
-    const source = await fs.promises.readFile(templatePath, "utf-8");
-    const template = handlebars.compile(source);
-    return template(context);
+    const candidates = [
+      process.env.EMAIL_TEMPLATES_DIR,
+      path.resolve(process.cwd(), "dist/templates"),
+      path.resolve(process.cwd(), "src/templates"),
+      path.resolve(
+        path.dirname(new URL(import.meta.url).pathname),
+        "../templates"
+      ),
+    ].filter(Boolean) as string[];
+
+    for (const dir of candidates) {
+      const fp = path.join(dir, `${templateName}.hbs`);
+
+      if (fs.existsSync(fp)) {
+        const source = await fs.promises.readFile(fp, "utf-8");
+
+        const template = handlebars.compile(source);
+
+        return template(context);
+      }
+    }
+
+    throw new Error("Template not found in any known directory");
   } catch (error) {
     logger.error("Failed to compile email template", {
       error,
@@ -64,6 +83,10 @@ export const sendEmail = async ({
 }: ResendEmailOptions): Promise<void> => {
   try {
     const html = await compileTemplate(template, context);
+
+    if (!(process.env.EMAIL_FROM_NAME && process.env.EMAIL_FROM_ADDRESS)) {
+      throw new Error("EMAIL_FROM_NAME/EMAIL_FROM_ADDRESS not set");
+    }
 
     const emailData = {
       from: `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM_ADDRESS}>`,
