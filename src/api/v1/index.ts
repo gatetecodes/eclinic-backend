@@ -7,7 +7,8 @@ import analyticsRouter from "./analytics/routes.ts";
 import appointmentsRouter from "./appointments/appointments.routes.ts";
 import approvalsRouter from "./approvals/routes.ts";
 import clinicsRouter from "./clinics/clinics.routes.ts";
-import filesRouter from "./files/file-upload.routes.ts";
+import demoRequestsRouter from "./demo-requests/demo-requests.routes.ts";
+import fileUploadRouter from "./files/file-upload.routes.ts";
 import inventoryRouter from "./inventory/routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
 import patientsRouter from "./patients/routes.ts";
@@ -33,6 +34,7 @@ v1.all("/auth/*", (c) => {
 v1.use("*", requireAuth);
 
 // Mount resources
+v1.route("/upload", fileUploadRouter);
 v1.route("/users", usersRouter);
 v1.route("/patients", patientsRouter);
 v1.route("/clinics", clinicsRouter);
@@ -42,9 +44,9 @@ v1.route("/inventory", inventoryRouter);
 v1.route("/analytics", analyticsRouter);
 v1.route("/notifications", notificationsRouter);
 v1.route("/admin", adminRouter);
-v1.route("/files", filesRouter);
 v1.route("/activity", activityRouter);
 v1.route("/appointments", appointmentsRouter);
 v1.route("/approvals", approvalsRouter);
+v1.route("/demo-requests", demoRequestsRouter);
 
 export default v1;
