@@ -7,7 +7,7 @@ import analyticsRouter from "./analytics/routes.ts";
 import appointmentsRouter from "./appointments/appointments.routes.ts";
 import approvalsRouter from "./approvals/routes.ts";
 import clinicsRouter from "./clinics/clinics.routes.ts";
-import filesRouter from "./files/routes.ts";
+import filesRouter from "./files/file-upload.routes.ts";
 import inventoryRouter from "./inventory/routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
 import patientsRouter from "./patients/routes.ts";
