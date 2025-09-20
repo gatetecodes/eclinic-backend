@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 import {
   type DemoRequest,
   DemoRequestStatus,
@@ -9,28 +10,29 @@ import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { logger } from "../../../lib/logger";
 import { sendEmail } from "../../../services/email.service";
-import { demoRequestSchema } from "./demo-requests.validation";
+import type { demoRequestSchema } from "./demo-requests.validation";
 
 export const createDemoRequest = async (c: Context) => {
   try {
-    const data = c.req.json();
-    const parsed = demoRequestSchema.safeParse(data);
-    if (!parsed.success) {
+    const data = c.get("validatedJson") as z.infer<typeof demoRequestSchema>;
+
+    if (!data) {
       return c.json(
-        { error: parsed.error.flatten().fieldErrors },
+        { error: "Invalid data" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const { clinic_name, email, phone_number, address, demo_date } =
-      parsed.data;
+
+    const { clinic_name, email, phone_number, address, demo_date } = data;
     const demoRequest = await db.demoRequest.create({
       data: {
         clinic_name,
         email,
         phone_number,
         address,
-        demo_date: new Date(demo_date),
+        demo_date,
       },
     });
     return c.json(
@@ -85,22 +87,47 @@ export const getDemoRequests = async (c: Context) => {
 export const approveDemoRequest = async (c: Context) => {
   try {
     const { id } = c.req.param();
+
+    const idNum = Number(id);
+
+    if (!Number.isInteger(idNum) || idNum <= 0) {
+      return c.json(
+        { error: "Invalid ID" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const existing = await db.demoRequest.findUnique({ where: { id: idNum } });
+
+    if (!existing) {
+      return c.json(
+        { error: "Demo request not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
     const demoRequest = await db.demoRequest.update({
-      where: { id: Number(id) },
+      where: { id: idNum },
       data: { status: DemoRequestStatus.APPROVED },
     });
-    await sendEmail({
-      to: demoRequest.email,
-      subject: "Demo Request Approved",
-      template: "demo-request",
-      context: {
-        name: demoRequest.clinic_name,
-        email: demoRequest.email,
-        phone_number: demoRequest.phone_number,
-        address: demoRequest.address,
-        demo_date: demoRequest.demo_date,
-      },
-    });
+
+    try {
+      await sendEmail({
+        to: demoRequest.email,
+        subject: "Demo Request Approved",
+        template: "demo-request",
+        context: {
+          name: demoRequest.clinic_name,
+          clinic_name: demoRequest.clinic_name,
+          email: demoRequest.email,
+          phone_number: demoRequest.phone_number,
+          address: demoRequest.address,
+          demo_date: demoRequest.demo_date,
+        },
+      });
+    } catch (error) {
+      logger.error("Approved without email notification", { id: idNum, error });
+    }
     return c.json(
       { message: "Demo request approved successfully", data: demoRequest },
       httpCodes.OK as ContentfulStatusCode
@@ -118,8 +145,27 @@ export const approveDemoRequest = async (c: Context) => {
 export const rejectDemoRequest = async (c: Context) => {
   try {
     const { id } = c.req.param();
+
+    const idNum = Number(id);
+
+    if (!Number.isInteger(idNum) || idNum <= 0) {
+      return c.json(
+        { error: "Invalid ID" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const existing = await db.demoRequest.findUnique({ where: { id: idNum } });
+
+    if (!existing) {
+      return c.json(
+        { error: "Demo request not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
     const demoRequest = await db.demoRequest.update({
-      where: { id: Number(id) },
+      where: { id: idNum },
       data: { status: DemoRequestStatus.REJECTED },
     });
     return c.json(
