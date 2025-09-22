@@ -197,7 +197,9 @@ export const createExam = async (c: Context) => {
     const products = await db.product.findMany({
       where: {
         id: { in: productIds },
-        clinics: { some: { id: user.clinic.id } },
+        ...(user.role === Role.SUPER_ADMIN
+          ? {}
+          : { clinics: { some: { id: user.clinic.id } } }),
       },
     });
 

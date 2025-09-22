@@ -12,7 +12,13 @@ import {
   updateProduct,
   updateProductPricing,
 } from "./tariff.controller";
-import { getProductParamsSchema } from "./tariff.validation";
+import {
+  createProductSchema,
+  getProductParamsSchema,
+  importProductsSchema,
+  updateProductPricingSchema,
+  updateProductSchema,
+} from "./tariff.validation";
 
 const tariffRouter = new Hono();
 
@@ -27,8 +33,16 @@ tariffRouter.get(
   "/products/consultations/with-pricing",
   getConsultationProductsWithPricing
 );
-tariffRouter.post("/products", createProduct);
-tariffRouter.post("/products/import-csv", importProductsFromCSV);
+tariffRouter.post(
+  "/products",
+  validate(createProductSchema, "json"),
+  createProduct
+);
+tariffRouter.post(
+  "/products/import-csv",
+  validate(importProductsSchema, "json"),
+  importProductsFromCSV
+);
 
 // Product by ID routes
 tariffRouter.get(
@@ -39,11 +53,13 @@ tariffRouter.get(
 tariffRouter.put(
   "/products/:id",
   validate(getProductParamsSchema, "param"),
+  validate(updateProductSchema, "json"),
   updateProduct
 );
 tariffRouter.put(
   "/products/:id/pricing",
   validate(getProductParamsSchema, "param"),
+  validate(updateProductPricingSchema, "json"),
   updateProductPricing
 );
 

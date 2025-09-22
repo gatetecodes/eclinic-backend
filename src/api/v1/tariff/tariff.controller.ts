@@ -744,6 +744,8 @@ export const updateProductPricing = async (c: Context) => {
           createMany: {
             data: insurancePrices.map((ip) => ({
               price: ip.price,
+              priceWithCo: ip.priceWithCo ?? undefined,
+              priceType: ip.priceType ?? PriceType.PRIVATE,
               insuranceCompanyId: Number.parseInt(ip.companyId, 10),
             })),
           },
@@ -1026,7 +1028,8 @@ function processRecord(clinicId: number) {
           consumables: existingProduct.consumables || undefined,
           clinics: existingProduct.clinics,
         };
-        return handleExistingProduct(formattedProduct, record, clinicId);
+        await handleExistingProduct(formattedProduct, record, clinicId);
+        return true;
       }
       const newProduct = await createNewProduct(record, clinicId);
       await createInitialInsurancePricesForNewProduct(newProduct.id, {
