@@ -7,7 +7,10 @@ import {
   Unit,
 } from "../../generated/prisma";
 import { db } from "../database/db";
+import { InsuranceCompanies, SpecialInsurers } from "../lib/constants";
 import { logger } from "../lib/logger";
+
+const CONSUMABLES_REGEX = /^(.*?)\s*\(([^)]+)\)\s*$/;
 
 // Types for CSV import
 export type ProductCSVRow = {
@@ -75,11 +78,6 @@ type ParsedLabTest = {
   referenceNumber?: string;
   testName: string;
 };
-
-// Insurance company constants (matching original)
-const InsuranceCompanies = ["RSSB", "MUTUELLE DE SANTE", "PRIVATE INSURANCE"];
-
-const SpecialInsurers = ["GOVERNMENT", "MILITARY"];
 
 // Regex pattern for lab test parsing (defined at top level for performance)
 const LAB_TEST_REGEX = /^\((\d+)\)(.+)$/;
@@ -362,7 +360,7 @@ async function applyInsuranceUpdates(
     await updateInsurancePrice({
       existingProduct,
       price: newTariff,
-      companies: InsuranceCompanies,
+      companies: Object.values(InsuranceCompanies),
       priceType: PriceType.PRIVATE,
       field: "price",
     });
@@ -371,7 +369,7 @@ async function applyInsuranceUpdates(
     await updateInsurancePrice({
       existingProduct,
       price: newGovTariff,
-      companies: SpecialInsurers,
+      companies: Object.values(SpecialInsurers),
       priceType: PriceType.GOV,
       field: "price",
     });
@@ -380,7 +378,7 @@ async function applyInsuranceUpdates(
     await updateInsurancePrice({
       existingProduct,
       price: newTariffWithCo,
-      companies: InsuranceCompanies,
+      companies: Object.values(InsuranceCompanies),
       priceType: PriceType.PRIVATE,
       field: "priceWithCo",
     });
@@ -480,7 +478,9 @@ const handleLabTestUpdates = async ({
     });
   } else {
     // Parent or standalone test
-    const hasChildren = await isParentProduct(record.NAME);
+    const hasChildren = record["#"]
+      ? await isParentProduct(record["#"])
+      : false;
     if (hasChildren) {
       // Parent with children - update at product level
       await db.product.update({
@@ -523,10 +523,17 @@ export async function handleExistingProduct(
   const newNormalRange = record.NORMAL_RANGE;
 
   let newConsumables: { name: string; quantity: string }[] = [];
+
   if (record.CONSUMABLES) {
-    newConsumables = record.CONSUMABLES.split(",").map((item) => {
-      const [name, quantity] = item.split("(");
-      return { name: name.trim(), quantity: quantity.trim().replace(")", "") };
+    newConsumables = record.CONSUMABLES.split(",").map((raw) => {
+      const item = raw.trim();
+
+      const m = item.match(CONSUMABLES_REGEX);
+      if (!m) {
+        return { name: item, quantity: "1" };
+      }
+      const [, name, qty] = m;
+      return { name: name.trim(), quantity: qty.trim() };
     });
   }
 
@@ -597,9 +604,15 @@ function parseConsumablesFromRecord(record: ProductCSVRow) {
   if (!record.CONSUMABLES) {
     return [] as { name: string; quantity: string }[];
   }
-  return record.CONSUMABLES.split(",").map((item) => {
-    const [name, quantity] = item.split("(");
-    return { name: name.trim(), quantity: quantity.replace(")", "") };
+  return record.CONSUMABLES.split(",").map((raw) => {
+    const item = raw.trim();
+
+    const m = item.match(CONSUMABLES_REGEX);
+    if (!m) {
+      return { name: item, quantity: "1" };
+    }
+    const [, name, qty] = m;
+    return { name: name.trim(), quantity: qty.trim() };
   });
 }
 
@@ -779,11 +792,15 @@ export async function createNewProduct(
           create: { name: department },
         })),
       },
-      basePrice: record.PRIVATE_TARIFF || undefined,
+      basePrice: record.PRIVATE_TARIFF
+        ? Number.parseFloat(record.PRIVATE_TARIFF)
+        : undefined,
       consumables: isLabTest ? undefined : consumables,
       unit: record.UNIT || undefined,
       normalRange: record.NORMAL_RANGE || undefined,
-      foreignersPrice: record.FOREIGNERS_TARIFF || undefined,
+      foreignersPrice: record.FOREIGNERS_TARIFF
+        ? Number.parseFloat(record.FOREIGNERS_TARIFF)
+        : undefined,
     },
     select: { id: true, name: true },
   });

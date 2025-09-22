@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const getTariffParamsSchema = z.object({ id: z.string() });
-export const getProductParamsSchema = z.object({ productId: z.string() });
+export const getProductParamsSchema = z.object({ id: z.string() });
 
 export type GetTariffParams = z.infer<typeof getTariffParamsSchema>;
 export type GetProductParams = z.infer<typeof getProductParamsSchema>;
@@ -12,6 +12,10 @@ export const editTariffSchema = z.object({
     z.object({
       companyId: z.string(),
       price: z.coerce.number().min(0, "Price must be non-negative"),
+      priceWithCo: z.coerce
+        .number()
+        .min(0, "Price with CO must be non-negative"),
+      priceType: z.enum(["PRIVATE", "GOV"]).optional(),
     })
   ),
 });
@@ -82,7 +86,7 @@ export const importProductsSchema = z.object({
 });
 
 export const getProductsByDepartmentSchema = z.object({
-  departmentIds: z.array(z.string()).optional(),
+  departmentIds: z.array(z.number().int().positive()).optional(),
 });
 
 export const updateProductPricingSchema = z.object({
@@ -90,6 +94,11 @@ export const updateProductPricingSchema = z.object({
   insurancePrices: z.array(
     z.object({
       companyId: z.string(),
+      priceWithCo: z.coerce
+        .number()
+        .min(0, "Price with CO must be non-negative")
+        .optional(),
+      priceType: z.enum(["PRIVATE", "GOV"]).optional(),
       price: z.coerce.number().min(0, "Price must be non-negative"),
     })
   ),
