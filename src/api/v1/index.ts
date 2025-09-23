@@ -11,7 +11,7 @@ import demoRequestsRouter from "./demo-requests/demo-requests.routes.ts";
 import departmentsRouter from "./departments/departments.routes.ts";
 import examsRouter from "./exams/exams.routes.ts";
 import fileUploadRouter from "./files/file-upload.routes.ts";
-import inventoryRouter from "./inventory/routes.ts";
+import inventoryRouter from "./inventory/inventory.routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
 import patientsRouter from "./patients/routes.ts";
 import paymentsRouter from "./payments/routes.ts";
