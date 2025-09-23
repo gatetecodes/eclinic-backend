@@ -163,6 +163,11 @@ export const editExamsSchema = z.object({
   exams: z.array(z.string()).nonempty("At least one exam is required"),
 });
 
+// Body schema for editing exams via route param id
+export const editVisitExamsBodySchema = z.object({
+  exams: z.array(z.string()).nonempty("At least one exam is required"),
+});
+
 export const addTreatmentSchema = z.object({
   visitId: z.string(),
   departmentId: z.string().optional(),
@@ -211,3 +216,58 @@ export const handoffSchema = z.object({
 export type HandoffFormData = z.infer<typeof handoffSchema>;
 
 export type Visit = z.infer<typeof visitSchema>;
+
+// Params schemas
+export const getVisitParamsSchema = z.object({ id: z.string() });
+
+// Handoff route params and bodies
+export const getHandoffParamsSchema = z.object({ handoffId: z.string() });
+export const rejectHandoffBodySchema = z.object({
+  reason: z.string().min(1, "Rejection reason is required"),
+});
+
+// Update status schema
+export const updateVisitStatusSchema = z.object({
+  status: z.enum([
+    "CHECKED_IN",
+    "TRIAGE_COMPLETED",
+    "IN_CONSULTATION",
+    "PENDING_TESTS",
+    "RESULTS_READY",
+    "FINALIZED",
+    "DISCHARGED",
+    "DISCHARGED_WITH_PRESCRIPTION",
+    "ADMITTED",
+    "CANCELLED",
+  ]),
+});
+
+// Request schemas for controller endpoints
+export const updatePreConsultationRequestSchema =
+  preConsultationSchema.safeExtend({
+    patientId: z.coerce.number(),
+  });
+
+// Additional endpoint-specific schemas
+export const consultationNoteSchema = z.object({
+  consultationNote: z.string().min(1, "Consultation note is required"),
+});
+
+export const addVisitTreatmentBodySchema = z.object({
+  treatments: z
+    .array(z.string())
+    .nonempty("At least one treatment is required"),
+});
+
+export const addVisitNurseTreatmentBodySchema = z.object({
+  treatments: z
+    .array(
+      z.object({
+        id: z.string(),
+        quantity: z.string(),
+      })
+    )
+    .nonempty("At least one treatment is required"),
+});
+
+export const getPatientVisitsParamsSchema = z.object({ patientId: z.string() });
