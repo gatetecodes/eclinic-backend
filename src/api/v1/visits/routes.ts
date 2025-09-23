@@ -55,6 +55,7 @@ import {
   handoffSchema,
   initialCheckInSchema,
   rejectHandoffBodySchema,
+  transferVisitToDoctorSchema,
   updatePreConsultationRequestSchema,
   updateVisitStatusSchema,
 } from "./visits.validation.ts";
@@ -105,6 +106,7 @@ router.post(
 router.post(
   "/:id/transfer",
   validate(getVisitParamsSchema, "param"),
+  validate(transferVisitToDoctorSchema, "json"),
   transferVisitToDoctor
 );
 

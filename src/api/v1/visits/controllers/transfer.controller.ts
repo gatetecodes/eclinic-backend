@@ -40,7 +40,13 @@ export const initiateHandoff = async (c: Context) => {
     }
 
     const receivingDoctor = await db.user.findFirst({
-      where: { id: Number(toDoctorId), role: Role.DOCTOR, status: "ACTIVE" },
+      where: {
+        id: Number(toDoctorId),
+        role: Role.DOCTOR,
+        status: "ACTIVE",
+        clinicId: user.clinic.id,
+        branchId: user.branch.id,
+      },
     });
     if (!receivingDoctor) {
       return c.json(
@@ -94,13 +100,18 @@ export const initiateHandoff = async (c: Context) => {
 export const acceptHandoff = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { handoffId } = c.get("validatedParam") ?? c.req.param();
+    const { handoffId } = c.get("validatedParam") ?? (await c.req.param());
     const id = Number.parseInt(handoffId ?? c.req.param("handoffId"), 10);
     const handoff = await db.handoff.findUnique({
       where: { id },
       include: {
         visit: {
-          include: { patient: { select: { firstName: true, lastName: true } } },
+          select: {
+            id: true,
+            clinicId: true,
+            branchId: true,
+            patient: { select: { firstName: true, lastName: true } },
+          },
         },
       },
     });
@@ -110,6 +121,12 @@ export const acceptHandoff = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
+    if (handoff.handoffStatus !== "PENDING") {
+      return c.json(
+        { error: "Handoff already processed" },
+        httpCodes.CONFLICT as ContentfulStatusCode
+      );
+    }
     if (handoff.toDoctorId !== Number(user.id)) {
       return c.json(
         { error: "You are not authorized to accept this handoff" },
@@ -117,8 +134,8 @@ export const acceptHandoff = async (c: Context) => {
       );
     }
 
-    const result = await db.$transaction(async (tx) => {
-      const updatedHandoff = await tx.handoff.update({
+    const updatedHandoff = await db.$transaction(async (tx) => {
+      await tx.handoff.update({
         where: { id },
         data: { handoffStatus: "ACCEPTED", acceptedAt: new Date() },
       });
@@ -126,16 +143,26 @@ export const acceptHandoff = async (c: Context) => {
         where: { id: handoff.visitId },
         data: { doctorId: handoff.toDoctorId },
       });
-      await logActivity({
-        userId: Number(user.id),
-        visitId: handoff.visitId,
-        type: ActivityType.HANDOFF,
-        action: `Dr. ${user.name} accepted handoff for patient ${handoff.visit.patient.firstName} ${handoff.visit.patient.lastName}`,
-      });
-      return updatedHandoff;
+      return handoff;
     });
 
-    return c.json({ success: "Handoff accepted successfully", data: result });
+    await logActivity({
+      userId: Number(user.id),
+      visitId: handoff.visitId,
+      type: ActivityType.HANDOFF,
+      action: `Dr. ${user.name} accepted handoff for patient ${handoff.visit.patient.firstName} ${handoff.visit.patient.lastName}`,
+    });
+
+    await invalidateVisitRelatedCaches({
+      clinicId: handoff.visit.clinicId,
+      branchId: Number(handoff.visit.branchId ?? 0),
+      visitId: handoff.visitId,
+    });
+
+    return c.json({
+      success: "Handoff accepted successfully",
+      data: updatedHandoff,
+    });
   } catch (_error) {
     return c.json(
       { error: "Failed to accept handoff" },
@@ -209,7 +236,7 @@ export const transferVisitToDoctor = async (c: Context) => {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
-    const { doctorId } = await c.req.json();
+    const { doctorId } = c.get("validatedParam") ?? (await c.req.param());
 
     const visit = await db.visit.findUnique({
       where: { id: visitId },
