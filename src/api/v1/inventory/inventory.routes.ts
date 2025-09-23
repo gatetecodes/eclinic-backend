@@ -18,8 +18,8 @@ router.get("/list", getInventoryItemsList);
 router.post("/import", importInventoryItemsFromCSV);
 router.put("/:id", updateInventoryItem);
 router.delete("/:id", deleteInventoryItem);
-router.get("/batches", getAvailableBatches);
-router.get("/batches/:id", getInventoryBatches);
+router.get("/batches", getInventoryBatches);
+router.get("/batches/:itemId", getAvailableBatches);
 router.get("/latest-transactions", getLatestTransactions);
 
 export default router;
