@@ -33,7 +33,8 @@ export const createInventoryItem = async (c: Context) => {
     } = await c.req.json();
     const inventoryItem = await db.inventoryItem.create({
       data: {
-        clinicId: user.clinicId,
+        clinicId: user.clinic.id,
+        branchId: user.branch.id,
         itemName,
         itemType,
         unit,
@@ -330,7 +331,10 @@ export const importInventoryItemsFromCSV = async (c: Context) => {
       const results = await Promise.all(
         batch.map(async (record) => {
           try {
-            return await processInventoryItemRecord(user.clinic.id)(record);
+            return await processInventoryItemRecord(
+              user.clinic.id,
+              user.branch.id
+            )(record);
           } catch (error) {
             logger.error(`Error processing consumable ${record.NAME}:`, {
               error,

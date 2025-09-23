@@ -16,10 +16,11 @@ import type {
 
 export async function findExistingInventoryItem(
   name: string,
-  clinicId: number
+  clinicId: number,
+  branchId: number
 ) {
   return await db.inventoryItem.findFirst({
-    where: { itemName: name, clinicId },
+    where: { itemName: name, clinicId, branchId },
     select: {
       id: true,
       itemName: true,
@@ -34,31 +35,41 @@ export const handleExistingInventoryItem = async (
   existingItem: IExistingInventoryItem,
   record: ConsumableCSVRow
 ) => {
-  const newUnitPrice = Number.parseFloat(record.PRICE);
-  const newUnit = record.UNIT as Unit;
+  const maybePrice = Number.parseFloat(record.PRICE);
+
   const newReorderLevel = record.REORDER_LEVEL
     ? Number.parseInt(record.REORDER_LEVEL, 10)
     : existingItem.reorderLevel;
 
+  const data: Record<string, unknown> = {
+    reorderLevel: newReorderLevel,
+  };
+
+  if (Number.isFinite(maybePrice)) {
+    data.unitPrice = maybePrice;
+  }
+
+  if (record.UNIT) {
+    data.unit = record.UNIT as Unit;
+  }
+
   return await db.inventoryItem.update({
     where: { id: existingItem.id },
-    data: {
-      unitPrice: newUnitPrice,
-      unit: newUnit,
-      reorderLevel: newReorderLevel,
-    },
+    data,
   });
 };
 
 export async function createNewInventoryItem(
   record: ConsumableCSVRow,
-  clinicId: number
+  clinicId: number,
+  branchId: number
 ) {
   return await db.inventoryItem.create({
     data: {
       itemName: record.NAME,
       itemType: record.CATEGORY as ItemType,
       clinicId,
+      branchId,
       unitPrice: record.PRICE,
       reorderLevel: record.REORDER_LEVEL
         ? Number.parseInt(record.REORDER_LEVEL, 10)
@@ -71,18 +82,18 @@ export async function createNewInventoryItem(
 export const performStockOut = async (
   selectedBatches: { id: number; quantity: number }[]
 ) => {
-  for (const selectedBatch of selectedBatches) {
-    const batch = await db.inventoryBatch.findUnique({
-      where: { id: selectedBatch.id },
-    });
-    if (!batch) {
-      throw new Error(`Batch not found: ${selectedBatch.id}`);
+  await db.$transaction(async (tx) => {
+    for (const { id, quantity } of selectedBatches) {
+      const res = await tx.inventoryBatch.updateMany({
+        where: { id, currentQuantity: { gte: quantity } },
+        data: { currentQuantity: { decrement: quantity } },
+      });
+
+      if (res.count === 0) {
+        throw new Error(`Insufficient stock or batch not found: ${id}`);
+      }
     }
-    await db.inventoryBatch.update({
-      where: { id: selectedBatch.id },
-      data: { currentQuantity: { decrement: selectedBatch.quantity } },
-    });
-  }
+  });
 };
 
 async function fetchInventoryItems(treatmentIds: number[]) {
@@ -102,6 +113,7 @@ async function fetchValidBatches(treatmentIds: number[]) {
   return await db.inventoryBatch.findMany({
     where: {
       itemId: { in: treatmentIds },
+      currentQuantity: { gt: 0 },
       OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
     },
     orderBy: { expiryDate: "asc" },
@@ -172,6 +184,7 @@ export const createPaymentForInventoryItems = async (
   let totalAmount = 0;
   let totalPatientAmount = 0;
   let totalInsuranceAmount = 0;
+  const selectedBatches: { id: number; quantity: number }[] = [];
   const paymentDetails: IPaymentDetail[] = [];
 
   for (const treatment of treatments) {
@@ -183,6 +196,12 @@ export const createPaymentForInventoryItems = async (
     const batch = batches.find((b) => b.itemId === +treatment.id);
     if (!batch) {
       throw new Error(`No valid batch found for item: ${item.itemName}`);
+    }
+
+    if (batch.currentQuantity < treatment.quantity) {
+      throw new Error(
+        `Insufficient stock for item ${item.itemName} in batch ${batch.batchNumber ?? batch.id}`
+      );
     }
 
     const unitPrice = batch.unitPrice ?? item.unitPrice;
@@ -208,6 +227,8 @@ export const createPaymentForInventoryItems = async (
       batchId: batch.id,
     });
 
+    selectedBatches.push({ id: batch.id, quantity: treatment.quantity });
+
     totalAmount += totalPrice;
     totalInsuranceAmount += insuranceAmount;
     totalPatientAmount += patientAmount;
@@ -217,13 +238,7 @@ export const createPaymentForInventoryItems = async (
     throw new Error("Amount is 0");
   }
 
-  await performStockOut(
-    batches.map((batch) => ({
-      id: batch.id,
-      quantity:
-        treatments.find((t) => t.id === batch.itemId.toString())?.quantity || 0,
-    }))
-  );
+  await performStockOut(selectedBatches);
 
   return db.payment.create({
     data: {
@@ -240,17 +255,18 @@ export const createPaymentForInventoryItems = async (
   });
 };
 
-export function processInventoryItemRecord(clinicId: number) {
+export function processInventoryItemRecord(clinicId: number, branchId: number) {
   return async (record: ConsumableCSVRow) => {
     try {
       const existingItem = await findExistingInventoryItem(
         record.NAME,
-        clinicId
+        clinicId,
+        branchId
       );
       if (existingItem) {
         return handleExistingInventoryItem(existingItem, record);
       }
-      return createNewInventoryItem(record, clinicId);
+      return createNewInventoryItem(record, clinicId, branchId);
     } catch (error) {
       logger.error(`Error processing inventory item ${record.NAME}:`, {
         error,
