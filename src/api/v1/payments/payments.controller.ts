@@ -272,6 +272,7 @@ export const markPaymentAsPaid = async (c: Context) => {
       data: {
         paymentStatus: PaymentStatus.PAID,
         paymentMethod: data.paymentMethod,
+        paidAmount: data.amount,
         processedBy: {
           connect: {
             id: Number(user.id),
