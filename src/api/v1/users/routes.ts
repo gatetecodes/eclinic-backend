@@ -23,8 +23,8 @@ router.get("/cashiers", getCashiers);
 router.get("/department/:departmentId/doctors", getDoctorsByDepartmentId);
 router.post("/", addNewUser);
 router.post("/doctors", createDoctor);
-router.post("/:id/deactivate", deactivateUser);
-router.put("/:id", editUser);
+router.post("/:userId/deactivate", deactivateUser);
+router.put("/:userId", editUser);
 router.put("/doctors/:doctorId", editDoctor);
 
 export default router;
