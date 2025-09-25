@@ -66,6 +66,7 @@ const findPaymentById = async (paymentId: string) =>
       id: true,
       paymentStatus: true,
       paymentType: true,
+      patientAmount: true,
       visit: visitSelection,
     },
   });
@@ -272,7 +273,7 @@ export const markPaymentAsPaid = async (c: Context) => {
       data: {
         paymentStatus: PaymentStatus.PAID,
         paymentMethod: data.paymentMethod,
-        paidAmount: data.amount,
+        paidAmount: payment.patientAmount,
         processedBy: {
           connect: {
             id: Number(user.id),
