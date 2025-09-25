@@ -541,6 +541,17 @@ export const createDoctor = async (c: Context) => {
 
     const { weeklyAvailability, departments, ...doctorData } = parsed.data;
 
+    const existing = await db.user.findUnique({
+      where: { email: doctorData.email },
+    });
+
+    if (existing) {
+      return c.json(
+        { error: "User with this email already exists" },
+        httpCodes.CONFLICT as ContentfulStatusCode
+      );
+    }
+
     const hashedPassword = await hash(doctorData.password, 10);
 
     const newDoctor = await db.$transaction(async (tx) => {
@@ -705,6 +716,14 @@ export const editDoctor = async (c: Context) => {
       );
     }
 
+    const doctorIdRaw = c.req.param("doctorId");
+    const doctorId = Number.parseInt(doctorIdRaw, 10);
+    if (!Number.isFinite(doctorId) || doctorId <= 0) {
+      return c.json(
+        { error: "Invalid doctorId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const body = await c.get("validatedJson");
     const parsed = editDoctorSchema.safeParse(body);
     if (!parsed.success) {
@@ -718,7 +737,7 @@ export const editDoctor = async (c: Context) => {
       parsed.data;
 
     const existingDoctor = await db.user.findUnique({
-      where: { email: doctorData.email },
+      where: { id: doctorId },
     });
     if (!existingDoctor) {
       return c.json(
@@ -771,7 +790,7 @@ export const editDoctor = async (c: Context) => {
     }
 
     await db.user.update({
-      where: { id: existingDoctor.id },
+      where: { id: doctorId },
       data: updateData,
     });
 
