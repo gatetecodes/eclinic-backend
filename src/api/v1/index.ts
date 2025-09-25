@@ -14,7 +14,7 @@ import fileUploadRouter from "./files/file-upload.routes.ts";
 import inventoryRouter from "./inventory/inventory.routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
 import patientsRouter from "./patients/routes.ts";
-import paymentsRouter from "./payments/routes.ts";
+import paymentsRouter from "./payments/payments.routes.ts";
 import tariffRouter from "./tariff/tariff.routes.ts";
 // Resource routers
 import usersRouter from "./users/routes.ts";
