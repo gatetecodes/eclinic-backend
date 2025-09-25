@@ -9,6 +9,7 @@ model Payment {
     appointment     Event?        @relation(fields: [appointmentId], references: [id])
     appointmentId   Int?
     amount          Decimal       @db.Decimal(10, 2)
+    paidAmount      Decimal       @default(0) @db.Decimal(10, 2)
     insuranceAmount Decimal?      @db.Decimal(10, 2)
     patientAmount   Decimal       @db.Decimal(10, 2)
     paymentDetails  Json?
