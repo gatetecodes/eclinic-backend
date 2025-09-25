@@ -1,139 +1,822 @@
+import { randomUUID } from "node:crypto";
+import { hash } from "bcryptjs";
+import { addHours } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { z } from "zod";
 import { httpCodes } from "@/lib/constants.ts";
-import type {
-  EducationLevel,
-  Prisma,
+import {
+  type EducationLevel,
+  type Prisma,
   Role,
+  type User,
   UserStatus,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
-import { updateUserSchema } from "./users.validation.ts";
+import { buildQueryOptions } from "../../../helpers/query-helper";
+import { searchParamsSchema } from "../../../lib/common-validation";
+import { logger } from "../../../lib/logger";
+import { sendEmail } from "../../../services/email.service";
+// token helpers defined below
+import {
+  createDoctorSchema,
+  createUserSchema,
+  editDoctorSchema,
+  updateUserSchema,
+} from "./users.validation";
 
-export const listUsers = async (c: Context) => {
+const EMAIL_RETRY_DELAY_MS = 1000;
+
+const sendVerificationEmailSafe = async (
+  email: string,
+  token: string
+): Promise<{ success: boolean; error?: unknown }> => {
   try {
-    const { page = "1", limit = "10", search = "", role = "" } = c.req.query();
-
-    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
-    const take = Number.parseInt(limit, 10);
-
-    const where: Prisma.UserWhereInput = {};
-
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    if (role) {
-      where.role = role as Role;
-    }
-
-    const [users, total] = await Promise.all([
-      db.user.findMany({
-        where,
-        skip,
-        take,
-        include: { clinic: true, branch: true },
-        orderBy: { createdAt: "desc" },
-      }),
-      db.user.count({ where }),
-    ]);
-
-    return c.json({
-      data: users,
-      total,
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
+    const context = getVerificationTemplateContext(token);
+    await sendEmail({
+      to: email,
+      subject: "Verify your account",
+      template: "verification",
+      context,
     });
-  } catch (_error) {
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to send verification email", { email, error });
+    return { success: false, error };
+  }
+};
+
+const sendVerificationEmailWithRetry = async (
+  email: string,
+  token: string,
+  maxRetries = 3
+): Promise<{ success: boolean; error?: unknown }> => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const result = await sendVerificationEmailSafe(email, token);
+    if (result.success) {
+      return result;
+    }
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, EMAIL_RETRY_DELAY_MS));
+    }
+  }
+  return {
+    success: false,
+    error: new Error("Failed to send verification email after retries"),
+  };
+};
+
+type AuthenticatedUser = {
+  id: number;
+  role: Role;
+  clinic: { id: number };
+  branch: { id: number };
+};
+
+const generateVerificationToken = async (email: string) => {
+  await db.verificationToken.deleteMany({ where: { email } });
+  return db.verificationToken.create({
+    data: {
+      email,
+      token: randomUUID(),
+      expires: addHours(new Date(), 1),
+    },
+  });
+};
+
+const getVerificationTemplateContext = (token: string) => {
+  const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
+  if (!appUrl) {
+    throw new Error("APP_URL is not configured");
+  }
+  return {
+    verificationLink: `${appUrl}/auth/new-verification?token=${token}`,
+  } as const;
+};
+
+const createVerificationEmail = async (email: string) => {
+  const token = await generateVerificationToken(email);
+  return sendVerificationEmailWithRetry(email, token.token);
+};
+
+const formatLicenseExpiration = (value?: string | null) =>
+  value ? new Date(value) : null;
+
+const filterValidAvailability = (
+  weeklyAvailability?: Array<{
+    startDayOfWeek: number;
+    endDayOfWeek: number;
+    startTime: string;
+    endTime: string;
+  }> | null
+) =>
+  weeklyAvailability?.filter(
+    (slot) => slot.startTime !== "" && slot.endTime !== ""
+  ) ?? [];
+
+export const getClinicUsers = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<User>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+
+    const listWhere: Prisma.UserWhereInput = {
+      ...(where as Prisma.UserWhereInput),
+      clinicId: authUser.clinic.id,
+      role: {
+        notIn: ["DOCTOR", "NURSE"],
+      },
+    };
+
+    const users = await db.user.findMany({
+      ...restOptions,
+      where: listWhere,
+      orderBy: orderBy as Prisma.UserOrderByWithRelationInput,
+      include: {
+        clinicalDepartments: {
+          select: { id: true, name: true },
+        },
+        branch: {
+          select: { id: true, name: true },
+        },
+        _count: {
+          select: {
+            doctorEvents: true,
+            doctorVisits: true,
+          },
+        },
+      },
+    });
+
+    const totalCount = await db.user.count({ where: listWhere });
+    const take = restOptions.take ?? 0;
+    const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
+
     return c.json(
-      { error: "Internal Server Error" },
+      { data: users, totalCount, pageCount },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to list clinic users", { error });
+    return c.json(
+      { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
 };
 
-// Validation schemas are defined in users.validation.ts
-
-export const getUserById = async (c: Context) => {
+export const addNewUser = async (c: Context) => {
   try {
-    const { id } = c.req.param();
-    const user = await db.user.findUnique({
-      where: { id: Number(id) },
-      include: { clinic: true, branch: true },
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const body = await c.get("validatedJson");
+    const parsed = createUserSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten().fieldErrors },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { name, email, role, phone_number, password } = parsed.data;
+
+    const existingUser = await db.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return c.json(
+        { error: "User with this email already exists" },
+        httpCodes.CONFLICT as ContentfulStatusCode
+      );
+    }
+
+    const hashedPassword = await hash(password, 10);
+
+    await db.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: role as Role,
+        emailVerified: new Date(),
+        phone_number,
+        clinicId: authUser.clinic.id,
+        branchId: authUser.branch.id,
+      },
     });
-    if (!user) {
+
+    const emailResult = await createVerificationEmail(email);
+    if (!emailResult.success) {
+      logger.warn("User created but verification email failed", {
+        email,
+        error: emailResult.error,
+      });
+      return c.json(
+        {
+          success: "User created successfully, verification email pending",
+        },
+        httpCodes.CREATED as ContentfulStatusCode
+      );
+    }
+
+    return c.json(
+      { success: "User created successfully" },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to create user", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getDoctorsByDepartmentId = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const departmentIdRaw = c.req.param("departmentId");
+    const departmentId = Number.parseInt(departmentIdRaw, 10);
+    if (!Number.isFinite(departmentId) || departmentId <= 0) {
+      return c.json(
+        { error: "Invalid departmentId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const clinic = await db.clinic.findUnique({
+      where: { id: authUser.clinic.id },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const doctors = await db.user.findMany({
+      where: {
+        role: Role.DOCTOR,
+        clinicId: clinic.id,
+        clinicalDepartments: {
+          some: { id: departmentId },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    return c.json({ data: doctors }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to fetch doctors by department", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const editUser = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const userIdRaw = c.req.param("userId");
+    const userId = Number.parseInt(userIdRaw, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const body = await c.get("validatedJson");
+    const parsed = updateUserSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten().fieldErrors },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { email, name, role, phone_number, password } = parsed.data;
+
+    const existingUser = await db.user.findUnique({ where: { id: userId } });
+    if (!existingUser) {
       return c.json(
         { error: "User not found" },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    return c.json({ data: user });
-  } catch (_error) {
+    if (existingUser.clinicId !== authUser.clinic.id) {
+      return c.json(
+        { error: "You are not authorized to edit this user" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const updateData: Prisma.UserUpdateInput = {
+      name,
+      email,
+      role: role as Role,
+      phone_number,
+    };
+
+    if (password) {
+      updateData.password = await hash(password, 10);
+    }
+
+    await db.user.update({
+      where: { id: userId },
+      data: updateData,
+    });
+
     return c.json(
-      { error: "Internal Server Error" },
+      { success: "User updated successfully" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to update user", { error });
+    return c.json(
+      { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
 };
 
-export const updateUser = async (c: Context) => {
+export const deactivateUser = async (c: Context) => {
   try {
-    const { id } = c.req.param();
-    const body = await c.req.json();
-    const validatedData = updateUserSchema.parse(body);
-
-    const {
-      clinicId,
-      branchId,
-      role,
-      status,
-      highestEducation,
-      ...updateData
-    } = validatedData;
-    const data: Prisma.UserUpdateInput = {
-      ...updateData,
-      ...(role && { role: role as Role }),
-      ...(status && { status: status as UserStatus }),
-      ...(highestEducation && {
-        highestEducation: highestEducation as EducationLevel,
-      }),
-      ...(clinicId && { clinic: { connect: { id: clinicId } } }),
-      ...(branchId && { branch: { connect: { id: branchId } } }),
-    };
-
-    const user = await db.user.update({
-      where: { id: Number(id) },
-      data,
-      include: { clinic: true, branch: true },
-    });
-    return c.json({ data: user });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
       return c.json(
-        { error: "Validation error", details: error.issues },
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const userIdRaw = c.req.param("userId");
+    const userId = Number.parseInt(userIdRaw, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+
+    const targetUser = await db.user.findUnique({ where: { id: userId } });
+    if (!targetUser) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (targetUser.clinicId !== authUser.clinic.id) {
+      return c.json(
+        { error: "You are not authorized to perform this action" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    await db.user.update({
+      where: { id: userId },
+      data: { status: UserStatus.INACTIVE },
+    });
+
     return c.json(
-      { error: "Internal Server Error" },
+      { success: "User deactivated successfully" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to deactivate user", { error });
+    return c.json(
+      { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
 };
 
-export const deleteUser = async (c: Context) => {
+export const getClinicDoctors = async (c: Context) => {
   try {
-    const { id } = c.req.param();
-    await db.user.delete({ where: { id: Number(id) } });
-    return c.json({ success: true });
-  } catch (_error) {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN" && authUser.role !== "DOCTOR") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<User>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+
+    const doctorWhere: Prisma.UserWhereInput = {
+      ...(where as Prisma.UserWhereInput),
+      clinicId: authUser.clinic.id,
+      role: {
+        in: [Role.DOCTOR, Role.NURSE],
+      },
+    };
+
+    const doctors = await db.user.findMany({
+      ...restOptions,
+      where: doctorWhere,
+      orderBy: orderBy as Prisma.UserOrderByWithRelationInput,
+      include: {
+        clinicalDepartments: {
+          select: { id: true, name: true },
+        },
+        _count: {
+          select: {
+            doctorEvents: true,
+            doctorVisits: true,
+          },
+        },
+        doctorAvailabilities: {
+          select: {
+            id: true,
+            dayOfWeek: true,
+            startDayOfWeek: true,
+            endDayOfWeek: true,
+            startTime: true,
+            endTime: true,
+          },
+        },
+      },
+    });
+
+    const totalCount = await db.user.count({ where: doctorWhere });
+    const take = restOptions.take ?? 0;
+    const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
+
     return c.json(
-      { error: "Internal Server Error" },
+      { data: doctors, totalCount, pageCount },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to list clinic doctors", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const createDoctor = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const body = await c.get("validatedJson");
+    const parsed = createDoctorSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten().fieldErrors },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { weeklyAvailability, departments, ...doctorData } = parsed.data;
+
+    const hashedPassword = await hash(doctorData.password, 10);
+
+    const newDoctor = await db.$transaction(async (tx) => {
+      const doctor = await tx.user.create({
+        data: {
+          name: doctorData.name,
+          email: doctorData.email,
+          phone_number: doctorData.phone_number,
+          role: doctorData.role as Role,
+          password: hashedPassword,
+          clinicId: authUser.clinic.id,
+          branchId: authUser.branch.id,
+          emailVerified: new Date(),
+          consultationFee: doctorData.consultationFee,
+          licenseNumber: doctorData.licenseNumber,
+          licenseExpiration: formatLicenseExpiration(
+            doctorData.licenseExpiration
+          ),
+          license_document: doctorData.license_document,
+          diploma_document: doctorData.diploma_document,
+          highestEducation: doctorData.highestEducation as
+            | EducationLevel
+            | undefined,
+          clinicalDepartments: {
+            connect: departments.map((departmentId) => ({ id: departmentId })),
+          },
+        },
+      });
+
+      const availabilityData = filterValidAvailability(weeklyAvailability).map(
+        (slot) => ({
+          doctorId: doctor.id,
+          startDayOfWeek: slot.startDayOfWeek,
+          startTime: slot.startTime,
+          endDayOfWeek: slot.endDayOfWeek,
+          endTime: slot.endTime,
+        })
+      );
+
+      if (availabilityData.length > 0) {
+        await tx.doctorAvailability.createMany({ data: availabilityData });
+      }
+
+      return doctor;
+    });
+
+    const emailResult = await createVerificationEmail(doctorData.email);
+    if (!emailResult.success) {
+      logger.warn("Doctor created but verification email failed", {
+        email: doctorData.email,
+        error: emailResult.error,
+      });
+      return c.json(
+        {
+          success: "Doctor created successfully",
+          message: "Verification email will be retried",
+          doctor: {
+            id: newDoctor.id,
+            name: newDoctor.name,
+            email: newDoctor.email,
+          },
+        },
+        httpCodes.CREATED as ContentfulStatusCode
+      );
+    }
+
+    return c.json(
+      {
+        success: "Doctor created successfully",
+        doctor: {
+          id: newDoctor.id,
+          name: newDoctor.name,
+          email: newDoctor.email,
+        },
+      },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to create doctor", { error });
+    return c.json(
+      { error: "Failed to create doctor" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAllClinicDoctors = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const doctors = await db.user.findMany({
+      where: {
+        role: Role.DOCTOR,
+        clinicId: authUser.clinic.id,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    return c.json({ data: doctors }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to fetch clinic doctors", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAllBranchDoctors = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const doctors = await db.user.findMany({
+      where: {
+        role: Role.DOCTOR,
+        branchId: authUser.branch.id,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    return c.json({ data: doctors }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to fetch branch doctors", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const editDoctor = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const body = await c.get("validatedJson");
+    const parsed = editDoctorSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten().fieldErrors },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { weeklyAvailability, departments, password, ...doctorData } =
+      parsed.data;
+
+    const existingDoctor = await db.user.findUnique({
+      where: { email: doctorData.email },
+    });
+    if (!existingDoctor) {
+      return c.json(
+        { error: "Doctor not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (existingDoctor.clinicId !== authUser.clinic.id) {
+      return c.json(
+        { error: "You are not authorized to edit this doctor" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const availabilityData = filterValidAvailability(weeklyAvailability).map(
+      (slot) => ({
+        startDayOfWeek: slot.startDayOfWeek,
+        startTime: slot.startTime,
+        endDayOfWeek: slot.endDayOfWeek,
+        endTime: slot.endTime,
+      })
+    );
+
+    const updateData: Prisma.UserUpdateInput = {
+      name: doctorData.name,
+      email: doctorData.email,
+      role: doctorData.role as Role,
+      phone_number: doctorData.phone_number,
+      consultationFee: doctorData.consultationFee,
+      licenseNumber: doctorData.licenseNumber,
+      licenseExpiration: formatLicenseExpiration(doctorData.licenseExpiration),
+      license_document: doctorData.license_document,
+      diploma_document: doctorData.diploma_document,
+      highestEducation: doctorData.highestEducation as
+        | EducationLevel
+        | undefined,
+      clinicalDepartments: {
+        set: departments?.map((departmentId) => ({ id: departmentId })),
+      },
+      doctorAvailabilities: {
+        deleteMany: {},
+        createMany: {
+          data: availabilityData,
+        },
+      },
+    };
+
+    if (password) {
+      updateData.password = await hash(password, 10);
+    }
+
+    await db.user.update({
+      where: { id: existingDoctor.id },
+      data: updateData,
+    });
+
+    return c.json(
+      {
+        success: "Doctor updated successfully",
+        doctor: { id: existingDoctor.id, email: existingDoctor.email },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to update doctor", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getCashiers = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const cashiers = await db.user.findMany({
+      where: {
+        role: Role.CASHIER,
+        clinicId: authUser.clinic.id,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    return c.json({ data: cashiers }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to fetch cashiers", { error });
+    return c.json(
+      { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

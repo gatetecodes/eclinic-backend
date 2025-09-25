@@ -1,16 +1,30 @@
 import { Hono } from "hono";
 import {
-  deleteUser,
-  getUserById,
-  listUsers,
-  updateUser,
+  addNewUser,
+  createDoctor,
+  deactivateUser,
+  editDoctor,
+  editUser,
+  getAllBranchDoctors,
+  getAllClinicDoctors,
+  getCashiers,
+  getClinicDoctors,
+  getClinicUsers,
+  getDoctorsByDepartmentId,
 } from "./users.controller.ts";
 
 const router = new Hono();
 
-router.get("/", listUsers);
-router.get("/:id", getUserById);
-router.put("/:id", updateUser);
-router.delete("/:id", deleteUser);
+router.get("/clinic", getClinicUsers);
+router.get("/clinic/doctors", getClinicDoctors);
+router.get("/branch/doctors", getAllBranchDoctors);
+router.get("/doctors", getAllClinicDoctors);
+router.get("/cashiers", getCashiers);
+router.get("/department/:departmentId/doctors", getDoctorsByDepartmentId);
+router.post("/", addNewUser);
+router.post("/doctors", createDoctor);
+router.post("/:id/deactivate", deactivateUser);
+router.put("/:id", editUser);
+router.put("/doctors/:doctorId", editDoctor);
 
 export default router;

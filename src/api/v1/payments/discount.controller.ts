@@ -7,8 +7,34 @@ import { httpCodes } from "../../../lib/constants";
 export const createDiscount = async (c: Context) => {
   try {
     const user = c.get("user");
-    const paymentId = Number(c.req.param("paymentId"));
-    const { amount, reason } = c.get("validatedJson");
+    if (!user) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const paymentIdRaw = c.req.param("paymentId");
+    const paymentId = Number.parseInt(paymentIdRaw, 10);
+    const body = c.get("validatedJson") as
+      | { amount: number; reason: string }
+      | undefined;
+
+    if (!Number.isFinite(paymentId) || paymentId <= 0) {
+      return c.json(
+        { error: "Invalid paymentId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    if (!body) {
+      return c.json(
+        { error: "Request body is invalid or not validated" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { amount, reason } = body;
+
     const payment = await db.payment.findUnique({
       where: {
         id: paymentId,
@@ -17,6 +43,8 @@ export const createDiscount = async (c: Context) => {
         id: true,
         paymentStatus: true,
         patientAmount: true,
+        clinicId: true,
+        branchId: true,
       },
     });
     if (!payment) {
@@ -25,12 +53,31 @@ export const createDiscount = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
+
+    if (
+      payment.clinicId !== user.clinic.id ||
+      payment.branchId !== user.branch.id
+    ) {
+      return c.json(
+        { error: "Forbidden: you cannot act on this payment" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
     if (payment.paymentStatus !== PaymentStatus.PENDING) {
       return c.json(
         { error: "Cannot apply discount to a non-pending payment" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+
+    if (amount <= 0) {
+      return c.json(
+        { error: "Discount amount must be greater than 0" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     if (amount > Number(payment.patientAmount)) {
       return c.json(
         { error: "Discount amount cannot be greater than the patient amount" },
@@ -80,19 +127,48 @@ export const createDiscount = async (c: Context) => {
 
 export const getDiscountsForPayment = async (c: Context) => {
   try {
-    const paymentId = Number(c.req.param("paymentId"));
+    const user = c.get("user");
+    if (!user) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const paymentIdRaw = c.req.param("paymentId");
+    const paymentId = Number.parseInt(paymentIdRaw, 10);
+    if (!Number.isFinite(paymentId) || paymentId <= 0) {
+      return c.json(
+        { error: "Invalid paymentId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const payment = await db.payment.findUnique({
+      where: { id: paymentId },
+      select: { id: true, clinicId: true, branchId: true },
+    });
+    if (!payment) {
+      return c.json(
+        { error: "Payment not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (
+      payment.clinicId !== user.clinic.id ||
+      payment.branchId !== user.branch.id
+    ) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
     const discounts = await db.discount.findMany({
       where: { paymentId },
-      include: {
-        approval: true,
-      },
+      include: { approval: true },
     });
     return c.json({ data: discounts }, httpCodes.OK as ContentfulStatusCode);
-  } catch (error) {
+  } catch {
     return c.json(
-      {
-        error: error instanceof Error ? error.message : "Internal Server Error",
-      },
+      { error: "Internal Server Error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
