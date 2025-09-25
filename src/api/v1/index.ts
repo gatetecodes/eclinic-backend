@@ -11,6 +11,7 @@ import demoRequestsRouter from "./demo-requests/demo-requests.routes.ts";
 import departmentsRouter from "./departments/departments.routes.ts";
 import examsRouter from "./exams/exams.routes.ts";
 import fileUploadRouter from "./files/file-upload.routes.ts";
+import insuranceRouter from "./insurance/insurance.routes.ts";
 import insuranceClaimsRouter from "./insurance-claim/insurance-claim.routes.ts";
 import inventoryRouter from "./inventory/inventory.routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
@@ -56,5 +57,6 @@ v1.route("/appointments", appointmentsRouter);
 v1.route("/approvals", approvalsRouter);
 v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/insurance-claims", insuranceClaimsRouter);
+v1.route("/insurance", insuranceRouter);
 
 export default v1;
