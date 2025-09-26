@@ -6,7 +6,7 @@ import { getCachedData } from "../../../../services/redis.service";
 
 export const getPatientsByPhone = async (c: Context) => {
   try {
-    const phone = c.get("validatedJson");
+    const { phone } = c.get("validatedJson") as { phone: string };
     const cacheKey = `patients:phone:${phone}`;
     const patients = await getCachedData(
       cacheKey,

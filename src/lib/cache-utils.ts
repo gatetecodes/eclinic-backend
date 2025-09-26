@@ -178,6 +178,8 @@ export const invalidatePatientCache = async (patientId: number) => {
   });
 
   if (patient) {
-    await invalidateCache(`patient:phone:${patient.phoneNumber}`);
+    await invalidateCache(
+      `${CACHE_KEYS.PATIENTS}:phone:${patient.phoneNumber}`
+    );
   }
 };
