@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { AppEnv } from "../../../middlewares/auth";
-import { validate } from "../../../middlewares/validation.middleware";
+import type { AppEnv } from "../../../middlewares/auth.ts";
+import { validate } from "../../../middlewares/validation.middleware.ts";
 // core controllers
 // core controllers
 import {
@@ -26,6 +26,8 @@ import {
   getVisitExam,
   markResultsReady,
 } from "./controllers/exams.controller.ts";
+//Patient controllers
+import { getPatientsByPhone } from "./controllers/patient.controller.ts";
 // reports controllers
 import {
   exportVisits,
@@ -50,6 +52,7 @@ import {
   editVisitExamsBodySchema,
   finalizeVisitSchema,
   getHandoffParamsSchema,
+  getPatientByPhoneSchema,
   getPatientVisitsParamsSchema,
   getVisitParamsSchema,
   handoffSchema,
@@ -184,8 +187,11 @@ router.get(
   validate(getPatientVisitsParamsSchema, "param"),
   getPatientVisits
 );
-
-export default router;
+router.post(
+  "/patient-by-phone",
+  validate(getPatientByPhoneSchema, "json"),
+  getPatientsByPhone
+);
 // Handoffs
 router.post("/handoff", validate(handoffSchema, "json"), initiateHandoff);
 router.post(
@@ -207,3 +213,5 @@ router.put(
   validate(updateVisitStatusSchema, "json"),
   updateVisitStatus
 );
+
+export default router;

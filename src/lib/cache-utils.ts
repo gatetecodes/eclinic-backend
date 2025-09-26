@@ -169,3 +169,15 @@ export function invalidateAppointmentRelatedCaches({
 
   return Promise.all(cacheInvalidationPromises);
 }
+
+export const invalidatePatientCache = async (patientId: number) => {
+  // We need to get the patient's phone number first to invalidate the cache
+  const patient = await db.patient.findUnique({
+    where: { id: patientId },
+    select: { phoneNumber: true },
+  });
+
+  if (patient) {
+    await invalidateCache(`patient:phone:${patient.phoneNumber}`);
+  }
+};
