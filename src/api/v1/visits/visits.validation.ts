@@ -275,3 +275,5 @@ export const getPatientVisitsParamsSchema = z.object({ patientId: z.string() });
 export const transferVisitToDoctorSchema = z.object({
   doctorId: z.string().min(1, "Doctor is required"),
 });
+
+export const getPatientByPhoneSchema = z.object({ phone: z.string() });

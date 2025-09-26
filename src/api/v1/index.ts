@@ -19,8 +19,8 @@ import patientsRouter from "./patients/routes.ts";
 import paymentsRouter from "./payments/payments.routes.ts";
 import tariffRouter from "./tariff/tariff.routes.ts";
 // Resource routers
-import usersRouter from "./users/routes.ts";
-import visitsRouter from "./visits/routes.ts";
+import usersRouter from "./users/users.routes.ts";
+import visitsRouter from "./visits/visits.routes.ts";
 
 const v1 = new Hono();
 
