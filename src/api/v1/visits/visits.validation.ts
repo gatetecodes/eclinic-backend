@@ -276,4 +276,22 @@ export const transferVisitToDoctorSchema = z.object({
   doctorId: z.string().min(1, "Doctor is required"),
 });
 
-export const getPatientByPhoneSchema = z.object({ phone: z.string() });
+export const getPatientByPhoneSchema = z
+
+  .object({
+    phone: z.string().min(1, "Phone number is required"),
+  })
+  .superRefine((data, ctx) => {
+    const validation = phoneSchema.safeParse(data.phone);
+
+    if (!validation.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          validation.error.issues[0]?.message ??
+          "Invalid phone number format. Must be a valid Rwandan number or international format (e.g. +12345678901)",
+        path: ["phone"],
+      });
+    }
+  })
+  .transform(({ phone }) => phone);
