@@ -44,16 +44,48 @@ export async function getOrCreatePatient(
   patientData: VisitSchemaType["patient"],
   user: User
 ): Promise<{ patientId: number; isNewPatient: boolean }> {
-  const existingPatient = await db.patient.findFirst({
-    where: {
-      AND: [
-        { phoneNumber: patientData.phoneNumber },
-        { lastName: patientData.lastName },
-        { firstName: patientData.firstName },
-      ],
-    },
-    select: { id: true },
-  });
+  // Determine whether this is a child patient based on submitted data
+  const isChildPatient = patientData.isChild === true;
+
+  // Try to find an existing patient in the same clinic
+  let existingPatient = null as { id: number } | null;
+
+  if (isChildPatient) {
+    // Match child by guardian phone, name and DOB to avoid duplicates under the same guardian
+    let parsedDob: Date | undefined;
+    try {
+      parsedDob = parseDateString(patientData.dateOfBirth);
+    } catch {
+      // ignore parse errors here; creation path will handle validation errors
+    }
+
+    existingPatient = await db.patient.findFirst({
+      where: {
+        AND: [
+          { clinicId: user.clinic.id },
+          { isChild: true },
+          { guardianPhoneNumber: patientData.guardianPhoneNumber },
+          { firstName: patientData.firstName },
+          { lastName: patientData.lastName },
+          ...(parsedDob ? [{ dateOfBirth: parsedDob }] : []),
+        ] as Prisma.PatientWhereInput[],
+      },
+      select: { id: true },
+    });
+  } else {
+    // Adult patient: match by own phone number, name and clinic
+    existingPatient = await db.patient.findFirst({
+      where: {
+        AND: [
+          { clinics: { some: { id: user.clinic.id } } },
+          { phoneNumber: patientData.phoneNumber },
+          { firstName: patientData.firstName },
+          { lastName: patientData.lastName },
+        ],
+      },
+      select: { id: true },
+    });
+  }
 
   if (existingPatient) {
     //Update medical info if it is provided

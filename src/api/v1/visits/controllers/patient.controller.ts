@@ -6,6 +6,7 @@ import { getCachedData } from "../../../../services/redis.service";
 
 export const getPatientsByPhone = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { phone } = c.get("validatedJson") as { phone: string };
     const cacheKey = `patients:phone:${phone}`;
     const patients = await getCachedData(
@@ -13,7 +14,12 @@ export const getPatientsByPhone = async (c: Context) => {
       async () =>
         await db.patient.findMany({
           where: {
-            OR: [{ phoneNumber: phone }, { guardianPhoneNumber: phone }],
+            AND: [
+              { clinics: { some: { id: user.clinic.id } } },
+              {
+                OR: [{ phoneNumber: phone }, { guardianPhoneNumber: phone }],
+              },
+            ],
           },
           select: {
             id: true,
