@@ -29,7 +29,6 @@ export async function invalidateVisitRelatedCaches({
   const cacheInvalidationPromises = [
     // Invalidate all visit listings regardless of role and params
     invalidateCache(`${CACHE_KEYS.VISITS}:${clinicId}:${branchId}:*`),
-    invalidateCache(`${CACHE_KEYS.VISIT}:${visitId}`),
     // Invalidate dashboard stats
     invalidateDashboardRelatedCaches(clinicId),
   ];
@@ -64,7 +63,8 @@ export async function invalidateVisitRelatedCaches({
   if (visitId) {
     cacheInvalidationPromises.push(
       invalidateCache(`*:${visitId}:*`),
-      invalidateCache(`*visitId=${visitId}*`)
+      invalidateCache(`*visitId=${visitId}*`),
+      invalidateCache(`${CACHE_KEYS.VISIT}:${visitId}`)
     );
   }
 

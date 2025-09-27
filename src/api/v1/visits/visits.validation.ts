@@ -47,6 +47,7 @@ export const patientSchema = z.object({
   medicalInfo: vitalsSchema.optional(),
   nationality: z.string().optional(),
   isAForeigner: z.boolean().optional(),
+  isChild: z.boolean().optional().default(false),
 });
 
 export const initialCheckInSchema = z.object({

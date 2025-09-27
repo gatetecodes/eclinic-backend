@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { hash } from "bcryptjs";
-import { addHours } from "date-fns";
+import {
+  addHours,
+  addMinutes,
+  endOfDay,
+  format,
+  getDay,
+  isBefore,
+  parse,
+  startOfDay,
+  subDays,
+} from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "@/lib/constants.ts";
@@ -834,6 +844,187 @@ export const getCashiers = async (c: Context) => {
     return c.json({ data: cashiers }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     logger.error("Failed to fetch cashiers", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
+  try {
+    const user = c.get("user") as AuthenticatedUser | undefined;
+    if (!user) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const { departmentId, date, includeDoctorId } = c.get("validatedJson");
+    const clinic = await db.clinic.findUnique({
+      where: { id: +user?.clinic.id },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    // Fetch doctors in department with their schedules
+    const doctors = await db.user.findMany({
+      where: {
+        role: Role.DOCTOR,
+        clinicId: clinic.id,
+        clinicalDepartments: { some: { id: departmentId } },
+        status: UserStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        name: true,
+        doctorAvailabilities: {
+          select: {
+            id: true,
+            startDayOfWeek: true,
+            endDayOfWeek: true,
+            startTime: true,
+            endTime: true,
+          },
+        },
+      },
+    });
+
+    if (doctors.length === 0) {
+      return c.json({ data: [] }, httpCodes.OK as ContentfulStatusCode);
+    }
+
+    const targetDay = getDay(date);
+    const prevDay = getDay(subDays(date, 1));
+
+    const startOfTargetDay = startOfDay(date);
+    const endOfTargetDay = endOfDay(date);
+
+    // For each doctor, load booked appointment start times for the day
+    const doctorIds = doctors.map((d) => d.id);
+    const eventsByDoctor: Record<number, Set<string>> = {};
+    for (const doctorId of doctorIds) {
+      const existingAppointments = await db.event.findMany({
+        where: {
+          doctorId,
+          startTime: {
+            gte: startOfTargetDay,
+            lte: endOfTargetDay,
+          },
+          type: "APPOINTMENT",
+          status: { not: "CANCELLED" },
+        },
+        select: { startTime: true },
+      });
+      eventsByDoctor[doctorId] = new Set(
+        existingAppointments.map((appointment) =>
+          format(appointment.startTime, "HH:mm")
+        )
+      );
+    }
+
+    const availableDoctors: { id: number; name: string }[] = [];
+
+    for (const doc of doctors) {
+      const potentialSchedules = doc.doctorAvailabilities.filter(
+        (s) => s.startDayOfWeek === targetDay || s.startDayOfWeek === prevDay
+      );
+
+      if (potentialSchedules.length === 0) {
+        continue; // No schedule for today
+      }
+
+      const bookedTimes = eventsByDoctor[doc.id] ?? new Set<string>();
+      const hasAnyAvailable = potentialSchedules.some((schedule) => {
+        if (
+          schedule.startDayOfWeek === null ||
+          schedule.endDayOfWeek === null ||
+          schedule.startTime === null ||
+          schedule.endTime === null
+        ) {
+          return false;
+        }
+
+        const scheduleStartDate = subDays(
+          date,
+          targetDay - (schedule.startDayOfWeek as number)
+        );
+        const scheduleEndDate = subDays(
+          date,
+          targetDay - (schedule.endDayOfWeek as number)
+        );
+
+        const startTime = parse(
+          schedule.startTime as string,
+          "HH:mm",
+          scheduleStartDate
+        );
+        let endTime = parse(
+          schedule.endTime as string,
+          "HH:mm",
+          scheduleEndDate
+        );
+
+        if (isBefore(endTime, startTime)) {
+          // Overnight schedule wraps to next day
+          endTime = addMinutes(endTime, 24 * 60);
+        }
+
+        const effectiveStartTime = new Date(
+          Math.max(startTime.getTime(), startOfTargetDay.getTime())
+        );
+        const effectiveEndTime = new Date(
+          Math.min(endTime.getTime(), endOfTargetDay.getTime())
+        );
+
+        // Scan hour slots for any free slot today
+        let currentTime = new Date(effectiveStartTime);
+        // Align to hour
+        currentTime.setMinutes(0, 0, 0);
+        while (isBefore(currentTime, effectiveEndTime)) {
+          const timeSlot = format(currentTime, "HH:mm");
+          if (!bookedTimes.has(timeSlot)) {
+            return true;
+          }
+          currentTime = addMinutes(currentTime, 60);
+        }
+
+        return false;
+      });
+
+      if (hasAnyAvailable) {
+        availableDoctors.push({ id: doc.id, name: doc.name });
+      }
+    }
+
+    // Ensure included doctor is present (for edit screens)
+    if (
+      includeDoctorId &&
+      !availableDoctors.some((d) => d.id === includeDoctorId)
+    ) {
+      const extra = await db.user.findFirst({
+        where: {
+          id: includeDoctorId,
+          clinicId: clinic.id,
+          role: Role.DOCTOR,
+        },
+        select: { id: true, name: true },
+      });
+      if (extra) {
+        availableDoctors.push(extra);
+      }
+    }
+
+    return c.json(
+      { data: availableDoctors },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to fetch available doctors by department", { error });
     return c.json(
       { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode

@@ -7,6 +7,7 @@ import {
   editUser,
   getAllBranchDoctors,
   getAllClinicDoctors,
+  getAvailableDoctorsByDepartmentId,
   getCashiers,
   getClinicDoctors,
   getClinicUsers,
@@ -21,6 +22,10 @@ router.get("/branch/doctors", getAllBranchDoctors);
 router.get("/doctors", getAllClinicDoctors);
 router.get("/cashiers", getCashiers);
 router.get("/department/:departmentId/doctors", getDoctorsByDepartmentId);
+router.get(
+  "/department/:departmentId/doctors/available",
+  getAvailableDoctorsByDepartmentId
+);
 router.post("/", addNewUser);
 router.post("/doctors", createDoctor);
 router.post("/:userId/deactivate", deactivateUser);
