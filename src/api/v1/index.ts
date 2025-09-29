@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { auth } from "../../lib/auth";
 import { requireAuth } from "../../middlewares/auth";
+import { entitlementsContext } from "../../middlewares/entitlements";
+import { tenantContext } from "../../middlewares/tenant";
 import activityRouter from "./activity/routes.ts";
 import adminRouter from "./admin/routes.ts";
 import analyticsRouter from "./analytics/routes.ts";
@@ -37,6 +39,8 @@ v1.all("/auth/*", (c) => {
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
+v1.use("*", tenantContext);
+v1.use("*", entitlementsContext);
 
 // Mount resources
 v1.route("/upload", fileUploadRouter);

@@ -3,9 +3,13 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "@/lib/constants";
 import type { User } from "../lib/auth";
 import { auth } from "../lib/auth";
+import type { Entitlements } from "../types/access";
 
 export type AppVariables = {
   user: User;
+  clinicId?: number;
+  branchId?: number;
+  entitlements?: Entitlements;
 };
 
 export type AppEnv = { Variables: AppVariables };
