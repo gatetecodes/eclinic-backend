@@ -296,3 +296,91 @@ export const getPatientByPhoneSchema = z
     }
   })
   .transform(({ phone }) => phone);
+
+export const createPrescriptionSchema = z.object({
+  items: z.array(
+    z.object({
+      medicationName: z.string(),
+      dosage: z.string(),
+      frequency: z.string(),
+      duration: z.string(),
+      instructions: z.string().optional(),
+    })
+  ),
+  visitId: z.string(),
+  doctorId: z.string(),
+  followUpAppointment: z
+    .object({
+      startTime: z.string(),
+      endTime: z.string(),
+      treatment: z.string(),
+    })
+    .optional(),
+});
+
+export type CreatePrescription = z.infer<typeof createPrescriptionSchema>;
+
+export const updatePrescriptionSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.number(),
+      medicationName: z.string(),
+      dosage: z.string(),
+      frequency: z.string(),
+      duration: z.string(),
+      instructions: z.string().optional(),
+    })
+  ),
+});
+
+export type UpdatePrescription = z.infer<typeof updatePrescriptionSchema>;
+
+export const spectaclePrescriptionSchema = z.object({
+  rightEye: z.object({
+    distant: z.object({
+      sphere: z.string().optional(),
+      cylinder: z.string().optional(),
+      axis: z.string().optional(),
+    }),
+    near: z.string().optional(),
+  }),
+  leftEye: z.object({
+    distant: z.object({
+      sphere: z.string().optional(),
+      cylinder: z.string().optional(),
+      axis: z.string().optional(),
+    }),
+    near: z.string().optional(),
+  }),
+  interpupillaryDistance: z.object({
+    distant: z.string().optional(),
+    near: z.string().optional(),
+    add: z.string().optional(),
+  }),
+  lensType: z
+    .array(
+      z.enum([
+        "Unifocal",
+        "Anti-blue light",
+        "Progressive",
+        "Organic",
+        "Clear",
+        "Photochromic",
+        "Bifocal",
+        "Mineral",
+        "Reading",
+        "Titing",
+      ])
+    )
+    .optional(),
+});
+
+export const createSpectaclePrescriptionSchema = z.object({
+  prescription: spectaclePrescriptionSchema,
+  visitId: z.string(),
+  doctorId: z.string(),
+});
+
+export const updateSpectaclePrescriptionSchema = z.object({
+  prescription: spectaclePrescriptionSchema,
+});

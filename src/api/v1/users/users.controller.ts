@@ -949,14 +949,12 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
           return false;
         }
 
-        const scheduleStartDate = subDays(
-          date,
-          targetDay - (schedule.startDayOfWeek as number)
-        );
-        const scheduleEndDate = subDays(
-          date,
-          targetDay - (schedule.endDayOfWeek as number)
-        );
+        const startOffset =
+          (targetDay - (schedule.startDayOfWeek as number) + 7) % 7; // Wrap around to Sunday (0)
+        const endOffset =
+          (targetDay - (schedule.endDayOfWeek as number) + 7) % 7; // Wrap around to Sunday (0)
+        const scheduleStartDate = subDays(date, startOffset);
+        const scheduleEndDate = subDays(date, endOffset);
 
         const startTime = parse(
           schedule.startTime as string,

@@ -62,7 +62,7 @@ export async function getOrCreatePatient(
     existingPatient = await db.patient.findFirst({
       where: {
         AND: [
-          { clinicId: user.clinic.id },
+          { clinics: { some: { id: user.clinic.id } } },
           { isChild: true },
           { guardianPhoneNumber: patientData.guardianPhoneNumber },
           { firstName: patientData.firstName },
