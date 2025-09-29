@@ -28,6 +28,13 @@ import {
 } from "./controllers/exams.controller.ts";
 //Patient controllers
 import { getPatientsByPhone } from "./controllers/patient.controller.ts";
+// prescription controllers
+import {
+  createPrescription,
+  createSpectaclePrescription,
+  updatePrescription,
+  updateSpectaclePrescription,
+} from "./controllers/prescription.controller.ts";
 // reports controllers
 import {
   exportVisits,
@@ -48,6 +55,8 @@ import {
   addVisitNurseTreatmentBodySchema,
   addVisitTreatmentBodySchema,
   consultationNoteSchema,
+  createPrescriptionSchema,
+  createSpectaclePrescriptionSchema,
   editChiefComplaintSchema,
   editVisitExamsBodySchema,
   finalizeVisitSchema,
@@ -60,6 +69,8 @@ import {
   rejectHandoffBodySchema,
   transferVisitToDoctorSchema,
   updatePreConsultationRequestSchema,
+  updatePrescriptionSchema,
+  updateSpectaclePrescriptionSchema,
   updateVisitStatusSchema,
 } from "./visits.validation.ts";
 
@@ -212,6 +223,33 @@ router.put(
   validate(getVisitParamsSchema, "param"),
   validate(updateVisitStatusSchema, "json"),
   updateVisitStatus
+);
+
+// Prescriptions
+router.post(
+  "/prescription",
+  validate(createPrescriptionSchema, "json"),
+  createPrescription
+);
+
+router.put(
+  "/prescription/:prescriptionId",
+  validate(getVisitParamsSchema, "param"),
+  validate(updatePrescriptionSchema, "json"),
+  updatePrescription
+);
+
+// Spectacle prescriptions
+router.post(
+  "/spectacle-prescription",
+  validate(createSpectaclePrescriptionSchema, "json"),
+  createSpectaclePrescription
+);
+router.put(
+  "/spectacle-prescription/:prescriptionId",
+  validate(getVisitParamsSchema, "param"),
+  validate(updateSpectaclePrescriptionSchema, "json"),
+  updateSpectaclePrescription
 );
 
 export default router;
