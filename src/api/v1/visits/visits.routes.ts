@@ -63,6 +63,7 @@ import {
   getHandoffParamsSchema,
   getPatientByPhoneSchema,
   getPatientVisitsParamsSchema,
+  getPrescriptionParamsSchema,
   getVisitParamsSchema,
   handoffSchema,
   initialCheckInSchema,
@@ -234,7 +235,7 @@ router.post(
 
 router.put(
   "/prescription/:prescriptionId",
-  validate(getVisitParamsSchema, "param"),
+  validate(getPrescriptionParamsSchema, "param"),
   validate(updatePrescriptionSchema, "json"),
   updatePrescription
 );
@@ -247,7 +248,7 @@ router.post(
 );
 router.put(
   "/spectacle-prescription/:prescriptionId",
-  validate(getVisitParamsSchema, "param"),
+  validate(getPrescriptionParamsSchema, "param"),
   validate(updateSpectaclePrescriptionSchema, "json"),
   updateSpectaclePrescription
 );

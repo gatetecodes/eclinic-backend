@@ -369,7 +369,7 @@ export const spectaclePrescriptionSchema = z.object({
         "Bifocal",
         "Mineral",
         "Reading",
-        "Titing",
+        "Tinting",
       ])
     )
     .optional(),
@@ -384,3 +384,14 @@ export const createSpectaclePrescriptionSchema = z.object({
 export const updateSpectaclePrescriptionSchema = z.object({
   prescription: spectaclePrescriptionSchema,
 });
+
+export const getPrescriptionParamsSchema = z.object({
+  prescriptionId: z.string(),
+});
+
+export type CreateSpectaclePrescription = z.infer<
+  typeof createSpectaclePrescriptionSchema
+>;
+export type UpdateSpectaclePrescription = z.infer<
+  typeof updateSpectaclePrescriptionSchema
+>;
