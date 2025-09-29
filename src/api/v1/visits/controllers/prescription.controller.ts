@@ -9,16 +9,26 @@ import { httpCodes } from "../../../../lib/constants";
 import type {
   CreatePrescription,
   UpdatePrescription,
+  UpdateSpectaclePrescription,
 } from "../visits.validation";
 
 export const createPrescription = async (c: Context) => {
   try {
     const user = c.get("user");
     const validatedData = c.get("validatedJson");
+
     const { items, visitId, doctorId, followUpAppointment } = validatedData;
+    const visitIdNum = Number(visitId);
+    const doctorIdNum = Number(doctorId);
+    if (!(Number.isFinite(visitIdNum) && Number.isFinite(doctorIdNum))) {
+      return c.json(
+        { error: "Invalid visitId or doctorId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const visit = await db.visit.findUnique({
       where: {
-        id: visitId,
+        id: visitIdNum,
       },
       select: {
         id: true,
@@ -52,7 +62,7 @@ export const createPrescription = async (c: Context) => {
       const newPrescription = await tx.prescription.create({
         data: {
           clinicId: user.clinic.id,
-          doctorId,
+          doctorId: doctorIdNum,
           visitId,
           items: {
             create: items.map((item: CreatePrescription["items"][number]) => ({
@@ -71,8 +81,8 @@ export const createPrescription = async (c: Context) => {
         appointment = await tx.event.create({
           data: {
             type: EventType.APPOINTMENT,
-            startTime: followUpAppointment.startTime,
-            endTime: followUpAppointment.endTime,
+            startTime: new Date(followUpAppointment.startTime),
+            endTime: new Date(followUpAppointment.endTime),
             treatment: followUpAppointment.treatment,
             appointmentType: AppointmentType.FOLLOW_UP,
             doctor: {
@@ -99,10 +109,7 @@ export const createPrescription = async (c: Context) => {
           },
         });
         if (!appointment) {
-          return c.json(
-            { error: "Failed to create follow-up appointment!" },
-            httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-          );
+          throw new Error("Failed to create follow-up appointment!");
         }
       }
 
@@ -141,12 +148,17 @@ export const createPrescription = async (c: Context) => {
 export const updatePrescription = async (c: Context) => {
   try {
     const user = c.get("user");
-    const prescriptionId = c.req.param("prescriptionId");
-    const validatedData = c.get("validatedJson");
-    const { data } = validatedData;
+    const prescriptionId = Number(c.req.param("prescriptionId"));
+    if (!Number.isFinite(prescriptionId)) {
+      return c.json(
+        { error: "Invalid prescriptionId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const { items } = c.get("validatedJson") as UpdatePrescription;
     const prescription = await db.prescription.findUnique({
       where: {
-        id: Number(prescriptionId),
+        id: prescriptionId,
       },
     });
     if (!prescription) {
@@ -157,21 +169,19 @@ export const updatePrescription = async (c: Context) => {
     }
     const result = await db.$transaction(async (tx) => {
       const updatedPrescription = await tx.prescription.update({
-        where: { id: Number(prescriptionId) },
+        where: { id: prescriptionId },
         data: {
           items: {
-            update: data.items.map(
-              (item: UpdatePrescription["items"][number]) => ({
-                where: { id: item.id },
-                data: {
-                  medicationName: item.medicationName,
-                  dosage: item.dosage,
-                  frequency: item.frequency,
-                  duration: item.duration,
-                  instructions: item.instructions,
-                },
-              })
-            ),
+            update: items.map((item) => ({
+              where: { id: item.id },
+              data: {
+                medicationName: item.medicationName,
+                dosage: item.dosage,
+                frequency: item.frequency,
+                duration: item.duration,
+                instructions: item.instructions,
+              },
+            })),
           },
         },
       });
@@ -204,9 +214,17 @@ export const createSpectaclePrescription = async (c: Context) => {
     const user = c.get("user");
     const validatedData = c.get("validatedJson");
     const { prescription, visitId, doctorId } = validatedData;
+    const visitIdNum = Number(visitId);
+    const doctorIdNum = Number(doctorId);
+    if (!(Number.isFinite(visitIdNum) && Number.isFinite(doctorIdNum))) {
+      return c.json(
+        { error: "Invalid visitId or doctorId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const visit = await db.visit.findUnique({
       where: {
-        id: visitId,
+        id: visitIdNum,
       },
       select: {
         id: true,
@@ -231,7 +249,7 @@ export const createSpectaclePrescription = async (c: Context) => {
       const newSpectaclePrescription = await tx.spectaclePrescription.create({
         data: {
           branchId: user.branch.id,
-          doctorId,
+          doctorId: doctorIdNum,
           visitId,
           rightEye: prescription.rightEye,
           leftEye: prescription.leftEye,
@@ -272,21 +290,34 @@ export const createSpectaclePrescription = async (c: Context) => {
 
 export const updateSpectaclePrescription = async (c: Context) => {
   try {
-    const prescriptionId = c.req.param("prescriptionId");
-    const validatedData = c.get("validatedJson");
-    const { data } = validatedData;
-    const prescription = await db.spectaclePrescription.findUnique({
-      where: { id: Number(prescriptionId) },
+    const prescriptionId = Number(c.req.param("prescriptionId"));
+    if (!Number.isFinite(prescriptionId)) {
+      return c.json(
+        { error: "Invalid prescriptionId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const { prescription } = c.get(
+      "validatedJson"
+    ) as UpdateSpectaclePrescription;
+
+    const existingPrescription = await db.spectaclePrescription.findUnique({
+      where: { id: prescriptionId },
     });
-    if (!prescription) {
+    if (!existingPrescription) {
       return c.json(
         { error: "Spectacle prescription not found" },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
     const result = await db.spectaclePrescription.update({
-      where: { id: Number(prescriptionId) },
-      data,
+      where: { id: prescriptionId },
+      data: {
+        rightEye: prescription.rightEye,
+        leftEye: prescription.leftEye,
+        interpupillaryDistance: prescription.interpupillaryDistance,
+        lensType: prescription.lensType,
+      },
     });
 
     return c.json(
