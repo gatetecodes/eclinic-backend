@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { AppEnv } from "../../../middlewares/auth.ts";
-import { crudAccess } from "../../../middlewares/crud-access";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   cancelAppointment,

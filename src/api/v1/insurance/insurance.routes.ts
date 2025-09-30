@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { validate } from "@/middlewares/validation.middleware.ts";
-import type { AppEnv } from "../../../middlewares/auth.ts";
-import { crudAccess } from "../../../middlewares/crud-access";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
   createNewEmployer,
   createNewInsuranceCompany,

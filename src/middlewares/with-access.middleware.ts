@@ -1,8 +1,8 @@
 import type { MiddlewareHandler } from "hono";
 import type { Action, FeatureKey, Resource } from "@/types/access";
-import type { AppEnv } from "./auth";
-import { requireFeature } from "./feature";
-import { requirePermission } from "./rbac";
+import type { AppEnv } from "./auth.middleware";
+import { requireFeature } from "./feature.middleware";
+import { requirePermission } from "./rbac.middleware";
 
 export function withAccess(config: {
   resource?: Resource;

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AppEnv } from "../../../middlewares/auth.ts";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   createClinic,

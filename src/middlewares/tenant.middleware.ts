@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { forbidden } from "@/lib/errors";
-import type { AppEnv } from "./auth";
+import type { AppEnv } from "./auth.middleware";
 
 export const tenantContext: MiddlewareHandler<AppEnv> = async (c, next) => {
   const user = c.get("user");

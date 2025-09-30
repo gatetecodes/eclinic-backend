@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { forbidden, unauthorized } from "@/lib/errors";
 import { hasPermission } from "@/lib/permissions";
 import type { Action, Resource } from "@/types/access";
-import type { AppEnv } from "./auth";
+import type { AppEnv } from "./auth.middleware";
 
 export function requirePermission(config: {
   resource: Resource;

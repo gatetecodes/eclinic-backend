@@ -3,7 +3,7 @@ import { internalServerError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getCachedEntitlements } from "@/services/entitlements.service";
 import type { Entitlements } from "@/types/access";
-import type { AppEnv } from "./auth";
+import type { AppEnv } from "./auth.middleware";
 
 export const entitlementsContext: MiddlewareHandler<AppEnv> = async (
   c,
