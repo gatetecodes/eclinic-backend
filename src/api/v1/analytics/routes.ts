@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
   getCashFlow,
@@ -36,6 +37,7 @@ router.get(
     action: "read",
     feature: "analyticsPro",
   }),
+  requireQuota("analyticsPro", 1, "soft"),
   getCashFlow
 );
 router.get(
@@ -50,6 +52,7 @@ router.get(
     action: "read",
     feature: "analyticsPro",
   }),
+  requireQuota("analyticsPro", 1, "soft"),
   getClinicGrowthData
 );
 router.get(
@@ -59,6 +62,7 @@ router.get(
     action: "read",
     feature: "analyticsPro",
   }),
+  requireQuota("analyticsPro", 1, "soft"),
   getTopPerformingClinics
 );
 router.get(
@@ -68,6 +72,7 @@ router.get(
     action: "read",
     feature: "analyticsPro",
   }),
+  requireQuota("analyticsPro", 1, "soft"),
   getClinicsRevenue
 );
 

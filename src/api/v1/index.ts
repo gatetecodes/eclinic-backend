@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { auth } from "../../lib/auth";
 import { requireAuth } from "../../middlewares/auth.middleware.ts";
-import { entitlementsContext } from "../../middlewares/entitlements.middleare.ts";
+import { entitlementsContext } from "../../middlewares/entitlements.middleware.ts";
 import { tenantContext } from "../../middlewares/tenant.middleware.ts";
 import activityRouter from "./activity/routes.ts";
 import adminRouter from "./admin/routes.ts";

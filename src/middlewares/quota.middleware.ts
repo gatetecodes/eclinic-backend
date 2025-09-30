@@ -1,6 +1,10 @@
 import type { MiddlewareHandler } from "hono";
 import { forbidden } from "@/lib/errors";
-import { consume, getMonthlyPeriod, getUsage } from "@/services/quotas.service";
+import {
+  consume,
+  getMonthlyPeriod,
+  tryConsumeAtomic,
+} from "@/services/quotas.service";
 import type { FeatureKey } from "@/types/access";
 import type { AppEnv } from "./auth.middleware";
 
@@ -19,25 +23,42 @@ export function requireQuota(
     }
     const entitlements = c.get("entitlements");
     const clinicId = c.get("clinicId");
-    if (!entitlements || typeof clinicId !== "number") {
+    if (
+      !entitlements ||
+      typeof clinicId !== "number" ||
+      !entitlements.features[feature]
+    ) {
       return forbidden(c, "FEATURE_DISABLED", { feature });
     }
 
     const period = getMonthlyPeriod();
     const limit = entitlements.limits?.[feature];
-    const used = await getUsage(clinicId, feature, period);
-
     c.header("X-Quota-Period", period);
     if (typeof limit === "number") {
-      const remaining = Math.max(limit - used, 0);
+      // Atomic check-and-increment to avoid TOCTOU
+      const { allowed, used: newUsed } = await tryConsumeAtomic(
+        clinicId,
+        feature,
+        amount,
+        limit
+      );
       c.header("X-Quota-Limit", String(limit));
-      c.header("X-Quota-Used", String(used));
-      c.header("X-Quota-Remaining", String(remaining));
-      if (used + amount > limit && mode === "hard") {
-        return forbidden(c, "QUOTA_EXCEEDED", { feature, limit, used, period });
+      c.header("X-Quota-Used", String(newUsed));
+      c.header("X-Quota-Remaining", String(Math.max(limit - newUsed, 0)));
+      if (!allowed && mode === "hard") {
+        return forbidden(c, "QUOTA_EXCEEDED", {
+          feature,
+          limit,
+          used: newUsed,
+          period,
+        });
       }
+      // Soft mode: proceed even if not allowed
+      await next();
+      return;
     }
 
+    // No limit configured → proceed and optionally count
     await next();
     if (c.res.status >= 200 && c.res.status < 400) {
       await consume(clinicId, feature, amount, period);

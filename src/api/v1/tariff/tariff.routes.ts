@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { crudAccess } from "../../../middlewares/crud-access.middleware";
-import { validate } from "../../../middlewares/validation.middleware";
+import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
+import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   createProduct,
   getConsultationProducts,
@@ -12,14 +12,14 @@ import {
   importProductsFromCSV,
   updateProduct,
   updateProductPricing,
-} from "./tariff.controller";
+} from "./tariff.controller.ts";
 import {
   createProductSchema,
   getProductParamsSchema,
   importProductsSchema,
   updateProductPricingSchema,
   updateProductSchema,
-} from "./tariff.validation";
+} from "./tariff.validation.ts";
 
 const tariffRouter = new Hono();
 tariffRouter.use("*", crudAccess("tariff", "inventory"));
