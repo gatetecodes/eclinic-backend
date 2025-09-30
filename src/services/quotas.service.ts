@@ -24,7 +24,7 @@ export function getQuotaKey(
 
 export function getSecondsUntilEndOfMonth(date = new Date()): number {
   const resetAt = endOfMonth(date);
-  return Math.max(0, Math.ceil((resetAt.getTime() - Date.now()) / 1000));
+  return Math.max(0, Math.ceil((resetAt.getTime() - date.getTime()) / 1000));
 }
 
 export async function getUsage(
@@ -113,23 +113,20 @@ export async function tryConsumeAtomic(
     return {1, newVal}
   `;
   try {
-    const res = (await (
-      redis as unknown as {
-        eval: (
-          script: string,
-          numKeys: number,
-          ...args: (string | number)[]
-        ) => Promise<[number, number]>;
-      }
-    ).eval(lua, 1, key, amount, limit, ttlSeconds)) as unknown as [
-      number,
-      number,
-    ];
-    const allowed = res?.[0] === 1;
-    const used = Number(res?.[1] ?? 0);
+    const res = await redis.eval(lua, 1, key, amount, limit, ttlSeconds);
+    if (
+      !Array.isArray(res) ||
+      res.length !== 2 ||
+      typeof res[0] !== "number" ||
+      typeof res[1] !== "number"
+    ) {
+      throw new Error("Unexpected Redis EVAL response");
+    }
+    const allowed = res[0] === 1;
+    const used = res[1];
     return { allowed, used };
   } catch (_e) {
-    // On script failure, deny to be safe
-    return { allowed: false, used: 0 };
+    // On script failure, deny and indicate unknown usage
+    return { allowed: false, used: -1 };
   }
 }

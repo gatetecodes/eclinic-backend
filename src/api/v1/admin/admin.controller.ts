@@ -88,29 +88,31 @@ export const upsertClinicEntitlementOverrides = async (c: Context) => {
     const body = c.get("validatedJson");
     const { overrides } = body;
 
-    await db.$transaction(async (tx) =>
-      overrides.map(
-        async (ov: {
-          featureKey: string;
-          allowed?: boolean;
-          limit?: number;
-          notes?: string;
-        }) =>
-          await tx.entitlementOverride.upsert({
-            where: {
-              clinicId_featureKey: { clinicId, featureKey: ov.featureKey },
-            },
-            update: { allowed: ov.allowed, limit: ov.limit, notes: ov.notes },
-            create: {
-              clinicId,
-              featureKey: ov.featureKey,
-              allowed: ov.allowed,
-              limit: ov.limit,
-              notes: ov.notes,
-            },
-          })
-      )
-    );
+    await db.$transaction(async (tx) => {
+      await Promise.all(
+        overrides.map(
+          async (ov: {
+            featureKey: string;
+            allowed?: boolean;
+            limit?: number;
+            notes?: string;
+          }) =>
+            await tx.entitlementOverride.upsert({
+              where: {
+                clinicId_featureKey: { clinicId, featureKey: ov.featureKey },
+              },
+              update: { allowed: ov.allowed, limit: ov.limit, notes: ov.notes },
+              create: {
+                clinicId,
+                featureKey: ov.featureKey,
+                allowed: ov.allowed,
+                limit: ov.limit,
+                notes: ov.notes,
+              },
+            })
+        )
+      );
+    });
 
     await invalidateEntitlements(clinicId);
     return c.json(
