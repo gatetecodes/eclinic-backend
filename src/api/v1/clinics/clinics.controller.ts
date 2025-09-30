@@ -11,6 +11,7 @@ import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { invalidateEntitlements } from "../../../services/entitlements.service";
 import { clinicSchema } from "./clinics.validation";
 
 export const getClinics = async (c: Context) => {
@@ -138,6 +139,113 @@ export const getClinicById = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const updateClinic = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const { id } = c.req.param();
+    const clinicId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data,
+    });
+
+    // Invalidate entitlements if subscription plan, status or expiry date is updated
+    if (
+      "subscriptionPlan" in data ||
+      "subscriptionStatus" in data ||
+      "subscriptionExpiryDate" in data
+    ) {
+      await invalidateEntitlements(clinicId);
+    }
+    return c.json({
+      status: httpCodes.OK,
+      message: "Clinic updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const updateClinicAdmin = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const { id } = c.req.param();
+    const clinicId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data,
+    });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Clinic admin updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const updateClinicSubscriptionStatus = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const { id } = c.req.param();
+    const clinicId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data,
+    });
+
+    // Invalidate entitlements if subscription status is updated
+    if ("subscriptionStatus" in data) {
+      await invalidateEntitlements(clinicId);
+    }
+    return c.json({
+      status: httpCodes.OK,
+      message: "Clinic subscription status updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
