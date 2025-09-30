@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { withAccess } from "@/middlewares/with-access.ts";
-import type { AppEnv } from "../../../middlewares/auth.ts";
-import { crudAccess } from "../../../middlewares/crud-access.ts";
+import { withAccess } from "@/middlewares/with-access.middleware.ts";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
   addNewUser,
   createDoctor,

@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { forbidden, unauthorized } from "@/lib/errors";
 import { hasPermission } from "@/lib/permissions";
 import type { Action, FeatureKey, Resource } from "@/types/access";
-import type { AppEnv } from "./auth";
+import type { AppEnv } from "./auth.middleware";
 
 function methodToAction(method: string): Action {
   switch (method) {

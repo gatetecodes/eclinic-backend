@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AppEnv } from "../../../middlewares/auth";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import {
   createApprovalRequest,
   getApprovalRequests,

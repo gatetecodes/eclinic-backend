@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { AppEnv } from "../../../middlewares/auth";
-import { withAccess } from "../../../middlewares/with-access";
+import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
   getCashFlow,
   getClinicGrowthData,

@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { auth } from "../../lib/auth";
-import { requireAuth } from "../../middlewares/auth";
-import { entitlementsContext } from "../../middlewares/entitlements";
-import { tenantContext } from "../../middlewares/tenant";
+import { requireAuth } from "../../middlewares/auth.middleware.ts";
+import { entitlementsContext } from "../../middlewares/entitlements.middleare.ts";
+import { tenantContext } from "../../middlewares/tenant.middleware.ts";
 import activityRouter from "./activity/routes.ts";
 import adminRouter from "./admin/routes.ts";
 import analyticsRouter from "./analytics/routes.ts";

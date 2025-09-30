@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from "hono";
 import { forbidden, unauthorized } from "@/lib/errors";
 import type { FeatureKey } from "@/types/access";
-import type { AppEnv } from "./auth";
+import type { AppEnv } from "./auth.middleware";
 
 export function requireFeature(feature: FeatureKey): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

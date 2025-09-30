@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { crudAccess } from "../../../middlewares/crud-access";
+import { crudAccess } from "../../../middlewares/crud-access.middleware";
 import { validate } from "../../../middlewares/validation.middleware";
 import {
   createProduct,

@@ -1,7 +1,7 @@
 import { isAfter } from "date-fns";
 import { db } from "../database/db";
 import { FEATURE_MATRIX } from "../lib/entitlements-matrix";
-import type { Entitlements } from "../types/access";
+import type { Entitlements, FeatureKey } from "../types/access";
 import redis, { DEFAULT_CACHE_TTL } from "./redis.service";
 
 const ENTITLEMENTS_CACHE_PREFIX = "entitlements:clinic";
@@ -51,10 +51,42 @@ export async function computeClinicEntitlements(
     ? "EXPIRED"
     : (clinic.subscriptionStatus as unknown as Entitlements["status"]);
 
-  return toEntitlements(
+  const base = toEntitlements(
     clinic.subscriptionPlan as keyof typeof FEATURE_MATRIX,
     status
   );
+
+  // Apply overrides (allow/deny and limits)
+  const overrides = await db.entitlementOverride.findMany({
+    where: { clinicId },
+    select: { featureKey: true, allowed: true, limit: true },
+  });
+
+  const mergedFeatures: Record<FeatureKey, boolean> = {
+    ...base.features,
+  } as Record<FeatureKey, boolean>;
+  for (const ov of overrides) {
+    const key = ov.featureKey as FeatureKey;
+    if (ov.allowed === true) {
+      mergedFeatures[key] = true;
+    }
+    if (ov.allowed === false) {
+      mergedFeatures[key] = false;
+    }
+  }
+
+  const limits: Record<FeatureKey, number | undefined> = {} as Record<
+    FeatureKey,
+    number | undefined
+  >;
+  for (const ov of overrides) {
+    const key = ov.featureKey as FeatureKey;
+    if (typeof ov.limit === "number") {
+      limits[key] = ov.limit;
+    }
+  }
+
+  return { status: base.status, features: mergedFeatures, limits };
 }
 
 export async function getCachedEntitlements(

@@ -54,6 +54,7 @@ export type EntitlementStatus = "ACTIVE" | "TRIAL" | "INACTIVE" | "EXPIRED";
 export type Entitlements = {
   features: Record<FeatureKey, boolean>;
   status: EntitlementStatus;
+  limits?: Record<FeatureKey, number | undefined>;
 };
 
 // Helper shape describing plan-based feature matrix entries
