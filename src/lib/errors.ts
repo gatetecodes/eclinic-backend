@@ -26,3 +26,11 @@ export function forbidden(
     httpCodes.FORBIDDEN as ContentfulStatusCode
   );
 }
+
+export function internalServerError(c: Context) {
+  logger.error("internal_server_error", { reason: "INTERNAL_SERVER_ERROR" });
+  return c.json(
+    { error: "Internal Server Error", status: httpCodes.INTERNAL_SERVER_ERROR },
+    httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  );
+}

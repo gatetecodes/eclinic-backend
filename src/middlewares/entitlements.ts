@@ -1,6 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { httpCodes } from "@/lib/constants";
+import { internalServerError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getCachedEntitlements } from "@/services/entitlements.service";
 import type { Entitlements } from "@/types/access";
@@ -25,13 +24,7 @@ export const entitlementsContext: MiddlewareHandler<AppEnv> = async (
     entitlements = await getCachedEntitlements(clinicId);
   } catch (error) {
     logger.error("Error getting entitlements", { error });
-    return c.json(
-      {
-        error: "Error getting entitlements",
-        status: httpCodes.INTERNAL_SERVER_ERROR,
-      },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    return internalServerError(c);
   }
   c.set("entitlements", entitlements);
 

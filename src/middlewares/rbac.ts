@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { forbidden } from "@/lib/errors";
+import { forbidden, unauthorized } from "@/lib/errors";
 import { hasPermission } from "@/lib/permissions";
 import type { Action, Resource } from "@/types/access";
 import type { AppEnv } from "./auth";
@@ -10,6 +10,9 @@ export function requirePermission(config: {
 }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const user = c.get("user");
+    if (!user) {
+      return unauthorized(c);
+    }
     if (user.role === "SUPER_ADMIN") {
       await next();
       return;
