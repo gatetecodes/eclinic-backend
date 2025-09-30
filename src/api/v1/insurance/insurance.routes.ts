@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { validate } from "@/middlewares/validation.middleware.ts";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import {
   createNewEmployer,
   createNewInsuranceCompany,
@@ -17,6 +18,7 @@ import {
 } from "./insurance.validation.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("insurance", "insuranceClaims"));
 
 router.get("/employers", getEmployersList);
 router.get("/insurance-companies", getInsuranceCompaniesList);

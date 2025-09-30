@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import {
   deleteInventoryItem,
   getAvailableBatches,
@@ -12,6 +13,7 @@ import {
 } from "./inventory.controller.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("inventory"));
 
 router.get("/", getInventoryItems);
 router.get("/list", getInventoryItemsList);

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { crudAccess } from "../../../middlewares/crud-access";
 import { validate } from "../../../middlewares/validation.middleware";
 import {
   createProduct,
@@ -21,6 +22,7 @@ import {
 } from "./tariff.validation";
 
 const tariffRouter = new Hono();
+tariffRouter.use("*", crudAccess("tariff", "inventory"));
 
 // Tariff routes
 tariffRouter.get("/", getTariff);

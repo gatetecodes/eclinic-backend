@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   createDiscount,
@@ -13,6 +14,7 @@ import {
 import { markPaymentAsPaidSchema } from "./payments.validation.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("payments"));
 
 router.get("/", getPayments);
 router.get("/export", exportPayments);
