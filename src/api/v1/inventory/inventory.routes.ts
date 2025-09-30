@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
-import { crudAccess } from "../../../middlewares/crud-access";
+import { crudAccess } from "../../../middlewares/crud-access.ts";
 import {
   deleteInventoryItem,
   getAvailableBatches,

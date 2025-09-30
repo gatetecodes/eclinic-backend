@@ -54,7 +54,12 @@ router.post(
 );
 
 // Get exam by ID
-router.get("/:id", validate(getExamParamsSchema, "param"), getExamById);
+router.get(
+  "/:id",
+  validate(getExamParamsSchema, "param"),
+  ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
+  getExamById
+);
 
 // Update exam
 router.put(

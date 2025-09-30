@@ -1,5 +1,7 @@
 import { Hono } from "hono";
-import { crudAccess } from "../../../middlewares/crud-access";
+import { withAccess } from "@/middlewares/with-access.ts";
+import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access.ts";
 import {
   addNewUser,
   createDoctor,
@@ -15,7 +17,8 @@ import {
   getDoctorsByDepartmentId,
 } from "./users.controller.ts";
 
-const router = new Hono();
+const router = new Hono<AppEnv>();
+
 router.use("*", crudAccess("users"));
 
 router.get("/clinic", getClinicUsers);
@@ -30,7 +33,11 @@ router.get(
 );
 router.post("/", addNewUser);
 router.post("/doctors", createDoctor);
-router.post("/:userId/deactivate", deactivateUser);
+router.post(
+  "/:userId/deactivate",
+  ...withAccess({ resource: "users", action: "update", feature: "users" }),
+  deactivateUser
+);
 router.put("/:userId", editUser);
 router.put("/doctors/:doctorId", editDoctor);
 
