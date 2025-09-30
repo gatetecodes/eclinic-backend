@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   cancelAppointment,
@@ -21,6 +22,7 @@ import {
 } from "./appointments.validation.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("appointments", "visits"));
 
 // Availability
 router.get(

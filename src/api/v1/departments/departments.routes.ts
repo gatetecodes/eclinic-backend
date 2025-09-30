@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   createClinicDepartments,
@@ -20,6 +21,7 @@ import {
 } from "./departments.validation.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("departments", "visits"));
 
 // Get all departments (with filtering and pagination)
 router.get("/", getDepartments);

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { crudAccess } from "../../../middlewares/crud-access";
 import {
   addNewUser,
   createDoctor,
@@ -15,6 +16,7 @@ import {
 } from "./users.controller.ts";
 
 const router = new Hono();
+router.use("*", crudAccess("users"));
 
 router.get("/clinic", getClinicUsers);
 router.get("/clinic/doctors", getClinicDoctors);

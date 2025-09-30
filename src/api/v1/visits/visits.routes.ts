@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.ts";
+import { crudAccess } from "../../../middlewares/crud-access";
 import { validate } from "../../../middlewares/validation.middleware.ts";
+import { withAccess } from "../../../middlewares/with-access";
 // core controllers
 // core controllers
 import {
@@ -76,6 +78,7 @@ import {
 } from "./visits.validation.ts";
 
 const router = new Hono<AppEnv>();
+router.use("*", crudAccess("visits", "visits"));
 
 router.get("/", listVisits);
 router.get("/:id", validate(getVisitParamsSchema, "param"), getVisitById);
@@ -229,6 +232,7 @@ router.put(
 // Prescriptions
 router.post(
   "/prescription",
+  ...withAccess({ resource: "prescription", action: "create" }),
   validate(createPrescriptionSchema, "json"),
   createPrescription
 );
@@ -237,6 +241,11 @@ router.put(
   "/prescription/:prescriptionId",
   validate(getPrescriptionParamsSchema, "param"),
   validate(updatePrescriptionSchema, "json"),
+  ...withAccess({
+    resource: "prescription",
+    action: "update",
+    feature: "printPrescription",
+  }),
   updatePrescription
 );
 
