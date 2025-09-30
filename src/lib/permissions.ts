@@ -1,4 +1,4 @@
-import type { Role, User } from "../../generated/prisma";
+import type { Role } from "../../generated/prisma";
 import type { Action, Resource } from "../types/access";
 
 export type PermissionConfig = Partial<
@@ -81,14 +81,22 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
   },
 };
 
+function isRole(value: string): value is Role {
+  return value in ROLE_PERMISSIONS;
+}
+
 export function hasPermission(
-  user: User,
+  user: { role: string },
   resource: Resource,
   action: Action
 ): boolean {
   // SUPER_ADMIN bypasses all checks
   if (user.role === "SUPER_ADMIN") {
     return true;
+  }
+
+  if (!isRole(user.role)) {
+    return false;
   }
 
   const roleConfig = ROLE_PERMISSIONS[user.role];
