@@ -85,6 +85,10 @@ export async function computeClinicEntitlements(
   >;
   for (const ov of overrides) {
     const key = ov.featureKey as FeatureKey;
+    if (!(key in mergedFeatures)) {
+      //Skip invalid/unknown feature keys
+      continue;
+    }
     if (typeof ov.limit === "number") {
       limits[key] = ov.limit;
     }
