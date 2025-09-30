@@ -6,9 +6,10 @@ import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   getClinicEntitlementOverrides,
   getClinicEntitlements,
+  getEntitlementUsageSummary,
+  getStats,
   upsertClinicEntitlementOverrides,
-} from "./admin.controller";
-import { getStats } from "./admin.controller.ts";
+} from "./admin.controller.ts";
 
 const router = new Hono<AppEnv>();
 
@@ -27,6 +28,8 @@ const overridesSchema = z.object({
     )
     .min(1),
 });
+
+router.get("/entitlements/usage/summary", getEntitlementUsageSummary);
 
 router.get("/clinics/:id/entitlements", getClinicEntitlements);
 

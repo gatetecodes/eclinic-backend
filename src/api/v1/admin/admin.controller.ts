@@ -39,7 +39,10 @@ export const getClinicEntitlements = async (c: Context) => {
   try {
     const clinicId = Number(c.req.param("id"));
     if (!Number.isFinite(clinicId)) {
-      return c.json({ error: "Bad clinic id" }, 400);
+      return c.json(
+        { error: "Bad clinic id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
     const entitlements = await getCachedEntitlements(clinicId);
     return c.json({ data: entitlements }, httpCodes.OK as ContentfulStatusCode);
@@ -85,35 +88,53 @@ export const upsertClinicEntitlementOverrides = async (c: Context) => {
     const body = c.get("validatedJson");
     const { overrides } = body;
 
-    await db.$transaction(async (tx) => {
-      for (const ov of overrides) {
-        const existing = await tx.entitlementOverride.findFirst({
-          where: { clinicId, featureKey: ov.featureKey },
-          select: { id: true },
-        });
-        if (existing?.id) {
-          await tx.entitlementOverride.update({
-            where: { id: existing.id },
-            data: { allowed: ov.allowed, limit: ov.limit, notes: ov.notes },
-          });
-        } else {
-          await tx.entitlementOverride.create({
-            data: {
+    await db.$transaction(async (tx) =>
+      overrides.map(
+        async (ov: {
+          featureKey: string;
+          allowed?: boolean;
+          limit?: number;
+          notes?: string;
+        }) =>
+          await tx.entitlementOverride.upsert({
+            where: {
+              clinicId_featureKey: { clinicId, featureKey: ov.featureKey },
+            },
+            update: { allowed: ov.allowed, limit: ov.limit, notes: ov.notes },
+            create: {
               clinicId,
               featureKey: ov.featureKey,
               allowed: ov.allowed,
               limit: ov.limit,
               notes: ov.notes,
             },
-          });
-        }
-      }
-    });
+          })
+      )
+    );
+
     await invalidateEntitlements(clinicId);
     return c.json(
       { success: true, message: "Entitlement overrides updated successfully" },
       httpCodes.OK as ContentfulStatusCode
     );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getEntitlementUsageSummary = async (c: Context) => {
+  try {
+    const period = new Date().toISOString().slice(0, 7);
+    const rows = await db.entitlementUsage.findMany({
+      where: { period },
+      select: { clinicId: true, featureKey: true, count: true },
+    });
+    return c.json({ data: rows }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     return c.json(
       {

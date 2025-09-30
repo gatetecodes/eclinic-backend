@@ -67,6 +67,10 @@ export async function computeClinicEntitlements(
   } as Record<FeatureKey, boolean>;
   for (const ov of overrides) {
     const key = ov.featureKey as FeatureKey;
+    if (!(key in mergedFeatures)) {
+      //Skip invalid/unknown feature keys
+      continue;
+    }
     if (ov.allowed === true) {
       mergedFeatures[key] = true;
     }

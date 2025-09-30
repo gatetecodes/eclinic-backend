@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
+import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 // core controllers
@@ -246,6 +247,7 @@ router.put(
     action: "update",
     feature: "printPrescription",
   }),
+  requireQuota("printPrescription", 1, "soft"),
   updatePrescription
 );
 

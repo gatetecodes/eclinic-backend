@@ -102,6 +102,7 @@ model EntitlementOverride {
     notes      String?
     updatedAt  DateTime @updatedAt
 
+    @@unique([clinicId, featureKey])
     @@index([clinicId])
 }
 
