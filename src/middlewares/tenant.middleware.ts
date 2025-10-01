@@ -4,8 +4,8 @@ import type { AppEnv } from "./auth.middleware";
 
 export const tenantContext: MiddlewareHandler<AppEnv> = async (c, next) => {
   const user = c.get("user");
-  const clinicId = user?.clinic?.id;
-  const branchId = user?.branch?.id;
+  const clinicId = user?.clinicId ?? user?.clinic?.id;
+  const branchId = user?.branchId ?? user?.branch?.id;
 
   if (!clinicId) {
     if (user?.role === "SUPER_ADMIN") {

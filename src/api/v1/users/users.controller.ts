@@ -78,8 +78,8 @@ const sendVerificationEmailWithRetry = async (
 type AuthenticatedUser = {
   id: number;
   role: Role;
-  clinic: { id: number };
-  branch: { id: number };
+  clinicId?: number;
+  branchId?: number;
 };
 
 const generateVerificationToken = async (email: string) => {
@@ -145,7 +145,7 @@ export const getClinicUsers = async (c: Context) => {
 
     const listWhere: Prisma.UserWhereInput = {
       ...(where as Prisma.UserWhereInput),
-      clinicId: authUser.clinic.id,
+      clinicId: authUser.clinicId,
       role: {
         notIn: ["DOCTOR", "NURSE"],
       },
@@ -233,8 +233,8 @@ export const addNewUser = async (c: Context) => {
         role: role as Role,
         emailVerified: new Date(),
         phone_number,
-        clinicId: authUser.clinic.id,
-        branchId: authUser.branch.id,
+        clinicId: authUser.clinicId,
+        branchId: authUser.branchId,
       },
     });
 
@@ -285,7 +285,7 @@ export const getDoctorsByDepartmentId = async (c: Context) => {
     }
 
     const clinic = await db.clinic.findUnique({
-      where: { id: authUser.clinic.id },
+      where: { id: authUser.clinicId },
     });
     if (!clinic) {
       return c.json(
@@ -359,7 +359,7 @@ export const editUser = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    if (existingUser.clinicId !== authUser.clinic.id) {
+    if (existingUser.clinicId !== authUser.clinicId) {
       return c.json(
         { error: "You are not authorized to edit this user" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -427,7 +427,7 @@ export const deactivateUser = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    if (targetUser.clinicId !== authUser.clinic.id) {
+    if (targetUser.clinicId !== authUser.clinicId) {
       return c.json(
         { error: "You are not authorized to perform this action" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -474,7 +474,7 @@ export const getClinicDoctors = async (c: Context) => {
 
     const doctorWhere: Prisma.UserWhereInput = {
       ...(where as Prisma.UserWhereInput),
-      clinicId: authUser.clinic.id,
+      clinicId: authUser.clinicId,
       role: {
         in: [Role.DOCTOR, Role.NURSE],
       },
@@ -572,8 +572,8 @@ export const createDoctor = async (c: Context) => {
           phone_number: doctorData.phone_number,
           role: doctorData.role as Role,
           password: hashedPassword,
-          clinicId: authUser.clinic.id,
-          branchId: authUser.branch.id,
+          clinicId: authUser.clinicId,
+          branchId: authUser.branchId,
           emailVerified: new Date(),
           consultationFee: doctorData.consultationFee,
           licenseNumber: doctorData.licenseNumber,
@@ -657,10 +657,41 @@ export const addDoctorAvailability = async (c: Context) => {
         httpCodes.UNAUTHORIZED as ContentfulStatusCode
       );
     }
+    const doctorIdRaw = c.req.param("id");
+    const doctorId = Number.parseInt(doctorIdRaw, 10);
+    if (!Number.isFinite(doctorId) || doctorId <= 0) {
+      return c.json(
+        { error: "Invalid doctorId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const doctor = await db.user.findUnique({
+      where: { id: doctorId },
+      select: { id: true, clinicId: true, role: true },
+    });
+    if (!doctor) {
+      return c.json(
+        { error: "Doctor not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (doctor.clinicId !== authUser.clinicId) {
+      return c.json(
+        { error: "You are not authorized to add availability for this doctor" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    if (doctor.role !== Role.DOCTOR) {
+      return c.json(
+        { error: "User is not a doctor" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const body = await c.get("validatedJson");
     const valid = filterValidAvailability(body.weeklyAvailability).map(
       (slot) => ({
-        doctorId: authUser.id,
+        doctorId: doctor.id,
         startDayOfWeek: slot.startDayOfWeek,
         startTime: slot.startTime,
         endDayOfWeek: slot.endDayOfWeek,
@@ -696,6 +727,38 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
         httpCodes.UNAUTHORIZED as ContentfulStatusCode
       );
     }
+    const doctorIdRaw = c.req.param("id");
+    const doctorId = Number.parseInt(doctorIdRaw, 10);
+    if (!Number.isFinite(doctorId) || doctorId <= 0) {
+      return c.json(
+        { error: "Invalid doctorId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const doctor = await db.user.findUnique({
+      where: { id: doctorId },
+      select: { id: true, clinicId: true, role: true },
+    });
+    if (!doctor) {
+      return c.json(
+        { error: "Doctor not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (doctor.clinicId !== authUser.clinicId) {
+      return c.json(
+        {
+          error: "You are not authorized to assign departments to this doctor",
+        },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    if (doctor.role !== Role.DOCTOR) {
+      return c.json(
+        { error: "User is not a doctor" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const body = await c.get("validatedJson");
     const validDepartments = await db.clinicalDepartment.findMany({
       where: { id: { in: body.departments } },
@@ -708,7 +771,7 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
       );
     }
     await db.user.update({
-      where: { id: authUser.id },
+      where: { id: doctor.id },
       data: {
         clinicalDepartments: {
           connect: validDepartments.map((department) => ({
@@ -743,7 +806,7 @@ export const getAllClinicDoctors = async (c: Context) => {
     const doctors = await db.user.findMany({
       where: {
         role: Role.DOCTOR,
-        clinicId: authUser.clinic.id,
+        clinicId: authUser.clinicId,
       },
       select: {
         id: true,
@@ -774,7 +837,7 @@ export const getAllBranchDoctors = async (c: Context) => {
     const doctors = await db.user.findMany({
       where: {
         role: Role.DOCTOR,
-        branchId: authUser.branch.id,
+        branchId: authUser.branchId,
       },
       select: {
         id: true,
@@ -837,7 +900,7 @@ export const editDoctor = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    if (existingDoctor.clinicId !== authUser.clinic.id) {
+    if (existingDoctor.clinicId !== authUser.clinicId) {
       return c.json(
         { error: "You are not authorized to edit this doctor" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -915,7 +978,7 @@ export const getCashiers = async (c: Context) => {
     const cashiers = await db.user.findMany({
       where: {
         role: Role.CASHIER,
-        clinicId: authUser.clinic.id,
+        clinicId: authUser.clinicId,
       },
       select: {
         id: true,
@@ -944,7 +1007,7 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
     }
     const { departmentId, date, includeDoctorId } = c.get("validatedJson");
     const clinic = await db.clinic.findUnique({
-      where: { id: +user?.clinic.id },
+      where: { id: Number(user?.clinicId) },
     });
     if (!clinic) {
       return c.json(
