@@ -11,7 +11,9 @@ import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { logger } from "../../../lib/logger";
 import { invalidateEntitlements } from "../../../services/entitlements.service";
+import { createVerificationEmail } from "../users/users.controller";
 import { clinicSchema } from "./clinics.validation";
 
 export const getClinics = async (c: Context) => {
@@ -196,14 +198,43 @@ export const updateClinicAdmin = async (c: Context) => {
     const { id } = c.req.param();
     const clinicId = Number.parseInt(id, 10);
     const data = c.get("validatedJson");
-    const updatedClinic = await db.clinic.update({
-      where: { id: clinicId },
+    const clinicAdmin = await db.user.findFirst({
+      where: { id: data.admin.id, clinicId },
+    });
+    if (!clinicAdmin) {
+      return c.json(
+        { error: "Clinic admin not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const updatedClinicAdmin = await db.user.update({
+      where: { id: clinicAdmin.id },
       data,
     });
+
+    if (data.admin.email) {
+      await db.account.updateMany({
+        where: { userId: clinicAdmin.id },
+        data: { accountId: data.admin.email },
+      });
+
+      // Send verification email for new admin email
+      const emailResult = await createVerificationEmail(data.admin.email);
+      if (!emailResult.success) {
+        logger.warn(
+          "Clinic admin email updated but verification email failed",
+          {
+            email: data.admin.email,
+            error: emailResult.error,
+          }
+        );
+      }
+    }
+
     return c.json({
       status: httpCodes.OK,
       message: "Clinic admin updated successfully",
-      data: updatedClinic,
+      data: updatedClinicAdmin,
     });
   } catch (error) {
     return c.json(

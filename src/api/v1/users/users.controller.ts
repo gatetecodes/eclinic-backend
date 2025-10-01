@@ -103,7 +103,7 @@ const getVerificationTemplateContext = (token: string) => {
   } as const;
 };
 
-const createVerificationEmail = async (email: string) => {
+export const createVerificationEmail = async (email: string) => {
   const token = await generateVerificationToken(email);
   return sendVerificationEmailWithRetry(email, token.token);
 };
@@ -643,6 +643,88 @@ export const createDoctor = async (c: Context) => {
     logger.error("Failed to create doctor", { error });
     return c.json(
       { error: "Failed to create doctor" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const addDoctorAvailability = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const body = await c.get("validatedJson");
+    const valid = filterValidAvailability(body.weeklyAvailability).map(
+      (slot) => ({
+        doctorId: authUser.id,
+        startDayOfWeek: slot.startDayOfWeek,
+        startTime: slot.startTime,
+        endDayOfWeek: slot.endDayOfWeek,
+        endTime: slot.endTime,
+      })
+    );
+    if (valid.length === 0) {
+      return c.json(
+        { error: "Invalid weekly availability" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    await db.doctorAvailability.createMany({ data: valid });
+    return c.json(
+      { success: "Doctor availability added successfully" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to add doctor availability", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const assignDepartmentsToDoctor = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const body = await c.get("validatedJson");
+    const validDepartments = await db.clinicalDepartment.findMany({
+      where: { id: { in: body.departments } },
+      select: { id: true },
+    });
+    if (validDepartments.length !== body.departments.length) {
+      return c.json(
+        { error: "Invalid departments" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    await db.user.update({
+      where: { id: authUser.id },
+      data: {
+        clinicalDepartments: {
+          connect: validDepartments.map((department) => ({
+            id: department.id,
+          })),
+        },
+      },
+    });
+    return c.json(
+      { success: "Departments assigned to doctor successfully" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to assign departments to doctor", { error });
+    return c.json(
+      { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
