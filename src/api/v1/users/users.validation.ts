@@ -78,7 +78,7 @@ const weeklyAvailabilitySchema = z
 export const createDoctorSchema = z
   .object({
     name: z.string().min(1),
-    email: z.string().email(),
+    email: z.email(),
     password: z.string().min(8),
     role: z.enum(["DOCTOR", "NURSE"]),
     phone_number: z.string().min(10),
