@@ -25,6 +25,30 @@ const InsuranceCompanies = {
   UBUZIMA_BWIZA: "UBUZIMA BWIZA",
 };
 
+const DefaultDepartments = {
+  CARDIOLOGY: "CARDIOLOGY",
+  DERMATOLOGY: "DERMATOLOGY",
+  GENERAL_MEDICINE: "GENERAL MEDICINE",
+  GYNECOLOGY_OBSTETRICS: "GYNECOLOGY & OBSTETRICS",
+  LABORATORY: "LABORATORY",
+  NURSING: "NURSING",
+  PEDIATRICS: "PEDIATRICS",
+  RADIOLOGY: "RADIOLOGY",
+  UROLOGY: "UROLOGY",
+  VIROLOGY: "VIROLOGY",
+  DENTISTRY: "DENTISTRY",
+  NEUROLOGY: "NEUROLOGY",
+  ONCOLOGY: "ONCOLOGY",
+  ORTHOPEDICS: "ORTHOPEDICS",
+  PSYCHIATRY: "PSYCHIATRY",
+  OPHTHALMOLOGY: "OPHTHALMOLOGY",
+  ENT: "ENT",
+  INTENSIVE_CARE: "INTENSIVE CARE UNIT (ICU)",
+  ANESTHESIOLOGY: "ANESTHESIOLOGY",
+  GENERAL_SURGERY: "GENERAL SURGERY",
+  PLASTIC_SURGERY: "PLASTIC SURGERY",
+};
+
 const SpecialInsurers = {
   RSSB: "RSSB",
   MMI: "MMI",
@@ -256,24 +280,24 @@ const insuranceCompanySeed = async () => {
   }
 };
 
-// const departmentSeed = async () => {
-//   try {
-//     const departments = Object.values(DefaultDepartments);
-//     for (const department of departments) {
-//       await db.clinicalDepartment.upsert({
-//         where: { name: department },
-//         update: {},
-//         create: {
-//           name: department,
-//           isActive: true,
-//         },
-//       });
-//     }
-//     console.log("Departments created successfully");
-//   } catch (error) {
-//     console.error(error);
-//   }
-// };
+const departmentSeed = async () => {
+  try {
+    const departments = Object.values(DefaultDepartments);
+    for (const department of departments) {
+      await db.clinicalDepartment.upsert({
+        where: { name: department },
+        update: {},
+        create: {
+          name: department,
+          isActive: true,
+        },
+      });
+    }
+    console.log("Departments created successfully");
+  } catch (error) {
+    console.error(error);
+  }
+};
 
 // Main function to run seeds in sequence
 async function main() {
@@ -282,7 +306,7 @@ async function main() {
     await clinicSeed();
     await userSeed();
     await insuranceCompanySeed();
-    // await departmentSeed();
+    await departmentSeed();
     console.log("Seed process completed successfully");
   } catch (error) {
     console.error("Seed process failed:", error);

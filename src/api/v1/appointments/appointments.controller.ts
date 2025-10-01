@@ -46,6 +46,7 @@ export const getDoctorAvailability = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+    // date is a JavaScript Date object, e.g. 2024-06-01T00:00:00.000Z
     const { doctorId, date } = parsed.data;
 
     const targetDay = date.getDay();

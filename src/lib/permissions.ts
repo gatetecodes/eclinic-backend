@@ -18,6 +18,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       readVisitDetails: true,
     },
     patients: { read: true, create: true, update: true, delete: true },
+    appointments: { read: true, create: true, update: true, delete: true },
     users: { read: true, create: true, update: true, delete: true },
     inventory: { read: true, create: true, update: true, delete: true },
     payments: { read: true, create: true, update: true, delete: true },
