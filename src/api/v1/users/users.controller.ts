@@ -665,6 +665,12 @@ export const addDoctorAvailability = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+    if (!authUser.clinicId) {
+      return c.json(
+        { error: "Clinic not assigned" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
     const doctor = await db.user.findUnique({
       where: { id: doctorId },
       select: { id: true, clinicId: true, role: true },
@@ -704,9 +710,9 @@ export const addDoctorAvailability = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    await db.doctorAvailability.createMany({ data: valid });
+    const created = await db.doctorAvailability.createMany({ data: valid });
     return c.json(
-      { success: "Doctor availability added successfully" },
+      { success: "Doctor availability added successfully", created },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -733,6 +739,12 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
       return c.json(
         { error: "Invalid doctorId" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    if (!authUser.clinicId) {
+      return c.json(
+        { error: "Clinic not assigned" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
       );
     }
     const doctor = await db.user.findUnique({

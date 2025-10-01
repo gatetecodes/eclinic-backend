@@ -34,6 +34,80 @@ type IDoctor = {
   role: Role;
   clinicalDepartments: { id: number; name: string }[];
 };
+
+function safelyParseDateOrUndefined(
+  dateString?: string | null
+): Date | undefined {
+  if (!dateString) {
+    return;
+  }
+  try {
+    return parseDateString(dateString);
+  } catch {
+    return;
+  }
+}
+
+async function findExistingPatient(
+  patientData: VisitSchemaType["patient"],
+  user: User
+): Promise<{ id: number } | null> {
+  const clinicId = user.clinicId ?? user.clinic?.id;
+  if (!clinicId) {
+    return null;
+  }
+
+  if (patientData.isChild === true) {
+    const parsedDob = safelyParseDateOrUndefined(patientData.dateOfBirth);
+    const where: Prisma.PatientWhereInput = {
+      AND: [
+        { clinics: { some: { id: clinicId } } },
+        { isChild: true },
+        { guardianPhoneNumber: patientData.guardianPhoneNumber },
+        { firstName: patientData.firstName },
+        { lastName: patientData.lastName },
+        ...(parsedDob ? [{ dateOfBirth: parsedDob }] : []),
+      ] as Prisma.PatientWhereInput[],
+    };
+    return await db.patient.findFirst({ where, select: { id: true } });
+  }
+
+  const where: Prisma.PatientWhereInput = {
+    AND: [
+      { clinics: { some: { id: clinicId } } },
+      { phoneNumber: patientData.phoneNumber },
+      { firstName: patientData.firstName },
+      { lastName: patientData.lastName },
+    ],
+  };
+  return await db.patient.findFirst({ where, select: { id: true } });
+}
+
+async function updateMedicalInfoIfProvided(
+  patientId: number,
+  medicalInfo?: Prisma.JsonValue
+): Promise<void> {
+  if (!medicalInfo) {
+    return;
+  }
+  await db.patient.update({
+    where: { id: patientId },
+    data: { medicalInfo },
+  });
+}
+
+function deriveNationalityAndForeigner(
+  primaryPhone: string | null | undefined,
+  isAForeigner?: boolean | null
+): { nationality: string | null; isForeigner: boolean | undefined } {
+  const nationality = primaryPhone
+    ? parseNationalityFromPhoneNumber(primaryPhone)
+    : null;
+  const isForeigner = primaryPhone
+    ? nationality !== "Rwanda" || Boolean(isAForeigner)
+    : undefined;
+  return { nationality, isForeigner };
+}
 /**
  * Retrieves an existing patient or creates a new one if not found.
  * @param {VisitSchemaType['patient']} patientData - The patient data.
@@ -44,72 +118,22 @@ export async function getOrCreatePatient(
   patientData: VisitSchemaType["patient"],
   user: User
 ): Promise<{ patientId: number; isNewPatient: boolean }> {
-  // Determine whether this is a child patient based on submitted data
-  const isChildPatient = patientData.isChild === true;
-
-  // Try to find an existing patient in the same clinic
-  let existingPatient = null as { id: number } | null;
-
-  if (isChildPatient) {
-    // Match child by guardian phone, name and DOB to avoid duplicates under the same guardian
-    let parsedDob: Date | undefined;
-    try {
-      parsedDob = parseDateString(patientData.dateOfBirth);
-    } catch {
-      // ignore parse errors here; creation path will handle validation errors
-    }
-
-    existingPatient = await db.patient.findFirst({
-      where: {
-        AND: [
-          { clinics: { some: { id: user.clinicId } } },
-          { isChild: true },
-          { guardianPhoneNumber: patientData.guardianPhoneNumber },
-          { firstName: patientData.firstName },
-          { lastName: patientData.lastName },
-          ...(parsedDob ? [{ dateOfBirth: parsedDob }] : []),
-        ] as Prisma.PatientWhereInput[],
-      },
-      select: { id: true },
-    });
-  } else {
-    // Adult patient: match by own phone number, name and clinic
-    existingPatient = await db.patient.findFirst({
-      where: {
-        AND: [
-          { clinics: { some: { id: user.clinicId } } },
-          { phoneNumber: patientData.phoneNumber },
-          { firstName: patientData.firstName },
-          { lastName: patientData.lastName },
-        ],
-      },
-      select: { id: true },
-    });
-  }
-
+  const existingPatient = await findExistingPatient(patientData, user);
   if (existingPatient) {
-    //Update medical info if it is provided
-    if (patientData.medicalInfo) {
-      await db.patient.update({
-        where: { id: existingPatient.id },
-        data: {
-          medicalInfo: patientData.medicalInfo,
-        },
-      });
-    }
+    await updateMedicalInfoIfProvided(
+      existingPatient.id,
+      patientData.medicalInfo
+    );
     return { patientId: existingPatient.id, isNewPatient: false };
   }
 
   const patientId = generatePatientId();
-
   const primaryPhone =
     patientData.phoneNumber ?? patientData.guardianPhoneNumber ?? null;
-  const nationality = primaryPhone
-    ? parseNationalityFromPhoneNumber(primaryPhone)
-    : null;
-  const isForeigner = primaryPhone
-    ? nationality !== "Rwanda" || Boolean(patientData.isAForeigner)
-    : undefined;
+  const { nationality, isForeigner } = deriveNationalityAndForeigner(
+    primaryPhone,
+    patientData.isAForeigner
+  );
 
   const newPatient = await db.patient.create({
     data: {
@@ -119,8 +143,8 @@ export async function getOrCreatePatient(
       gender: patientData.gender as Gender,
       nationality,
       ...(isForeigner !== undefined ? { isAForeigner: isForeigner } : {}),
-      clinics: { connect: { id: user?.clinicId } },
-      branches: { connect: { id: user?.branchId } },
+      clinics: { connect: { id: user?.clinicId ?? user?.clinic?.id } },
+      branches: { connect: { id: user?.branchId ?? user?.branch?.id } },
     },
   });
 
@@ -383,8 +407,8 @@ export const dischargeVisit = async ({
       const visit = await tx.visit.findUnique({
         where: {
           id: visitId,
-          clinicId: user.clinicId,
-          branchId: user.branchId,
+          clinicId: user.clinicId ?? user.clinic?.id,
+          branchId: user.branchId ?? user.branch?.id,
         },
         include: {
           patient: {
