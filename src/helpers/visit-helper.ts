@@ -62,7 +62,7 @@ export async function getOrCreatePatient(
     existingPatient = await db.patient.findFirst({
       where: {
         AND: [
-          { clinics: { some: { id: user.clinic.id } } },
+          { clinics: { some: { id: user.clinicId } } },
           { isChild: true },
           { guardianPhoneNumber: patientData.guardianPhoneNumber },
           { firstName: patientData.firstName },
@@ -77,7 +77,7 @@ export async function getOrCreatePatient(
     existingPatient = await db.patient.findFirst({
       where: {
         AND: [
-          { clinics: { some: { id: user.clinic.id } } },
+          { clinics: { some: { id: user.clinicId } } },
           { phoneNumber: patientData.phoneNumber },
           { firstName: patientData.firstName },
           { lastName: patientData.lastName },
@@ -119,8 +119,8 @@ export async function getOrCreatePatient(
       gender: patientData.gender as Gender,
       nationality,
       ...(isForeigner !== undefined ? { isAForeigner: isForeigner } : {}),
-      clinics: { connect: { id: user?.clinic.id } },
-      branches: { connect: { id: user?.branch.id } },
+      clinics: { connect: { id: user?.clinicId } },
+      branches: { connect: { id: user?.branchId } },
     },
   });
 
@@ -383,8 +383,8 @@ export const dischargeVisit = async ({
       const visit = await tx.visit.findUnique({
         where: {
           id: visitId,
-          clinicId: user.clinic.id,
-          branchId: user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
         },
         include: {
           patient: {

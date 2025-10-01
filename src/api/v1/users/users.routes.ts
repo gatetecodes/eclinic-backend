@@ -4,8 +4,8 @@ import { withAccess } from "@/middlewares/with-access.middleware.ts";
 import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
-  addNewUser,
-  createDoctor,
+  addDoctorAvailability,
+  assignDepartmentsToDoctor,
   deactivateUser,
   editDoctor,
   editUser,
@@ -17,7 +17,10 @@ import {
   getClinicUsers,
   getDoctorsByDepartmentId,
 } from "./users.controller.ts";
-import { createDoctorSchema, createUserSchema } from "./users.validation.ts";
+import {
+  addDoctorAvailabilitySchema,
+  assignDepartmentsToDoctorSchema,
+} from "./users.validation.ts";
 
 const router = new Hono<AppEnv>();
 
@@ -33,8 +36,16 @@ router.get(
   "/department/:departmentId/doctors/available",
   getAvailableDoctorsByDepartmentId
 );
-router.post("/", validate(createUserSchema, "json"), addNewUser);
-router.post("/doctor", validate(createDoctorSchema, "json"), createDoctor);
+router.put(
+  "/:id/availability",
+  validate(addDoctorAvailabilitySchema, "json"),
+  addDoctorAvailability
+);
+router.put(
+  "/:id/departments",
+  validate(assignDepartmentsToDoctorSchema, "json"),
+  assignDepartmentsToDoctor
+);
 router.post(
   "/:userId/deactivate",
   ...withAccess({ resource: "users", action: "update", feature: "users" }),
