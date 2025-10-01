@@ -659,12 +659,29 @@ export const addDoctorAvailability = async (c: Context) => {
     }
     const doctorIdRaw = c.req.param("id");
     const doctorId = Number.parseInt(doctorIdRaw, 10);
+
     if (!Number.isFinite(doctorId) || doctorId <= 0) {
       return c.json(
         { error: "Invalid doctorId" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+
+    if (authUser.role !== "CLINIC_ADMIN") {
+      if (authUser.role === "DOCTOR" && authUser.id !== doctorId) {
+        return c.json(
+          { error: "Forbidden" },
+          httpCodes.FORBIDDEN as ContentfulStatusCode
+        );
+      }
+      if (authUser.role !== "DOCTOR") {
+        return c.json(
+          { error: "Forbidden" },
+          httpCodes.FORBIDDEN as ContentfulStatusCode
+        );
+      }
+    }
+
     if (!authUser.clinicId) {
       return c.json(
         { error: "Clinic not assigned" },
@@ -735,10 +752,17 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
     }
     const doctorIdRaw = c.req.param("id");
     const doctorId = Number.parseInt(doctorIdRaw, 10);
+
     if (!Number.isFinite(doctorId) || doctorId <= 0) {
       return c.json(
         { error: "Invalid doctorId" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
       );
     }
     if (!authUser.clinicId) {
@@ -772,17 +796,22 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
       );
     }
     const body = await c.get("validatedJson");
+
     const validDepartments = await db.clinicalDepartment.findMany({
-      where: { id: { in: body.departments } },
+      where: {
+        id: { in: body.departments },
+        // clinics: { some: { id: authUser.clinicId } },
+      },
       select: { id: true },
     });
+
     if (validDepartments.length !== body.departments.length) {
       return c.json(
         { error: "Invalid departments" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    await db.user.update({
+    const updated = await db.user.update({
       where: { id: doctor.id },
       data: {
         clinicalDepartments: {
@@ -793,7 +822,7 @@ export const assignDepartmentsToDoctor = async (c: Context) => {
       },
     });
     return c.json(
-      { success: "Departments assigned to doctor successfully" },
+      { success: "Departments assigned to doctor successfully", updated },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {

@@ -135,6 +135,9 @@ export async function getOrCreatePatient(
     patientData.isAForeigner
   );
 
+  const clinicId = user.clinicId ?? user.clinic?.id;
+  const branchId = user.branchId ?? user.branch?.id;
+
   const newPatient = await db.patient.create({
     data: {
       ...patientData,
@@ -143,8 +146,8 @@ export async function getOrCreatePatient(
       gender: patientData.gender as Gender,
       nationality,
       ...(isForeigner !== undefined ? { isAForeigner: isForeigner } : {}),
-      clinics: { connect: { id: user?.clinicId ?? user?.clinic?.id } },
-      branches: { connect: { id: user?.branchId ?? user?.branch?.id } },
+      clinics: clinicId ? { connect: { id: clinicId } } : undefined,
+      branches: branchId ? { connect: { id: branchId } } : undefined,
     },
   });
 
@@ -404,11 +407,18 @@ export const dischargeVisit = async ({
   try {
     return await db.$transaction(async (tx) => {
       // Fetch visit with all required relations
+      const clinicId = user.clinicId ?? user.clinic?.id;
+      const branchId = user.branchId ?? user.branch?.id;
+
+      if (!(clinicId && branchId)) {
+        return { error: "Clinic or branch not found" };
+      }
+
       const visit = await tx.visit.findUnique({
         where: {
           id: visitId,
-          clinicId: user.clinicId ?? user.clinic?.id,
-          branchId: user.branchId ?? user.branch?.id,
+          clinicId,
+          branchId,
         },
         include: {
           patient: {
