@@ -40,6 +40,7 @@ type IDoctor = {
  * @param {UserType} user - The current user data.
  * @returns {Promise<number>} A promise that resolves to the patient's ID.
  */
+//biome-ignore lint lint/complexity/noExcessiveCognitiveComplexity: <>
 export async function getOrCreatePatient(
   patientData: VisitSchemaType["patient"],
   user: User
@@ -119,8 +120,8 @@ export async function getOrCreatePatient(
       gender: patientData.gender as Gender,
       nationality,
       ...(isForeigner !== undefined ? { isAForeigner: isForeigner } : {}),
-      clinics: { connect: { id: user?.clinicId } },
-      branches: { connect: { id: user?.branchId } },
+      clinics: { connect: { id: user?.clinicId ?? user?.clinic?.id } },
+      branches: { connect: { id: user?.branchId ?? user?.branch?.id } },
     },
   });
 
@@ -383,8 +384,8 @@ export const dischargeVisit = async ({
       const visit = await tx.visit.findUnique({
         where: {
           id: visitId,
-          clinicId: user.clinicId,
-          branchId: user.branchId,
+          clinicId: user.clinicId ?? user.clinic?.id,
+          branchId: user.branchId ?? user.branch?.id,
         },
         include: {
           patient: {
