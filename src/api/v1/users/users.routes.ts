@@ -16,6 +16,7 @@ import {
   getClinicDoctors,
   getClinicUsers,
   getDoctorsByDepartmentId,
+  getUserById,
 } from "./users.controller.ts";
 import {
   addDoctorAvailabilitySchema,
@@ -53,5 +54,6 @@ router.post(
 );
 router.put("/:userId", editUser);
 router.put("/doctors/:doctorId", editDoctor);
+router.get("/:userId", getUserById);
 
 export default router;
