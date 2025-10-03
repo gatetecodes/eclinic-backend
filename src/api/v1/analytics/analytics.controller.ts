@@ -15,6 +15,7 @@ import {
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
+import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
 import { httpCodes } from "@/lib/constants";
 import { db } from "../../../database/db";
 
@@ -50,7 +51,7 @@ export const getDashboard = async (c: Context) => {
 // Frontend parity: getDashboardOverview
 export const getDashboardOverview = async (c: Context) => {
   try {
-    const user = c.get("user");
+    const clinicId = c.get("clinicId");
     const now = new Date();
     const today = new Date(now.setHours(0, 0, 0, 0));
     const yesterday = new Date(today);
@@ -59,94 +60,88 @@ export const getDashboardOverview = async (c: Context) => {
     const [currentDay, previousDay] = await Promise.all([
       db.$transaction([
         db.payment.count({
-          where: { createdAt: { gte: today }, clinicId: user.clinic.id },
+          where: { createdAt: { gte: today }, clinicId },
         }),
         db.visit.count({
-          where: { createdAt: { gte: today }, clinicId: user.clinic.id },
+          where: { createdAt: { gte: today }, clinicId },
         }),
         db.event.count({
           where: {
             type: "APPOINTMENT",
             createdAt: { gte: today },
-            clinicId: user.clinic.id,
+            clinicId,
           },
         }),
         db.payment.aggregate({
           _sum: { amount: true },
-          where: { createdAt: { gte: today }, clinicId: user.clinic.id },
+          where: { createdAt: { gte: today }, clinicId },
         }),
       ]),
       db.$transaction([
         db.payment.count({
           where: {
             createdAt: { gte: yesterday, lt: today },
-            clinicId: user.clinic.id,
+            clinicId,
           },
         }),
         db.visit.count({
           where: {
             createdAt: { gte: yesterday, lt: today },
-            clinicId: user.clinic.id,
+            clinicId,
           },
         }),
         db.event.count({
           where: {
             type: "APPOINTMENT",
             createdAt: { gte: yesterday, lt: today },
-            clinicId: user.clinic.id,
+            clinicId,
           },
         }),
         db.payment.aggregate({
           _sum: { amount: true },
           where: {
             createdAt: { gte: yesterday, lt: today },
-            clinicId: user.clinic.id,
+            clinicId,
           },
         }),
       ]),
     ]);
 
-    const calculateTrend = (current: number, previous: number) => {
-      if (!previous) {
-        return 100;
-      }
-      return ((current - previous) / previous) * 100;
-    };
-    const calculateTrendText = (current: number, previous: number) => {
-      const t = calculateTrend(current, previous);
-      return `${t >= 0 ? "+" : ""}${t.toFixed(1)}%`;
-    };
-
-    return c.json({
-      data: {
-        totalPayments: {
-          count: currentDay[0],
-          trend: calculateTrend(currentDay[0], previousDay[0]),
-          trendText: calculateTrendText(currentDay[0], previousDay[0]),
-        },
-        totalVisits: {
-          count: currentDay[1],
-          trend: calculateTrend(currentDay[1], previousDay[1]),
-          trendText: calculateTrendText(currentDay[1], previousDay[1]),
-        },
-        totalAppointments: {
-          count: currentDay[2],
-          trend: calculateTrend(currentDay[2], previousDay[2]),
-          trendText: calculateTrendText(currentDay[2], previousDay[2]),
-        },
-        totalRevenue: {
-          count: Number(currentDay[3]._sum.amount || 0),
-          trend: calculateTrend(
-            Number(currentDay[3]._sum.amount || 0),
-            Number(previousDay[3]._sum.amount || 0)
-          ),
-          trendText: calculateTrendText(
-            Number(currentDay[3]._sum.amount || 0),
-            Number(previousDay[3]._sum.amount || 0)
-          ),
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Dashboard overview fetched successfully",
+        data: {
+          totalPayments: {
+            count: currentDay[0],
+            trend: calculateTrend(currentDay[0], previousDay[0]),
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+          totalVisits: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          totalAppointments: {
+            count: currentDay[2],
+            trend: calculateTrend(currentDay[2], previousDay[2]),
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
+          totalRevenue: {
+            count: Number(currentDay[3]._sum.amount || 0),
+            trend: calculateTrend(
+              Number(currentDay[3]._sum.amount || 0),
+              Number(previousDay[3]._sum.amount || 0)
+            ),
+            trendText: calculateTrendText(
+              Number(currentDay[3]._sum.amount || 0),
+              Number(previousDay[3]._sum.amount || 0)
+            ),
+          },
         },
       },
-    });
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -159,7 +154,7 @@ export const getDashboardOverview = async (c: Context) => {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getPatientsByAge = async (c: Context) => {
   try {
-    const user = c.get("user");
+    const clinicId = c.get("clinicId");
     const querySchema = z.object({
       timeRange: z.enum(["week", "month", "3months"]).default("3months"),
       doctorId: z.string().optional(),
@@ -191,7 +186,7 @@ export const getPatientsByAge = async (c: Context) => {
         visits: {
           some: {
             createdAt: { gte: startDate },
-            clinicId: user.clinic.id,
+            clinicId,
             doctorId: doctorId ? Number(doctorId) : undefined,
           },
         },
@@ -199,7 +194,7 @@ export const getPatientsByAge = async (c: Context) => {
       select: {
         dateOfBirth: true,
         visits: {
-          where: { createdAt: { gte: startDate }, clinicId: user.clinic.id },
+          where: { createdAt: { gte: startDate }, clinicId },
           select: { createdAt: true },
         },
       },
@@ -245,16 +240,23 @@ export const getPatientsByAge = async (c: Context) => {
       adult: groups.adult,
       elderly: groups.elderly,
     }));
-    return c.json({ data: result });
+    return c.json({
+      data: result,
+      status: httpCodes.OK,
+      message: "Patients by age fetched successfully",
+    });
   } catch (_error) {
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
 // Frontend parity: getCashFlow
 export const getCashFlow = async (c: Context) => {
   try {
-    const user = c.get("user");
+    const clinicId = c.get("clinicId");
     const querySchema = z.object({
       timeRange: z.enum(["year", "6months", "3months"]).default("year"),
     });
@@ -287,8 +289,8 @@ export const getCashFlow = async (c: Context) => {
 
     const endDate = endOfYear(now);
     const [currentData, previousData] = await Promise.all([
-      getDataForRange(startDate, endDate, user.clinic.id),
-      getDataForRange(previousStartDate, startDate, user.clinic.id),
+      getDataForRange(startDate, endDate, clinicId),
+      getDataForRange(previousStartDate, startDate, clinicId),
     ]);
 
     const monthlyData = eachMonthOfInterval({
@@ -310,33 +312,30 @@ export const getCashFlow = async (c: Context) => {
     const previousTotalCashFlow =
       previousData.totalIncome - previousData.totalExpenses;
 
-    return c.json({
-      data: {
-        monthlyData,
-        totalIncome: currentData.totalIncome,
-        totalExpenses: currentData.totalExpenses,
-        totalCashFlow,
-        trend: calculateTrend(totalCashFlow, previousTotalCashFlow),
-        trendText: calculateTrendText(totalCashFlow, previousTotalCashFlow),
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Cash flow fetched successfully",
+        data: {
+          monthlyData,
+          totalIncome: currentData.totalIncome,
+          totalExpenses: currentData.totalExpenses,
+          totalCashFlow,
+          trend: calculateTrend(totalCashFlow, previousTotalCashFlow),
+          trendText: calculateTrendText(totalCashFlow, previousTotalCashFlow),
+        },
       },
-    });
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        error: "Internal Server Error",
+        status: httpCodes.INTERNAL_SERVER_ERROR,
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
-};
-
-const calculateTrend = (current: number, previous: number) => {
-  if (!previous) {
-    return 100;
-  }
-  return ((current - previous) / previous) * 100;
-};
-const calculateTrendText = (current: number, previous: number) => {
-  const t = calculateTrend(current, previous);
-  return `${t >= 0 ? "+" : ""}${t.toFixed(1)}%`;
 };
 
 async function getDataForRange(
@@ -412,7 +411,7 @@ async function getDataForRange(
 // Frontend parity: countVisitsByDepartments
 export const countVisitsByDepartments = async (c: Context) => {
   try {
-    const user = c.get("user");
+    const clinicId = c.get("clinicId");
     const querySchema = z.object({ userId: z.string().optional() });
     const parsed = querySchema.safeParse(c.req.query());
     if (!parsed.success) {
@@ -427,7 +426,7 @@ export const countVisitsByDepartments = async (c: Context) => {
       by: ["departmentId"],
       where: {
         doctorId: userId ? Number(userId) : undefined,
-        clinicId: user.clinic.id,
+        clinicId,
       },
       _count: { id: true },
     });

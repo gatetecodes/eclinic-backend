@@ -1215,3 +1215,63 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
     );
   }
 };
+
+export const getUserById = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const userIdRaw = c.req.param("userId");
+    const userId = Number.parseInt(userIdRaw, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      include: {
+        clinicalDepartments: true,
+        clinic: {
+          select: {
+            id: true,
+            name: true,
+            subscriptionStatus: true,
+            subscriptionPlan: true,
+          },
+        },
+        branch: {
+          select: {
+            id: true,
+            name: true,
+            isHeadOffice: true,
+          },
+        },
+        accounts: {
+          select: {
+            id: true,
+          },
+          take: 1,
+        },
+      },
+    });
+    if (!user) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    return c.json({ data: user }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to get user by id", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
