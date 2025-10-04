@@ -3,6 +3,7 @@ import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
+  countVisitsByDepartments,
   getCashFlow,
   getClinicGrowthData,
   getClinicsOverview,
@@ -41,10 +42,16 @@ router.get(
   getCashFlow
 );
 router.get(
+  "/visits-by-departments",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  countVisitsByDepartments
+);
+router.get(
   "/platform/overview",
   ...withAccess({ resource: "analytics", action: "read" }),
   getClinicsOverview
 );
+
 router.get(
   "/platform/growth",
   ...withAccess({

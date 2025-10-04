@@ -432,6 +432,7 @@ export const countVisitsByDepartments = async (c: Context) => {
     });
 
     const data: { departmentName: string; count: number }[] = [];
+
     for (const visit of visits) {
       const department = await db.clinicalDepartment.findUnique({
         where: { id: visit.departmentId ?? undefined },
@@ -443,6 +444,7 @@ export const countVisitsByDepartments = async (c: Context) => {
       });
     }
     data.sort((a, b) => b.count - a.count);
+
     const top5 = data.slice(0, 5);
     if (data.length > 5) {
       const othersCount = data
