@@ -16,9 +16,12 @@ import {
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import { buildQueryOptions } from "@/helpers/query-helper.ts";
+import { searchParamsSchema } from "@/lib/common-validation.ts";
 import { httpCodes } from "@/lib/constants.ts";
 import {
   ActivityType,
+  type Event,
   EventType,
   type Prisma,
 } from "../../../../generated/prisma";
@@ -137,7 +140,11 @@ export const getDoctorAvailability = async (c: Context) => {
     }
 
     const availableTimes = Array.from(availableTimesSet).sort();
-    return c.json({ data: { availableTimes } });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Doctor availability fetched successfully",
+      data: { availableTimes },
+    });
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -377,20 +384,25 @@ export const getDoctorWeeklySchedule = async (c: Context) => {
   }
 };
 
-export const listAppointments = async (c: Context) => {
+export const getAppointments = async (c: Context) => {
   try {
     const user = c.get("user");
-    const query = c.req.query();
-    const where: Prisma.EventWhereInput = {
-      clinicId: Number(user.clinic.id),
-      branchId: Number(user.branch.id),
-      type: "APPOINTMENT",
-    };
-    if (query.doctorId) {
-      where.doctorId = Number(query.doctorId);
-    }
+    const doctorId = c.req.query("doctorId");
+
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<Event>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+
     const appointments = await db.event.findMany({
-      where,
+      ...restOptions,
+      where: {
+        ...where,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
+        type: "APPOINTMENT",
+        doctorId: doctorId ? Number(doctorId) : undefined,
+      },
+      orderBy: orderBy as Prisma.EventOrderByWithRelationInput,
       select: {
         id: true,
         title: true,
@@ -399,15 +411,45 @@ export const listAppointments = async (c: Context) => {
         treatment: true,
         createdAt: true,
         status: true,
-        patient: { select: { id: true, firstName: true, lastName: true } },
-        doctor: { select: { id: true, name: true } },
+        patient: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        doctor: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
-      orderBy: { startTime: "asc" },
     });
-    return c.json({ data: appointments });
-  } catch (_error) {
+    const totalCount = await db.event.count({
+      where: {
+        ...where,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
+        type: "APPOINTMENT",
+        doctorId: doctorId ? Number(doctorId) : undefined,
+      },
+    });
+    const pageCount = queryOptions.take
+      ? Math.ceil(totalCount / queryOptions.take)
+      : 0;
+    return c.json({
+      status: httpCodes.OK,
+      message: "Appointments fetched successfully",
+      data: appointments,
+      totalCount,
+      pageCount,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
     return c.json(
-      { error: "Internal Server Error" },
+      { error: message },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -439,6 +481,136 @@ export const cancelAppointment = async (c: Context) => {
       select: { id: true },
     });
     return c.json({ success: true, data: appointment });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * Get available days of the week for a doctor. Public function to be used in the patient portal
+ * @param doctorId
+ * @returns Array of day numbers (0-6, Sunday-Saturday) that the doctor is available
+ */
+
+export const getAvailableDaysByDoctorId = async (c: Context) => {
+  try {
+    const doctorId = Number(c.req.param("doctorId"));
+    const availability = await db.doctorAvailability.findMany({
+      where: { doctorId: Number(doctorId) },
+      select: {
+        startDayOfWeek: true,
+        endDayOfWeek: true,
+        startTime: true,
+        endTime: true,
+      },
+    });
+    if (availability.length === 0) {
+      return c.json({ data: [] });
+    }
+    const availableDays = new Set<number>();
+    for (const schedule of availability) {
+      if (schedule.startDayOfWeek !== null && schedule.endDayOfWeek !== null) {
+        let currentDay = schedule.startDayOfWeek;
+        const endDay = schedule.endDayOfWeek;
+        do {
+          availableDays.add(currentDay);
+          currentDay = (currentDay + 1) % 7;
+        } while (currentDay !== (endDay + 1) % 7);
+      }
+    }
+    return c.json({
+      status: httpCodes.OK,
+      message: "Available days fetched successfully",
+      data: Array.from(availableDays).sort((a, b) => a - b),
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAvailableTimeSlotsByDoctorId = async (c: Context) => {
+  try {
+    const doctorId = Number(c.req.param("doctorId"));
+    const dayOfWeek = Number(c.req.query("dayOfWeek"));
+    const availability = await db.doctorAvailability.findMany({
+      where: {
+        doctorId: Number(doctorId),
+        OR: [
+          { startDayOfWeek: dayOfWeek },
+          { endDayOfWeek: dayOfWeek },
+          {
+            AND: [
+              { startDayOfWeek: { lte: dayOfWeek } },
+              { endDayOfWeek: { gte: dayOfWeek } },
+            ],
+          },
+        ],
+      },
+      select: {
+        startDayOfWeek: true,
+        endDayOfWeek: true,
+        startTime: true,
+        endTime: true,
+      },
+    });
+
+    if (availability.length === 0) {
+      return c.json({ data: [] });
+    }
+    const availableTimeSlots = new Set<string>();
+    for (const schedule of availability) {
+      if (
+        schedule.startTime === null ||
+        schedule.endTime === null ||
+        schedule.startDayOfWeek === null ||
+        schedule.endDayOfWeek === null
+      ) {
+        continue;
+      }
+
+      //Parse start and end times
+      const startTime = parse(schedule.startTime, "HH:mm", new Date());
+      const endTime = parse(schedule.endTime, "HH:mm", new Date());
+
+      //Handle schedules that span multiple days
+      let effectiveStartTime = startTime;
+      let effectiveEndTime = endTime;
+
+      //If the schedule starts on a different day, adjust start time to beginning of target day
+      if (schedule.startDayOfWeek < dayOfWeek) {
+        effectiveStartTime = parse("00:00", "HH:mm", new Date());
+      }
+
+      //If the schedule ends on a different day, adjust end time to end of target day
+      if (schedule.endDayOfWeek > dayOfWeek) {
+        effectiveEndTime = parse("23:59", "HH:mm", new Date());
+      }
+
+      //Generate 30-minute slots
+      let currentTime = effectiveStartTime;
+
+      while (isBefore(currentTime, effectiveEndTime)) {
+        const timeSlot = format(currentTime, "HH:mm");
+        availableTimeSlots.add(timeSlot);
+        currentTime = addMinutes(currentTime, 30);
+      }
+    }
+
+    //Convert to array and sort
+    const sortedTimeSlots = Array.from(availableTimeSlots).sort((a, b) => {
+      const timeA = parse(a, "HH:mm", new Date());
+      const timeB = parse(b, "HH:mm", new Date());
+      return timeA.getTime() - timeB.getTime();
+    });
+    return c.json({
+      data: sortedTimeSlots,
+    });
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

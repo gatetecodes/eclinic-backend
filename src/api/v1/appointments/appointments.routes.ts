@@ -5,11 +5,13 @@ import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
   cancelAppointment,
   createEvent,
+  getAppointments,
+  getAvailableDaysByDoctorId,
+  getAvailableTimeSlotsByDoctorId,
   getDoctorAppointments,
   getDoctorAppointmentsPublic,
   getDoctorAvailability,
   getDoctorWeeklySchedule,
-  listAppointments,
   markAppointmentAsCompleted,
   updateDoctorAvailability,
 } from "./appointments.controller.ts";
@@ -53,8 +55,13 @@ router.get(
   validate(getDoctorAppointmentsParamsSchema, "query"),
   getDoctorAppointmentsPublic
 );
-router.get("/", listAppointments);
+router.get("/", getAppointments);
 router.post("/:id/complete", markAppointmentAsCompleted);
 router.post("/:id/cancel", cancelAppointment);
+router.get("/doctors/:doctorId/available-days", getAvailableDaysByDoctorId);
+router.get(
+  "/doctors/:doctorId/available-time-slots",
+  getAvailableTimeSlotsByDoctorId
+);
 
 export default router;
