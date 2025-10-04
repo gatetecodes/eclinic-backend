@@ -397,8 +397,8 @@ export const getAppointments = async (c: Context) => {
       ...restOptions,
       where: {
         ...where,
-        clinicId: user.clinicId,
-        branchId: user.branchId,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
@@ -429,8 +429,8 @@ export const getAppointments = async (c: Context) => {
     const totalCount = await db.event.count({
       where: {
         ...where,
-        clinicId: user.clinicId,
-        branchId: user.branchId,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
@@ -497,9 +497,18 @@ export const cancelAppointment = async (c: Context) => {
 
 export const getAvailableDaysByDoctorId = async (c: Context) => {
   try {
-    const doctorId = Number(c.req.param("doctorId"));
+    const doctorIdParam = c.req.param("doctorId");
+
+    const doctorId = Number(doctorIdParam);
+
+    if (!Number.isInteger(doctorId)) {
+      return c.json(
+        { error: "doctorId must be a valid integer" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const availability = await db.doctorAvailability.findMany({
-      where: { doctorId: Number(doctorId) },
+      where: { doctorId },
       select: {
         startDayOfWeek: true,
         endDayOfWeek: true,
@@ -536,11 +545,24 @@ export const getAvailableDaysByDoctorId = async (c: Context) => {
 
 export const getAvailableTimeSlotsByDoctorId = async (c: Context) => {
   try {
-    const doctorId = Number(c.req.param("doctorId"));
-    const dayOfWeek = Number(c.req.query("dayOfWeek"));
+    const doctorIdParam = c.req.param("doctorId");
+    const dayOfWeekParam = c.req.query("dayOfWeek");
+    const doctorId = Number(doctorIdParam);
+    const dayOfWeek = Number(dayOfWeekParam);
+    if (
+      !(Number.isInteger(doctorId) && Number.isInteger(dayOfWeek)) ||
+      dayOfWeek < 0 ||
+      dayOfWeek > 6
+    ) {
+      return c.json(
+        { error: "doctorId/dayOfWeek must be valid integers (dayOfWeek 0-6)" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const availability = await db.doctorAvailability.findMany({
       where: {
-        doctorId: Number(doctorId),
+        doctorId,
         OR: [
           { startDayOfWeek: dayOfWeek },
           { endDayOfWeek: dayOfWeek },
