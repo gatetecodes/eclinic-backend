@@ -17,6 +17,9 @@ import {
 } from "./appointments.controller.ts";
 import {
   eventSchema,
+  getAvailableDaysByDoctorIdParamsSchema,
+  getAvailableTimeSlotsByDoctorIdParamsSchema,
+  getAvailableTimeSlotsByDoctorIdQuerySchema,
   getDoctorAppointmentsParamsSchema,
   getDoctorAvailabilityParamsSchema,
   getWeeklyScheduleParamsSchema,
@@ -58,9 +61,15 @@ router.get(
 router.get("/", getAppointments);
 router.post("/:id/complete", markAppointmentAsCompleted);
 router.post("/:id/cancel", cancelAppointment);
-router.get("/doctors/:doctorId/available-days", getAvailableDaysByDoctorId);
+router.get(
+  "/doctors/:doctorId/available-days",
+  validate(getAvailableDaysByDoctorIdParamsSchema, "param"),
+  getAvailableDaysByDoctorId
+);
 router.get(
   "/doctors/:doctorId/available-time-slots",
+  validate(getAvailableTimeSlotsByDoctorIdParamsSchema, "param"),
+  validate(getAvailableTimeSlotsByDoctorIdQuerySchema, "query"),
   getAvailableTimeSlotsByDoctorId
 );
 

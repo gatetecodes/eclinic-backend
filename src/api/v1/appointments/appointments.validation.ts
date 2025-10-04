@@ -63,6 +63,17 @@ export const getWeeklyScheduleParamsSchema = z.object({
   doctorId: z.coerce.number(),
 });
 
+export const getAvailableDaysByDoctorIdParamsSchema = z.object({
+  doctorId: z.coerce.number(),
+});
+
+export const getAvailableTimeSlotsByDoctorIdParamsSchema = z.object({
+  doctorId: z.coerce.number(),
+});
+export const getAvailableTimeSlotsByDoctorIdQuerySchema = z.object({
+  dayOfWeek: z.coerce.number(),
+});
+
 export type GetDoctorAvailabilityParams = z.infer<
   typeof getDoctorAvailabilityParamsSchema
 >;
