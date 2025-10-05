@@ -257,7 +257,7 @@ export const transferVisitToDoctor = async (c: Context) => {
         AND: {
           id: Number.parseInt(String(doctorId), 10),
           role: Role.DOCTOR,
-          clinicId: user.clinic.id,
+          clinicId: user.clinicId ?? user.clinic.id,
         },
       },
       select: { id: true, name: true, status: true },
@@ -288,8 +288,8 @@ export const transferVisitToDoctor = async (c: Context) => {
     });
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId: visit.id,
     });
 

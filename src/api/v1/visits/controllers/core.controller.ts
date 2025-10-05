@@ -168,8 +168,8 @@ export const updatePreConsultation = async (c: Context) => {
     }
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId,
     });
 
@@ -365,8 +365,8 @@ export const listVisits = async (c: Context) => {
           status: statusFilter,
         };
         if (user.role !== Role.SUPER_ADMIN) {
-          whereInput.clinicId = user.clinic.id;
-          whereInput.branchId = user.branch.id;
+          whereInput.clinicId = user.clinicId ?? user.clinic.id;
+          whereInput.branchId = user.branchId ?? user.branch.id;
         }
 
         const visits = await db.visit.findMany({
@@ -634,7 +634,7 @@ export const createConsultationNote = async (c: Context) => {
       data: { consultationNote: parsed.data.consultationNote },
     });
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
+      clinicId: user.clinicId ?? user.clinic.id,
       branchId: user.branch.id,
       visitId,
     });
@@ -664,8 +664,8 @@ export const editConsultationNote = async (c: Context) => {
       data: { consultationNote: parsed.data.consultationNote },
     });
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId,
     });
     return c.json({ success: "Consultation note updated successfully", visit });
@@ -753,8 +753,8 @@ export const finalizeVisit = async (c: Context) => {
     });
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId,
     });
     return c.json({
@@ -819,8 +819,8 @@ export const dischargeVisit = async (c: Context) => {
     }
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId,
     });
 
@@ -852,8 +852,8 @@ export const updateVisitStatus = async (c: Context) => {
       data: { status },
     });
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
       visitId,
       doctorId: updated.doctorId || undefined,
     });
