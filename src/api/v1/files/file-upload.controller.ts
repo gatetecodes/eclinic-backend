@@ -31,7 +31,7 @@ export const uploadFiles = async (c: Context) => {
   });
   try {
     const uploadedUrls = await Promise.all(uploadPromises);
-    return c.json(uploadedUrls, httpCodes.OK as ContentfulStatusCode);
+    return c.json({ data: uploadedUrls }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     return c.json(
       {

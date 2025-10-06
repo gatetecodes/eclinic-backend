@@ -209,7 +209,7 @@ export const getProductsList = async (c: Context) => {
 
     const { departmentIds } = c.req.query();
     const parsedDepartmentIds = departmentIds
-      ? departmentIds.split(",").map(Number)
+      ? departmentIds.split(".").map(Number)
       : undefined;
 
     const where = parsedDepartmentIds
