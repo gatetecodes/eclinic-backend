@@ -23,7 +23,15 @@ export const saleTransactionSchema = z.object({
     .string()
     .transform((val) => Number.parseInt(val, 10))
     .optional(),
-  quantity: z.string().transform((val) => Number.parseInt(val, 10)),
+  quantity: z
+    .string()
+    .transform((val) => Number.parseInt(val, 10))
+    .refine((val) => Number.isFinite(val), {
+      message: "Quantity must be a valid number",
+    })
+    .refine((val) => val > 0, {
+      message: "Quantity must be greater than zero",
+    }),
   batchId: z.number(),
   type: z.enum(TransactionType),
   notes: z

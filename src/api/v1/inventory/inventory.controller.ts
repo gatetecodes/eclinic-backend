@@ -489,23 +489,31 @@ export const createSaleTransaction = async (c: Context) => {
     const { data } = c.get("validatedJson");
     const { itemId, quantity, batchId, visitId, notes } = data;
 
+    const batch = await db.inventoryBatch.findUnique({
+      where: { id: batchId },
+    });
+
+    if (!batch) {
+      return c.json(
+        { error: "Batch not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (batch.currentQuantity < Number(quantity)) {
+      return c.json(
+        { error: "Insufficient quantity in selected batch" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    if (batch.itemId !== itemId) {
+      return c.json(
+        { error: "Batch item ID does not match item ID" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
-      const batch = await tx.inventoryBatch.findUnique({
-        where: { id: batchId },
-      });
-      if (!batch) {
-        return c.json(
-          { error: "Batch not found" },
-          httpCodes.NOT_FOUND as ContentfulStatusCode
-        );
-      }
-      if (batch.currentQuantity < Number(quantity)) {
-        return c.json(
-          { error: "Insufficient quantity in selected batch" },
-          httpCodes.BAD_REQUEST as ContentfulStatusCode
-        );
-      }
       const unitPrice = batch.unitPrice;
       const transaction = await tx.transaction.create({
         data: {
