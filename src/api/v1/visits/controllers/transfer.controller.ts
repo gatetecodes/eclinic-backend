@@ -236,7 +236,7 @@ export const transferVisitToDoctor = async (c: Context) => {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
-    const { doctorId } = c.get("validatedParam") ?? (await c.req.param());
+    const data = c.get("validatedJson") ?? (await c.req.json());
 
     const visit = await db.visit.findUnique({
       where: { id: visitId },
@@ -255,7 +255,7 @@ export const transferVisitToDoctor = async (c: Context) => {
     const doctor = await db.user.findFirst({
       where: {
         AND: {
-          id: Number.parseInt(String(doctorId), 10),
+          id: Number.parseInt(String(data.doctorId), 10),
           role: Role.DOCTOR,
           clinicId: user.clinicId ?? user.clinic.id,
         },
