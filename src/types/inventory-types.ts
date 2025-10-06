@@ -1,4 +1,4 @@
-import type { ItemType, Unit } from "../../generated/prisma";
+import type { ItemType, TransactionType, Unit } from "../../generated/prisma";
 
 export type InventoryItem = {
   id: number;
@@ -57,4 +57,22 @@ export type IPaymentDetail = {
   productId: number;
   quantity: number;
   batchId: number;
+};
+
+export type StockTransactionFormData = {
+  itemId: number;
+  quantity: string; // Keep as string for form input
+  batchNumber: string;
+  expiryDate: string | undefined; // Keep as string for form input
+  unitPrice: string; // Keep as string for form input
+  location: string | undefined;
+  notes: string | undefined;
+};
+export type SaleTransactionFormData = {
+  itemId: number;
+  visitId: number | undefined;
+  quantity: string; // Keep as string for form input
+  batchId: number;
+  type: TransactionType;
+  notes: string | null;
 };

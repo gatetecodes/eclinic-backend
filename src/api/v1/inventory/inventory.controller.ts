@@ -1,13 +1,18 @@
 import { parse } from "csv-parse/sync";
+import { Decimal } from "generated/prisma/runtime/library";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
 import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
-import type {
-  InventoryBatch,
-  InventoryItem,
-  Prisma,
+import {
+  type InventoryBatch,
+  type InventoryItem,
+  InventoryStatus,
+  type Prisma,
+  SourceType,
+  TransactionStatus,
+  TransactionType,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
 import { processInventoryItemRecord } from "../../../helpers/inventory-helpers";
@@ -230,8 +235,8 @@ export const getLatestTransactions = async (c: Context) => {
     const transactions = await db.transaction.findMany({
       where: {
         item: {
-          clinicId: user.clinic.id,
-          branchId: user.branch.id,
+          clinicId: user.clinicId ?? user.clinic.id,
+          branchId: user.branchId ?? user.branch.id,
         },
       },
       include: {
@@ -269,8 +274,8 @@ export const getInventoryBatches = async (c: Context) => {
         where: {
           ...where,
           item: {
-            clinicId: user.clinic.id,
-            branchId: user.branch.id,
+            clinicId: user.clinicId ?? user.clinic.id,
+            branchId: user.branchId ?? user.branch.id,
           },
         },
         orderBy: orderBy as Prisma.InventoryBatchOrderByWithRelationInput,
@@ -284,8 +289,8 @@ export const getInventoryBatches = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinic.id,
-          branchId: user.branch.id,
+          clinicId: user.clinicId ?? user.clinic.id,
+          branchId: user.branchId ?? user.branch.id,
         },
       },
     });
@@ -332,8 +337,8 @@ export const importInventoryItemsFromCSV = async (c: Context) => {
         batch.map(async (record) => {
           try {
             return await processInventoryItemRecord(
-              user.clinic.id,
-              user.branch.id
+              user.clinicId ?? user.clinic.id,
+              user.branchId ?? user.branch.id
             )(record);
           } catch (error) {
             logger.error(`Error processing consumable ${record.NAME}:`, {
@@ -372,7 +377,7 @@ export const getInventoryItemsList = async (c: Context) => {
   try {
     const user = c.get("user");
     const inventoryItems = await db.inventoryItem.findMany({
-      where: { clinicId: user.clinic.id },
+      where: { clinicId: user.clinicId ?? user.clinic.id },
       select: {
         id: true,
         itemName: true,
@@ -383,6 +388,184 @@ export const getInventoryItemsList = async (c: Context) => {
       { data: inventoryItems },
       httpCodes.OK as ContentfulStatusCode
     );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const addStock = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { data } = c.get("validatedJson");
+    const {
+      itemId,
+      quantity,
+      unitPrice,
+      batchNumber,
+      expiryDate,
+      location,
+      notes,
+    } = data;
+
+    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
+    const result = await db.$transaction(async (tx) => {
+      const batch = await tx.inventoryBatch.create({
+        data: {
+          itemId,
+          batchNumber,
+          expiryDate,
+          initialQuantity: quantity,
+          currentQuantity: quantity,
+          unitPrice,
+          location,
+        },
+      });
+      const transaction = await tx.transaction.create({
+        data: {
+          itemId,
+          batchId: batch.id,
+          type: TransactionType.PURCHASE,
+          quantity: Number(quantity),
+          unitPrice: unitPrice ? new Decimal(unitPrice) : null,
+          totalAmount: unitPrice
+            ? new Decimal(unitPrice).mul(Number(quantity))
+            : null,
+          sourceType: SourceType.PURCHASE_ORDER,
+          notes: notes || null,
+          userId: Number(user.id),
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+      await tx.inventoryStock.upsert({
+        where: { itemId },
+        create: { itemId, quantity },
+        update: { quantity: { increment: quantity } },
+      });
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: itemId },
+        include: { currentStock: true },
+      });
+      if (item) {
+        const currentQuantity = item.currentStock?.quantity + quantity;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (currentQuantity === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (currentQuantity <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
+      await invalidateInventoryRelatedCaches({
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
+      });
+      return { batch, transaction };
+    });
+
+    return c.json(result, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const createSaleTransaction = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { data } = c.get("validatedJson");
+    const { itemId, quantity, batchId, visitId, notes } = data;
+
+    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
+    const result = await db.$transaction(async (tx) => {
+      const batch = await tx.inventoryBatch.findUnique({
+        where: { id: batchId },
+      });
+      if (!batch) {
+        return c.json(
+          { error: "Batch not found" },
+          httpCodes.NOT_FOUND as ContentfulStatusCode
+        );
+      }
+      if (batch.currentQuantity < Number(quantity)) {
+        return c.json(
+          { error: "Insufficient quantity in selected batch" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      const unitPrice = batch.unitPrice;
+      const transaction = await tx.transaction.create({
+        data: {
+          itemId,
+          batchId,
+          type: TransactionType.SALE,
+          quantity: -Number(quantity),
+          unitPrice: unitPrice ? new Decimal(unitPrice) : null,
+          totalAmount: unitPrice
+            ? new Decimal(unitPrice).mul(Number(quantity))
+            : null,
+          sourceType: SourceType.VISIT,
+          visitId,
+          notes: notes || null,
+          userId: Number(user.id),
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+
+      await tx.inventoryBatch.update({
+        where: { id: batchId },
+        data: {
+          currentQuantity: { decrement: Number(quantity) },
+        },
+      });
+      await tx.inventoryStock.update({
+        where: { itemId },
+        data: {
+          quantity: { decrement: Number(quantity) },
+        },
+      });
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: itemId },
+        include: { currentStock: true },
+      });
+      if (item?.currentStock) {
+        const currentQuantity = item.currentStock?.quantity - Number(quantity);
+
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (currentQuantity === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (currentQuantity <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
+
+      await invalidateInventoryRelatedCaches({
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
+      });
+      return { transaction };
+    });
+    return c.json(result, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     return c.json(
       {
