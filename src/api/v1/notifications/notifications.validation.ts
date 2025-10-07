@@ -17,3 +17,5 @@ export const notificationSchema = z.object({
     "HANDOFF_REQUEST",
   ]),
 });
+
+export type NotificationSchema = z.infer<typeof notificationSchema>;

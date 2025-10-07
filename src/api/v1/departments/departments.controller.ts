@@ -1,6 +1,11 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
+  CACHE_KEYS,
+  DEFAULT_CACHE_TTL,
+  getCachedData,
+} from "@/services/redis.service";
+import {
   type ClinicalDepartment,
   type Prisma,
   Role,
@@ -72,6 +77,62 @@ export const getDepartments = async (c: Context) => {
       data: departments,
       totalCount,
       pageCount,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAllClinicDepartments = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const cacheKey = `${CACHE_KEYS.DASHBOARD.DEPARTMENTS}:${user.clinicId}:${user.branchId}:${user.role}:${JSON.stringify(params || {})}`;
+    const data = await getCachedData(
+      cacheKey,
+      async () => {
+        const queryOptions = buildQueryOptions<ClinicalDepartment>(params);
+        const { where, orderBy, ...restOptions } = queryOptions;
+        const departments = await db.clinicalDepartment.findMany({
+          where: {
+            ...where,
+            clinics: {
+              some: {
+                id: user.clinic.id,
+              },
+            },
+          },
+          orderBy: orderBy as Prisma.ClinicalDepartmentOrderByWithRelationInput,
+          ...restOptions,
+        });
+        const totalCount = await db.clinicalDepartment.count({
+          where: {
+            ...where,
+            clinics: {
+              some: { id: user.clinic.id },
+            },
+          },
+        });
+        const pageCount = restOptions.take
+          ? Math.ceil(totalCount / restOptions.take)
+          : 0;
+        return {
+          data: departments,
+          totalCount,
+          pageCount,
+        };
+      },
+      DEFAULT_CACHE_TTL.SHORT
+    );
+    return c.json({
+      status: httpCodes.OK,
+      message: "All clinic departments fetched successfully",
+      data: data.data,
+      totalCount: data.totalCount,
+      pageCount: data.pageCount,
     });
   } catch (_error) {
     return c.json(
@@ -537,6 +598,25 @@ export const getDepartmentsByClinicId = async (c: Context) => {
     return c.json({
       status: httpCodes.OK,
       message: "Clinic departments fetched successfully",
+      data: departments,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getDepartmentsList = async (c: Context) => {
+  try {
+    const departments = await db.clinicalDepartment.findMany({
+      select: { id: true, name: true },
+    });
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Departments list fetched successfully",
       data: departments,
     });
   } catch (_error) {

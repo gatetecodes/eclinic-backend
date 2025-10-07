@@ -6,10 +6,12 @@ import {
   createClinicDepartments,
   createDepartment,
   deleteDepartment,
+  getAllClinicDepartments,
   getClinicalDepartmentsList,
   getDepartmentById,
   getDepartments,
   getDepartmentsByClinicId,
+  getDepartmentsList,
   updateDepartment,
 } from "./departments.controller.ts";
 import {
@@ -25,6 +27,12 @@ router.use("*", crudAccess("departments", "visits"));
 
 // Get all departments (with filtering and pagination)
 router.get("/", getDepartments);
+
+// Get all clinic departments (with filtering and pagination)
+router.get("/clinic", getAllClinicDepartments);
+
+// Get departments list (for dropdowns/selection)
+router.get("/list", getDepartmentsList);
 
 // Create a new department
 router.post("/", validate(createDepartmentSchema, "json"), createDepartment);
