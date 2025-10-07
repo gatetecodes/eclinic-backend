@@ -5,6 +5,9 @@ import {
   createClinic,
   getClinicById,
   getClinics,
+  getPortalClinicDoctors,
+  getPortalClinics,
+  togglePatientPortalForClinic,
   updateClinic,
   updateClinicAdmin,
   updateClinicSubscriptionStatus,
@@ -19,7 +22,7 @@ import {
 const router = new Hono<AppEnv>();
 
 router.get("/", getClinics);
-
+router.get("/portal", getPortalClinics);
 router.post("/", validate(clinicSchema, "json"), createClinic);
 
 router.get("/:id", getClinicById);
@@ -31,6 +34,8 @@ router.put(
   validate(updateClinicAdminSchema, "json"),
   updateClinicAdmin
 );
+router.get("/:id/doctors", getPortalClinicDoctors);
+router.put("/:id/toggle-patient-portal", togglePatientPortalForClinic);
 
 router.put(
   "/:id/subscription-status",
