@@ -5,6 +5,7 @@ import {
   type Clinic,
   type Prisma,
   Role,
+  SubscriptionStatus,
   UserStatus,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
@@ -270,6 +271,105 @@ export const updateClinicSubscriptionStatus = async (c: Context) => {
     return c.json({
       status: httpCodes.OK,
       message: "Clinic subscription status updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getPortalClinics = async (c: Context) => {
+  try {
+    const clinics = await db.clinic.findMany({
+      where: { subscriptionStatus: SubscriptionStatus.ACTIVE },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Portal clinics fetched successfully",
+      data: clinics,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getPortalClinicDoctors = async (c: Context) => {
+  try {
+    const { id } = c.req.param();
+    const clinicId = Number.parseInt(id, 10);
+    const doctors = await db.user.findMany({
+      where: { clinicId, status: UserStatus.ACTIVE, role: Role.DOCTOR },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Doctors fetched successfully",
+      data: doctors,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const togglePatientPortalForClinic = async (c: Context) => {
+  try {
+    const { id } = c.req.param();
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const clinicId = Number.parseInt(id, 10);
+    const clinic = await db.clinic.findUnique({
+      where: { id: clinicId },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (clinic.subscriptionStatus !== SubscriptionStatus.ACTIVE) {
+      return c.json(
+        { error: "Clinic is not active" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data: { isPatientPortalEnabled: !clinic.isPatientPortalEnabled },
+    });
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Patient portal toggled successfully",
       data: updatedClinic,
     });
   } catch (error) {
