@@ -11,6 +11,7 @@ import {
   InventoryStatus,
   type Prisma,
   SourceType,
+  type Transaction,
   TransactionStatus,
   TransactionType,
 } from "../../../../generated/prisma";
@@ -574,6 +575,137 @@ export const createSaleTransaction = async (c: Context) => {
       return { transaction };
     });
     return c.json(result, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getStockTransactions = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const cacheKey = `inventory:${user.clinic.id}:${user.branch.id}:stock-transactions`;
+    const queryOptions = buildQueryOptions<Transaction>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+
+    const transactions = await getCachedData(cacheKey, async () => {
+      return await db.transaction.findMany({
+        where: {
+          ...where,
+          item: {
+            clinicId: user.clinicId ?? user.clinic.id,
+            branchId: user.branchId ?? user.branch.id,
+          },
+        },
+        orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
+        ...restOptions,
+        include: {
+          item: true,
+          batch: true,
+        },
+      });
+    });
+    const totalCount = await db.transaction.count({
+      where: {
+        ...where,
+        item: {
+          clinicId: user.clinicId ?? user.clinic.id,
+          branchId: user.branchId ?? user.branch.id,
+        },
+      },
+    });
+    const pageCount = restOptions.take
+      ? Math.ceil(totalCount / restOptions.take)
+      : 0;
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Stock transactions fetched successfully",
+        data: transactions,
+        totalCount,
+        pageCount,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getInventoryTransactions = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<Transaction>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+    const transactions = await db.transaction.findMany({
+      where: {
+        ...where,
+        item: {
+          clinicId: user.clinicId ?? user.clinic.id,
+          branchId: user.branchId ?? user.branch.id,
+        },
+      },
+      orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
+      ...restOptions,
+      include: {
+        item: {
+          select: {
+            id: true,
+            itemName: true,
+          },
+        },
+        batch: {
+          select: {
+            id: true,
+            batchNumber: true,
+          },
+        },
+        performedBy: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        visit: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+    const totalCount = await db.transaction.count({
+      where: {
+        ...where,
+        item: {
+          clinicId: user.clinicId ?? user.clinic.id,
+          branchId: user.branchId ?? user.branch.id,
+        },
+      },
+    });
+    const pageCount = restOptions.take
+      ? Math.ceil(totalCount / restOptions.take)
+      : 0;
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Inventory transactions fetched successfully",
+        data: transactions,
+        totalCount,
+        pageCount,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
