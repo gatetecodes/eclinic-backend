@@ -47,4 +47,7 @@ export const listInventoryQuerySchema = z.object({
   category: z.string().optional(),
 });
 
+export type StockTransactionFormData = z.infer<typeof stockTransactionSchema>;
+export type SaleTransactionFormData = z.infer<typeof saleTransactionSchema>;
+
 export type ListInventoryQuery = z.infer<typeof listInventoryQuerySchema>;
