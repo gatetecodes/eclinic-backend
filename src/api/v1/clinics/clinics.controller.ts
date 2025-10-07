@@ -314,6 +314,29 @@ export const getPortalClinicDoctors = async (c: Context) => {
   try {
     const { id } = c.req.param();
     const clinicId = Number.parseInt(id, 10);
+    if (Number.isNaN(clinicId)) {
+      return c.json(
+        { error: "Invalid clinicId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const clinic = await db.clinic.findUnique({
+      where: { id: clinicId },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (clinic.subscriptionStatus !== SubscriptionStatus.ACTIVE) {
+      return c.json(
+        { error: "Clinic is not active" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const doctors = await db.user.findMany({
       where: { clinicId, status: UserStatus.ACTIVE, role: Role.DOCTOR },
       select: {
@@ -347,6 +370,12 @@ export const togglePatientPortalForClinic = async (c: Context) => {
       );
     }
     const clinicId = Number.parseInt(id, 10);
+    if (Number.isNaN(clinicId)) {
+      return c.json(
+        { error: "Invalid clinicId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const clinic = await db.clinic.findUnique({
       where: { id: clinicId },
     });
