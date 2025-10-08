@@ -233,8 +233,8 @@ export const getDoctorAvailability = async (doctorId: number, date: Date) => {
     }
 
     const availableTimes = Array.from(availableTimesSet).sort();
-    return availableTimes;
+    return { availableTimes };
   } catch (_error) {
-    return [];
+    return { availableTimes: [] };
   }
 };

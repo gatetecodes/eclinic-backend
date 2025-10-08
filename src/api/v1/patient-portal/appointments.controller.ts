@@ -54,7 +54,7 @@ export const getAvailableClinics = async (c: Context) => {
 
 export const getAvailableBranches = async (c: Context) => {
   try {
-    const { clinicId } = c.req.param();
+    const { clinicId } = c.get("validatedQuery");
     if (!clinicId) {
       return c.json(
         { error: "Clinic ID is required" },
@@ -91,7 +91,7 @@ export const getAvailableBranches = async (c: Context) => {
 
 export const getAvailableDepartments = async (c: Context) => {
   try {
-    const { clinicId, branchId } = c.req.param();
+    const { clinicId, branchId } = c.get("validatedQuery");
     if (!(clinicId && branchId)) {
       return c.json(
         { error: "Clinic ID and branch ID are required" },
@@ -128,7 +128,7 @@ export const getAvailableDepartments = async (c: Context) => {
 
 export const getAvailableDoctors = async (c: Context) => {
   try {
-    const { clinicId, branchId, departmentId } = c.req.param();
+    const { clinicId, branchId, departmentId } = c.get("validatedQuery");
     if (!(clinicId && branchId && departmentId)) {
       return c.json(
         { error: "Clinic ID, branch ID and department ID are required" },
@@ -180,7 +180,7 @@ export const getAvailableDoctors = async (c: Context) => {
 
 export const getDoctorAvailableDays = async (c: Context) => {
   try {
-    const { doctorId } = c.req.param();
+    const { doctorId } = c.get("validatedParams");
     if (!doctorId) {
       return c.json(
         { error: "Doctor ID is required" },
@@ -208,7 +208,7 @@ export const getDoctorAvailableDays = async (c: Context) => {
 
 export const getDoctorAvailableTimeSlots = async (c: Context) => {
   try {
-    const { doctorId, dayOfWeek } = c.req.param();
+    const { doctorId, dayOfWeek } = c.get("validatedQuery");
     if (!(doctorId && dayOfWeek)) {
       return c.json(
         { error: "Doctor ID and day of week are required" },
@@ -225,7 +225,7 @@ export const getDoctorAvailableTimeSlots = async (c: Context) => {
         message: "Available time slots fetched successfully",
         data: result,
       },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
     return c.json(
@@ -239,14 +239,14 @@ export const getDoctorAvailableTimeSlots = async (c: Context) => {
 
 export const getDoctorAvailableSlots = async (c: Context) => {
   try {
-    const { doctorId, date } = c.req.param();
+    const { doctorId, date } = c.get("validatedQuery");
     if (!(doctorId && date)) {
       return c.json(
         { error: "Doctor ID and date are required" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const result = await getDoctorAvailability(
+    const { availableTimes } = await getDoctorAvailability(
       Number(doctorId),
       new Date(date)
     );
@@ -254,9 +254,9 @@ export const getDoctorAvailableSlots = async (c: Context) => {
       {
         status: httpCodes.OK,
         message: "Available slots fetched successfully",
-        data: result,
+        data: availableTimes,
       },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
     return c.json(
@@ -311,12 +311,12 @@ export const bookPatientAppointment = async (c: Context) => {
     const appointmentDateTime = new Date(
       `${data.appointmentDate}T${data.startTime}`
     );
-    const availability = (await getDoctorAvailability(
+    const { availableTimes } = (await getDoctorAvailability(
       data.doctorId,
       appointmentDateTime
     )) as { availableTimes: string[] };
 
-    if (!availability.availableTimes?.includes(data.startTime.toString())) {
+    if (!availableTimes?.includes(data.startTime)) {
       return c.json(
         { error: "Selected slot is not available" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
@@ -413,7 +413,7 @@ export const bookPatientAppointment = async (c: Context) => {
 
 export const getPatientAppointments = async (c: Context) => {
   try {
-    const { patientId } = c.req.param();
+    const { patientId } = c.get("validatedParams");
     if (!patientId) {
       return c.json(
         { error: "Patient ID is required" },
@@ -455,7 +455,7 @@ export const getPatientAppointments = async (c: Context) => {
 
 export const cancelPatientAppointment = async (c: Context) => {
   try {
-    const { appointmentId, patientId } = c.req.param();
+    const { appointmentId, patientId } = c.get("validatedParams");
 
     const appointment = await db.patientAppointment.findFirst({
       where: { id: Number(appointmentId), patientId: Number(patientId) },
@@ -517,7 +517,7 @@ export const cancelPatientAppointment = async (c: Context) => {
 
 export const getAppointmentDetails = async (c: Context) => {
   try {
-    const { appointmentId, patientId } = c.req.param();
+    const { appointmentId, patientId } = c.get("validatedParams");
     const appointment = await db.patientAppointment.findFirst({
       where: { id: Number(appointmentId), patientId: Number(patientId) },
       include: {
