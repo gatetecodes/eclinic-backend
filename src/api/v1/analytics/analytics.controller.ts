@@ -789,16 +789,16 @@ export const getNurseStats = async (c: Context) => {
             trend: calculateTrend(currentDay[0], previousDay[0]),
             trendText: calculateTrendText(currentDay[0], previousDay[0]),
           },
-        },
-        pendingConsultations: {
-          count: currentDay[1],
-          trend: calculateTrend(currentDay[1], previousDay[1]),
-          trendText: calculateTrendText(currentDay[1], previousDay[1]),
-        },
-        hospitalizedPatients: {
-          count: currentDay[2],
-          trend: calculateTrend(currentDay[2], previousDay[2]),
-          trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          pendingConsultations: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          hospitalizedPatients: {
+            count: currentDay[2],
+            trend: calculateTrend(currentDay[2], previousDay[2]),
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
         },
       },
 
