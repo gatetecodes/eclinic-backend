@@ -4,13 +4,18 @@ import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
   countVisitsByDepartments,
+  getAccountantStats,
   getCashFlow,
   getClinicGrowthData,
   getClinicsOverview,
   getClinicsRevenue,
   getDashboard,
   getDashboardOverview,
+  getDoctorStats,
+  getLabTechnicianStats,
+  getNurseStats,
   getPatientsByAge,
+  getStockManagerStats,
   getTopPerformingClinics,
 } from "./analytics.controller.ts";
 
@@ -81,6 +86,35 @@ router.get(
   }),
   requireQuota("analyticsPro", 1, "soft"),
   getClinicsRevenue
+);
+router.get(
+  "/stock-manager/stats",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getStockManagerStats
+);
+
+router.get(
+  "/lab-technician/stats",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getLabTechnicianStats
+);
+
+router.get(
+  "/accountant/stats",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getAccountantStats
+);
+
+router.get(
+  "/doctor/stats",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getDoctorStats
+);
+
+router.get(
+  "/nurse/stats",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getNurseStats
 );
 
 export default router;
