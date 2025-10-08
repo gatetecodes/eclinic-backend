@@ -1,3 +1,11 @@
+import {
+  EventType,
+  ExamStatus,
+  InventoryStatus,
+  PaymentMode,
+  PaymentStatus,
+  VisitStatus,
+} from "@prisma/client";
 import type { Decimal } from "@prisma/client/runtime/library";
 import {
   eachDayOfInterval,
@@ -606,6 +614,554 @@ export const getClinicsRevenue = async (c: Context) => {
       })
     );
     return c.json({ data });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getDoctorStats = async (c: Context) => {
+  try {
+    const doctorId = Number(c.req.query("doctorId"));
+
+    const doctor = await db.user.findUnique({ where: { id: doctorId } });
+    if (!doctor) {
+      return c.json(
+        { error: "Doctor not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const now = new Date();
+    const today = new Date(now.setHours(0, 0, 0, 0));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [currentDay, previousDay] = await Promise.all([
+      db.$transaction([
+        db.event.count({
+          where: {
+            doctorId,
+            startTime: { gte: today },
+            type: EventType.APPOINTMENT,
+          },
+        }),
+        db.visit.count({
+          where: {
+            doctorId,
+            status: VisitStatus.IN_CONSULTATION,
+            createdAt: { gte: today },
+          },
+        }),
+        db.visit.count({
+          where: {
+            doctorId,
+            status: VisitStatus.DISCHARGED,
+            createdAt: { gte: today },
+          },
+        }),
+      ]),
+      db.$transaction([
+        db.event.count({
+          where: {
+            doctorId,
+            startTime: { gte: yesterday, lt: today },
+            type: EventType.APPOINTMENT,
+          },
+        }),
+        db.visit.count({
+          where: {
+            doctorId,
+            status: VisitStatus.IN_CONSULTATION,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        db.visit.count({
+          where: {
+            doctorId,
+            status: VisitStatus.DISCHARGED,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+      ]),
+    ]);
+    const appointmentsTrend = calculateTrend(currentDay[0], previousDay[0]);
+    const pendingVisitsTrend = calculateTrend(currentDay[1], previousDay[1]);
+    const completedVisitsTrend = calculateTrend(currentDay[2], previousDay[2]);
+
+    return c.json(
+      {
+        data: {
+          appointments: {
+            count: currentDay[0],
+            trend: appointmentsTrend,
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+          pendingVisits: {
+            count: currentDay[1],
+            trend: pendingVisitsTrend,
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          completedVisits: {
+            count: currentDay[2],
+            trend: completedVisitsTrend,
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getNurseStats = async (c: Context) => {
+  try {
+    const nurseId = Number(c.req.query("nurseId"));
+    const nurse = await db.user.findUnique({ where: { id: nurseId } });
+    if (!nurse) {
+      return c.json(
+        { error: "Nurse not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const now = new Date();
+    const today = new Date(now.setHours(0, 0, 0, 0));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [currentDay, previousDay] = await Promise.all([
+      db.$transaction([
+        db.visit.count({
+          where: { checkedInById: nurseId, createdAt: { gte: today } },
+        }),
+        db.visit.count({
+          where: {
+            checkedInById: nurseId,
+            status: VisitStatus.CHECKED_IN,
+            createdAt: { gte: today },
+          },
+        }),
+        db.visit.count({
+          where: {
+            checkedInById: nurseId,
+            status: VisitStatus.ADMITTED,
+            createdAt: { gte: today },
+          },
+        }),
+      ]),
+      db.$transaction([
+        db.visit.count({
+          where: {
+            checkedInById: nurseId,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        db.visit.count({
+          where: {
+            checkedInById: nurseId,
+            status: VisitStatus.CHECKED_IN,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        db.visit.count({
+          where: {
+            checkedInById: nurseId,
+            status: VisitStatus.ADMITTED,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+      ]),
+    ]);
+
+    return c.json(
+      {
+        data: {
+          checkins: {
+            count: currentDay[0],
+            trend: calculateTrend(currentDay[0], previousDay[0]),
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+        },
+        pendingConsultations: {
+          count: currentDay[1],
+          trend: calculateTrend(currentDay[1], previousDay[1]),
+          trendText: calculateTrendText(currentDay[1], previousDay[1]),
+        },
+        hospitalizedPatients: {
+          count: currentDay[2],
+          trend: calculateTrend(currentDay[2], previousDay[2]),
+          trendText: calculateTrendText(currentDay[2], previousDay[2]),
+        },
+      },
+
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getLabTechnicianStats = async (c: Context) => {
+  try {
+    const labTechnicianId = Number(c.req.query("labTechnicianId"));
+    const labTechnician = await db.user.findUnique({
+      where: { id: labTechnicianId },
+      select: {
+        clinicId: true,
+      },
+    });
+    if (!labTechnician?.clinicId) {
+      return c.json(
+        { error: "Lab Technician not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const now = new Date();
+    const today = new Date(now.setHours(0, 0, 0, 0));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [currentDay, previousDay] = await Promise.all([
+      db.$transaction([
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            createdAt: { gte: today },
+          },
+        }),
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            status: ExamStatus.PENDING,
+            createdAt: { gte: today },
+          },
+        }),
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            status: ExamStatus.COMPLETED,
+            createdAt: { gte: today },
+          },
+        }),
+      ]),
+      db.$transaction([
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            status: ExamStatus.PENDING,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        db.exam.count({
+          where: {
+            clinicId: labTechnician.clinicId,
+            status: ExamStatus.COMPLETED,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+      ]),
+    ]);
+    return c.json(
+      {
+        data: {
+          totalExams: {
+            count: currentDay[0],
+            trend: calculateTrend(currentDay[0], previousDay[0]),
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+          pendingExams: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          completedExams: {
+            count: currentDay[2],
+            trend: calculateTrend(currentDay[2], previousDay[2]),
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getAccountantStats = async (c: Context) => {
+  try {
+    const accountantId = Number(c.req.query("accountantId"));
+    const accountant = await db.user.findUnique({
+      where: { id: accountantId },
+    });
+    if (!accountant) {
+      return c.json(
+        { error: "Accountant not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const now = new Date();
+    const today = new Date(now.setHours(0, 0, 0, 0));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const [currentDay, previousDay] = await Promise.all([
+      db.$transaction([
+        db.payment.aggregate({
+          _sum: { amount: true },
+          where: { createdAt: { gte: today } },
+        }),
+        db.payment.count({
+          where: {
+            createdAt: { gte: today },
+            paymentStatus: PaymentStatus.PENDING,
+          },
+        }),
+        db.payment.count({
+          where: {
+            createdAt: { gte: today },
+            paymentStatus: PaymentStatus.PAID,
+          },
+        }),
+        db.payment.aggregate({
+          _sum: { insuranceAmount: true },
+          where: {
+            createdAt: { gte: today },
+            paymentMode: PaymentMode.INSURANCE,
+          },
+        }),
+      ]),
+      db.$transaction([
+        db.payment.aggregate({
+          _sum: { amount: true },
+          where: { createdAt: { gte: yesterday, lt: today } },
+        }),
+        db.payment.count({
+          where: {
+            createdAt: { gte: yesterday, lt: today },
+            paymentStatus: PaymentStatus.PENDING,
+          },
+        }),
+        db.payment.count({
+          where: {
+            createdAt: { gte: yesterday, lt: today },
+            paymentStatus: PaymentStatus.PAID,
+          },
+        }),
+        db.payment.aggregate({
+          _sum: { insuranceAmount: true },
+          where: {
+            createdAt: { gte: yesterday, lt: today },
+            paymentMode: PaymentMode.INSURANCE,
+          },
+        }),
+      ]),
+    ]);
+    return c.json(
+      {
+        data: {
+          totalRevenue: {
+            count: currentDay[0]._sum.amount || 0,
+            trend: calculateTrend(
+              Number(currentDay[0]._sum.amount || 0),
+              Number(previousDay[0]._sum.amount || 0)
+            ),
+            trendText: calculateTrendText(
+              Number(currentDay[0]._sum.amount || 0),
+              Number(previousDay[0]._sum.amount || 0)
+            ),
+          },
+          pendingPayments: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          completedPayments: {
+            count: currentDay[2],
+            trend: calculateTrend(currentDay[2], previousDay[2]),
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
+          insuranceClaims: {
+            count: currentDay[3]._sum.insuranceAmount || 0,
+            trend: calculateTrend(
+              Number(currentDay[3]._sum.insuranceAmount || 0),
+              Number(previousDay[3]._sum.insuranceAmount || 0)
+            ),
+            trendText: calculateTrendText(
+              Number(currentDay[3]._sum.insuranceAmount || 0),
+              Number(previousDay[3]._sum.insuranceAmount || 0)
+            ),
+          },
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getStockManagerStats = async (c: Context) => {
+  try {
+    const stockManagerId = Number(c.req.query("stockManagerId"));
+    const stockManager = await db.user.findUnique({
+      where: { id: stockManagerId },
+    });
+    if (!stockManager) {
+      return c.json(
+        { error: "Stock Manager not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (!stockManager.clinicId) {
+      return c.json(
+        { error: "Stock Manager not associated with a clinic" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const now = new Date();
+    const today = new Date(now.setHours(0, 0, 0, 0));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const thirtyDaysFromNow = new Date(today);
+    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+    const [currentDay, previousDay] = await Promise.all([
+      // Total items count
+      db.$transaction([
+        db.inventoryItem.count({ where: { clinicId: stockManager.clinicId } }),
+        // Low stock items count
+        db.inventoryItem.count({
+          where: {
+            clinicId: stockManager.clinicId,
+            status: InventoryStatus.LOW_STOCK,
+          },
+        }),
+        // Items nearing expiration
+        db.inventoryBatch.count({
+          where: {
+            item: { clinicId: stockManager.clinicId },
+            expiryDate: { lte: thirtyDaysFromNow, gte: today },
+          },
+        }),
+        // Recent transactions count
+        db.transaction.count({
+          where: {
+            item: { clinicId: stockManager.clinicId },
+            createdAt: { gte: today },
+          },
+        }),
+        // Total inventory value
+        db.inventoryStock.aggregate({
+          _sum: { quantity: true },
+          where: { item: { clinicId: stockManager.clinicId } },
+        }),
+      ]),
+      db.$transaction([
+        // Previous day's total items
+        db.inventoryItem.count({
+          where: {
+            clinicId: stockManager.clinicId,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        // Previous day's low stock items
+        db.inventoryItem.count({
+          where: {
+            clinicId: stockManager.clinicId,
+            status: InventoryStatus.LOW_STOCK,
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        // Previous day's items nearing expiration
+        db.inventoryBatch.count({
+          where: {
+            item: { clinicId: stockManager.clinicId },
+            createdAt: { gte: yesterday, lt: today },
+            expiryDate: { lte: thirtyDaysFromNow, gte: today },
+          },
+        }),
+        // Previous day's transactions
+        db.transaction.count({
+          where: {
+            item: { clinicId: stockManager.clinicId },
+            createdAt: { gte: yesterday, lt: today },
+          },
+        }),
+        // Previous day's total inventory value
+        db.inventoryStock.aggregate({
+          _sum: { quantity: true },
+          where: {
+            item: {
+              clinicId: stockManager.clinicId,
+            },
+          },
+        }),
+      ]),
+    ]);
+    return c.json(
+      {
+        data: {
+          totalItems: {
+            count: currentDay[0],
+            trend: calculateTrend(currentDay[0], previousDay[0]),
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+          lowStockItems: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          expiringItems: {
+            count: currentDay[2],
+            trend: calculateTrend(currentDay[2], previousDay[2]),
+            trendText: calculateTrendText(currentDay[2], previousDay[2]),
+          },
+          recentTransactions: {
+            count: currentDay[3],
+            trend: calculateTrend(currentDay[3], previousDay[3]),
+            trendText: calculateTrendText(currentDay[3], previousDay[3]),
+          },
+          totalValue: {
+            count: currentDay[4]._sum.quantity || 0,
+            trend: calculateTrend(
+              currentDay[4]._sum.quantity || 0,
+              previousDay[4]._sum.quantity || 0
+            ),
+            trendText: calculateTrendText(
+              currentDay[4]._sum.quantity || 0,
+              previousDay[4]._sum.quantity || 0
+            ),
+          },
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

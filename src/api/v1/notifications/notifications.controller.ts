@@ -1,13 +1,12 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { z } from "zod";
 import { httpCodes } from "@/lib/constants.ts";
 import { db } from "../../../database/db";
-import type { notificationSchema } from "./notifications.validation";
+import type { NotificationSchema } from "./notifications.validation";
 
 export const createNotification = async (c: Context) => {
   try {
-    const data = c.get("validatedJson") as z.infer<typeof notificationSchema>;
+    const data = c.get("validatedJson") as NotificationSchema;
     const notification = await db.notification.create({
       data: {
         userId: data.userId,

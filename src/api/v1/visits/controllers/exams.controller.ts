@@ -72,6 +72,7 @@ export const addExams = async (c: Context) => {
 
     const exam = await db.exam.create({
       data: {
+        clinic: { connect: { id: user.clinicId } },
         visit: { connect: { id: visitId } },
         products: { connect: productIds.map((pid) => ({ id: pid })) },
       },
@@ -302,7 +303,8 @@ export const editVisitExams = async (c: Context) => {
       await tx.exam.deleteMany({ where: { visitId } });
       const newExam = await tx.exam.create({
         data: {
-          visitId,
+          clinic: { connect: { id: user.clinicId } },
+          visit: { connect: { id: visitId } },
           products: { connect: productIds.map((pid) => ({ id: pid })) },
         },
       });

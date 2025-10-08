@@ -212,7 +212,8 @@ export const createExam = async (c: Context) => {
 
     const exam = await db.exam.create({
       data: {
-        visitId,
+        clinic: { connect: { id: user.clinicId } },
+        visit: { connect: { id: visitId } },
         name,
         description,
         products: {
