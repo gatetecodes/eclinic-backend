@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const getPatientAppointmentsParamsSchema = z.object({
-  patientId: z.string().optional(),
+  patientId: z.string(),
 });
 
 export const getAppointmentDetailsParamsSchema = z.object({

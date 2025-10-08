@@ -37,22 +37,22 @@ router.get(
 );
 router.get(
   "/departments",
-  validate(getAvailableDepartmentsParamsSchema, "param"),
+  validate(getAvailableDepartmentsParamsSchema, "query"),
   getAvailableDepartments
 );
 router.get(
   "/doctors",
-  validate(getAvailableDoctorsParamsSchema, "param"),
+  validate(getAvailableDoctorsParamsSchema, "query"),
   getAvailableDoctors
 );
 router.get(
-  "/appointments",
+  "/:patientId/appointments",
   validate(getPatientAppointmentsParamsSchema, "param"),
   getPatientAppointments
 );
 
 router.get(
-  "/appointments/:appointmentId",
+  "/:patientId/appointments/:appointmentId",
   validate(getAppointmentDetailsParamsSchema, "param"),
   getAppointmentDetails
 );
@@ -62,7 +62,7 @@ router.post(
   bookPatientAppointment
 );
 router.put(
-  "/appointments/:appointmentId",
+  "/:patientId/appointments/:appointmentId",
   validate(cancelPatientAppointmentParamsSchema, "param"),
   cancelPatientAppointment
 );
@@ -72,13 +72,13 @@ router.get(
   getDoctorAvailableDays
 );
 router.get(
-  "/doctors/:doctorId/available-time-slots",
-  validate(getDoctorAvailableTimeSlotsParamsSchema, "param"),
+  "/doctors/available-time-slots",
+  validate(getDoctorAvailableTimeSlotsParamsSchema, "query"),
   getDoctorAvailableTimeSlots
 );
 router.get(
-  "/doctors/:doctorId/available-slots",
-  validate(getDoctorAvailableSlotsParamsSchema, "param"),
+  "/doctors/available-slots",
+  validate(getDoctorAvailableSlotsParamsSchema, "query"),
   getDoctorAvailableSlots
 );
 router.get(
