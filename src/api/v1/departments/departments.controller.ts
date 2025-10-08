@@ -90,7 +90,7 @@ export const getAllClinicDepartments = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `${CACHE_KEYS.DASHBOARD.DEPARTMENTS}:${user.clinicId}:${user.branchId}:${user.role}:${JSON.stringify(params || {})}`;
+    const cacheKey = `${CACHE_KEYS.DASHBOARD.DEPARTMENTS}:${user.clinicId}:${user.role}:${JSON.stringify(params || {})}`;
     const data = await getCachedData(
       cacheKey,
       async () => {
@@ -104,7 +104,7 @@ export const getAllClinicDepartments = async (c: Context) => {
                 id: user.clinic.id,
               },
             },
-          },
+          } as Prisma.ClinicalDepartmentWhereInput,
           orderBy: orderBy as Prisma.ClinicalDepartmentOrderByWithRelationInput,
           ...restOptions,
         });
@@ -114,7 +114,7 @@ export const getAllClinicDepartments = async (c: Context) => {
             clinics: {
               some: { id: user.clinic.id },
             },
-          },
+          } as Prisma.ClinicalDepartmentWhereInput,
         });
         const pageCount = restOptions.take
           ? Math.ceil(totalCount / restOptions.take)
@@ -611,7 +611,11 @@ export const getDepartmentsByClinicId = async (c: Context) => {
 export const getDepartmentsList = async (c: Context) => {
   try {
     const departments = await db.clinicalDepartment.findMany({
+      where: { isActive: true },
       select: { id: true, name: true },
+      orderBy: {
+        name: "asc",
+      },
     });
 
     return c.json({

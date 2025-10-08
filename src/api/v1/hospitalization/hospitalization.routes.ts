@@ -35,7 +35,7 @@ router.post(
   setHospitalizationRoomPrice
 );
 router.post(
-  "/:id/discharge",
+  "/:visitId/discharge",
   validate(idParamSchema, "param"),
   dischargePatient
 );
