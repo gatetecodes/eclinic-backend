@@ -2,7 +2,10 @@ import type { User } from "./auth";
 
 type CacheEntry = { user: User; cachedAt: number };
 
-const CACHE_TTL_MS = Number(process.env.SESSION_CACHE_TTL_MS ?? "1000"); // 1 second
+const configuredTTL = Number(process.env.SESSION_CACHE_TTL_MS ?? "1000");
+const CACHE_TTL_MS =
+  Number.isFinite(configuredTTL) && configuredTTL >= 0 ? configuredTTL : 1000; // 1 second
+
 const cache = new Map<string, CacheEntry>();
 
 export function getCachedUser(cookieHeader: string | undefined): User | null {
