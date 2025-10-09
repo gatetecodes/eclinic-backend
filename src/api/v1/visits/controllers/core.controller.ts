@@ -312,7 +312,7 @@ export const listVisits = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `visits:${user.clinic.id}:${user.branch.id}:${user.role}:${JSON.stringify(
+    const cacheKey = `visits:${user.clinicId ?? user.clinic.id}:${user.branchId ?? user.branch.id}:${user.role}:${JSON.stringify(
       params
     )}`;
 
@@ -434,9 +434,11 @@ export const listVisits = async (c: Context) => {
     );
 
     return c.json(data);
-  } catch (_error) {
+  } catch (error) {
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

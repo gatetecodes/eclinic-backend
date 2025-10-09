@@ -11,6 +11,7 @@ enum Role {
     MARKETING
     FLOW_MANAGER
     STOCK_MANAGER
+    PATIENT
 }
 
 enum UserStatus {
@@ -68,8 +69,11 @@ model User {
     spectaclePrescriptions SpectaclePrescription[]
     processedPayments      Payment[]               @relation("ProcessedPayments")
     patientAppointments    PatientAppointment[]
-    visitsTransferredTo    Visit[]               @relation("VisitsTransferredTo")
+    visitsTransferredTo    Visit[]                 @relation("VisitsTransferredTo")
+    patient                Patient?                @relation(fields: [patientId], references: [id])
+    patientId              Int?                    @unique
     sessions               Session[]
+
     @@unique([clinicId, email])
     @@index([email])
     @@index([role])
