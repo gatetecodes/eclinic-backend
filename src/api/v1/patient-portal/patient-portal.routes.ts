@@ -15,8 +15,8 @@ import {
   getDoctorAvailableTimeSlots,
   getPatientAppointments,
 } from "./appointments.controller.ts";
-import { getMe, initMe, linkMe } from "./me.controller";
-import { meInitSchema, meLinkSchema } from "./me.validations";
+import { getMe, initMe, linkMe } from "./me.controller.ts";
+import { meInitSchema, meLinkSchema } from "./me.validations.ts";
 import {
   bookPatientAppointmentSchema,
   cancelPatientAppointmentParamsSchema,
