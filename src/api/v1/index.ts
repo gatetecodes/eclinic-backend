@@ -41,6 +41,11 @@ v1.all("/auth/*", (c) => {
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
+
+// Mount patient-portal routes BEFORE tenant/entitlements to bypass them while keeping auth
+v1.route("/patient-portal", patientPortalRouter);
+
+// Tenant + Entitlements for the rest
 v1.use("*", tenantContext);
 v1.use("*", entitlementsContext);
 
@@ -65,6 +70,5 @@ v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/insurance-claims", insuranceClaimsRouter);
 v1.route("/insurance", insuranceRouter);
 v1.route("/hospitalization", hospitalizationRouter);
-v1.route("/patient-portal", patientPortalRouter);
 
 export default v1;

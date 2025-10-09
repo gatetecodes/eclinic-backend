@@ -192,6 +192,10 @@ export const auth = betterAuth({
         type: "string",
         required: true,
       },
+      patientId: {
+        type: "number",
+        required: false,
+      },
       clinicId: {
         type: "number",
         required: false,
@@ -252,7 +256,9 @@ export const auth = betterAuth({
 
 export type Session = Omit<typeof auth.$Infer.Session, "user"> & {
   user: typeof auth.$Infer.Session.user & {
+    id: number;
     role: string;
+    patientId?: number;
     clinicId?: number;
     branchId?: number;
     clinic?: Clinic;

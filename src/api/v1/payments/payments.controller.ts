@@ -158,7 +158,7 @@ export const getPayments = async (c: Context) => {
     const params = searchParamsSchema.parse(c.req.query());
     const queryOptions = buildQueryOptions<Payment>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
-    const cacheKey = `payments:${user.clinic.id}:${user.branch.id}:${JSON.stringify(params || {})}`;
+    const cacheKey = `payments:${user.clinicId ?? user.clinic.id}:${user.branchId ?? user.branch.id}:${JSON.stringify(params || {})}`;
 
     const paymentsData = await getCachedData(
       cacheKey,
@@ -166,8 +166,8 @@ export const getPayments = async (c: Context) => {
         const payments = await db.payment.findMany({
           where: {
             ...where,
-            clinicId: user.clinic.id,
-            branchId: user.branch.id,
+            clinicId: user.clinicId ?? user.clinic.id,
+            branchId: user.branchId ?? user.branch.id,
           } as Prisma.PaymentWhereInput,
           orderBy: orderBy as Prisma.PaymentOrderByWithRelationInput,
           ...restOptions,
@@ -220,8 +220,8 @@ export const getPayments = async (c: Context) => {
         const totalCount = await db.payment.count({
           where: {
             ...where,
-            clinicId: user.clinic.id,
-            branchId: user.branch.id,
+            clinicId: user.clinicId ?? user.clinic.id,
+            branchId: user.branchId ?? user.branch.id,
           } as Prisma.PaymentWhereInput,
         });
         const pageCount = queryOptions.take

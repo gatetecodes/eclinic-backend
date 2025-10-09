@@ -44,7 +44,7 @@ export const getAvailableDoctorsParamsSchema = z.object({
 });
 
 export const bookPatientAppointmentSchema = z.object({
-  patientId: z.string(),
+  patientId: z.string().optional(),
   clinicId: z.string(),
   branchId: z.string().optional(),
   departmentId: z.string(),

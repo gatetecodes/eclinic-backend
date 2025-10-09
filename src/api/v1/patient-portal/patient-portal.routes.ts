@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+// import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AppEnv } from "@/middlewares/auth.middleware.ts";
 import { validate } from "@/middlewares/validation.middleware.ts";
 import {
@@ -14,6 +15,8 @@ import {
   getDoctorAvailableTimeSlots,
   getPatientAppointments,
 } from "./appointments.controller.ts";
+import { getMe, initMe, linkMe } from "./me.controller";
+import { meInitSchema, meLinkSchema } from "./me.validations";
 import {
   bookPatientAppointmentSchema,
   cancelPatientAppointmentParamsSchema,
@@ -32,7 +35,7 @@ const router = new Hono<AppEnv>();
 router.get("/clinics", getAvailableClinics);
 router.get(
   "/branches",
-  validate(getAvailableBranchesParamsSchema, "param"),
+  validate(getAvailableBranchesParamsSchema, "query"),
   getAvailableBranches
 );
 router.get(
@@ -61,6 +64,12 @@ router.post(
   validate(bookPatientAppointmentSchema, "json"),
   bookPatientAppointment
 );
+
+router.post("/me/init", validate(meInitSchema, "json"), initMe);
+
+router.post("/me/link", validate(meLinkSchema, "json"), linkMe);
+
+router.get("/me", getMe);
 router.put(
   "/:patientId/appointments/:appointmentId",
   validate(cancelPatientAppointmentParamsSchema, "param"),

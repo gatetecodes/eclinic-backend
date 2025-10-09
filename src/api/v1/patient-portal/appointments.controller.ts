@@ -55,12 +55,6 @@ export const getAvailableClinics = async (c: Context) => {
 export const getAvailableBranches = async (c: Context) => {
   try {
     const { clinicId } = c.get("validatedQuery");
-    if (!clinicId) {
-      return c.json(
-        { error: "Clinic ID is required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
     const branches = await db.branch.findMany({
       where: {
         isPatientPortalEnabled: true,
@@ -92,12 +86,7 @@ export const getAvailableBranches = async (c: Context) => {
 export const getAvailableDepartments = async (c: Context) => {
   try {
     const { clinicId, branchId } = c.get("validatedQuery");
-    if (!(clinicId && branchId)) {
-      return c.json(
-        { error: "Clinic ID and branch ID are required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+
     const departments = await db.clinicalDepartment.findMany({
       where: {
         isActive: true,
@@ -129,12 +118,7 @@ export const getAvailableDepartments = async (c: Context) => {
 export const getAvailableDoctors = async (c: Context) => {
   try {
     const { clinicId, branchId, departmentId } = c.get("validatedQuery");
-    if (!(clinicId && branchId && departmentId)) {
-      return c.json(
-        { error: "Clinic ID, branch ID and department ID are required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+
     const doctors = await db.user.findMany({
       where: {
         clinicId: Number(clinicId),
@@ -181,12 +165,7 @@ export const getAvailableDoctors = async (c: Context) => {
 export const getDoctorAvailableDays = async (c: Context) => {
   try {
     const { doctorId } = c.get("validatedParams");
-    if (!doctorId) {
-      return c.json(
-        { error: "Doctor ID is required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+
     const result = await getAvailableDaysByDoctorId(Number(doctorId));
     return c.json(
       {
@@ -209,12 +188,7 @@ export const getDoctorAvailableDays = async (c: Context) => {
 export const getDoctorAvailableTimeSlots = async (c: Context) => {
   try {
     const { doctorId, dayOfWeek } = c.get("validatedQuery");
-    if (!(doctorId && dayOfWeek)) {
-      return c.json(
-        { error: "Doctor ID and day of week are required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+
     const result = await getAvailableTimeSlotsByDoctorId(
       Number(doctorId),
       Number(dayOfWeek)
@@ -240,12 +214,7 @@ export const getDoctorAvailableTimeSlots = async (c: Context) => {
 export const getDoctorAvailableSlots = async (c: Context) => {
   try {
     const { doctorId, date } = c.get("validatedQuery");
-    if (!(doctorId && date)) {
-      return c.json(
-        { error: "Doctor ID and date are required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+
     const { availableTimes } = await getDoctorAvailability(
       Number(doctorId),
       new Date(date)
@@ -271,11 +240,16 @@ export const getDoctorAvailableSlots = async (c: Context) => {
 export const bookPatientAppointment = async (c: Context) => {
   try {
     const data = c.get("validatedJson");
-    if (!data) {
-      return c.json(
-        { error: "Invalid request data" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
+    // If caller is an authenticated PATIENT, derive patientId from session
+    const user = c.get("user");
+    if (user?.role === "PATIENT") {
+      if (!user.patientId) {
+        return c.json(
+          { error: "Patient profile not linked to this account" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      data.patientId = user.patientId;
     }
 
     const clinic = await db.clinic.findFirst({
@@ -311,10 +285,10 @@ export const bookPatientAppointment = async (c: Context) => {
     const appointmentDateTime = new Date(
       `${data.appointmentDate}T${data.startTime}`
     );
-    const { availableTimes } = (await getDoctorAvailability(
+    const { availableTimes } = await getDoctorAvailability(
       data.doctorId,
       appointmentDateTime
-    )) as { availableTimes: string[] };
+    );
 
     if (!availableTimes?.includes(data.startTime)) {
       return c.json(
@@ -414,12 +388,6 @@ export const bookPatientAppointment = async (c: Context) => {
 export const getPatientAppointments = async (c: Context) => {
   try {
     const { patientId } = c.get("validatedParams");
-    if (!patientId) {
-      return c.json(
-        { error: "Patient ID is required" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
     const appointments = await db.patientAppointment.findMany({
       where: { patientId: Number(patientId) },
       include: {
