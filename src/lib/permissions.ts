@@ -27,6 +27,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     insuranceClaims: { read: true, create: true, update: true },
     insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
+    departments: { read: true, create: true, update: true, delete: true },
   },
   BRANCH_ADMIN: {
     visits: { read: true, create: true, update: true, readVisitDetails: true },
