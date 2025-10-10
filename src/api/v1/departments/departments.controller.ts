@@ -101,7 +101,7 @@ export const getAllClinicDepartments = async (c: Context) => {
             ...where,
             clinics: {
               some: {
-                id: user.clinic.id,
+                id: user.clinicId,
               },
             },
           } as Prisma.ClinicalDepartmentWhereInput,
@@ -112,7 +112,7 @@ export const getAllClinicDepartments = async (c: Context) => {
           where: {
             ...where,
             clinics: {
-              some: { id: user.clinic.id },
+              some: { id: user.clinicId },
             },
           } as Prisma.ClinicalDepartmentWhereInput,
         });
@@ -271,7 +271,7 @@ export const getDepartmentById = async (c: Context) => {
     // Check if user has access to this department
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !department.clinics.some((clinic) => clinic.id === user.clinic.id)
+      !department.clinics.some((clinic) => clinic.id === user.clinicId)
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -335,7 +335,7 @@ export const updateDepartment = async (c: Context) => {
     // Check if user has access to this department
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingDepartment.clinics.some((clinic) => clinic.id === user.clinic.id)
+      !existingDepartment.clinics.some((clinic) => clinic.id === user.clinicId)
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -426,7 +426,7 @@ export const deleteDepartment = async (c: Context) => {
     // Check if user has access to this department
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingDepartment.clinics.some((clinic) => clinic.id === user.clinic.id)
+      !existingDepartment.clinics.some((clinic) => clinic.id === user.clinicId)
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -501,7 +501,7 @@ export const createClinicDepartments = async (c: Context) => {
 
     // Update clinic with new departments
     const updatedClinic = await db.clinic.update({
-      where: { id: user.clinic.id },
+      where: { id: user.clinicId },
       data: {
         departments: {
           connect: departments.map((departmentId) => ({
@@ -569,7 +569,7 @@ export const getDepartmentsByClinicId = async (c: Context) => {
     // Only allow access to own clinic unless super admin
     if (
       user.role !== Role.SUPER_ADMIN &&
-      user.clinic.id !== Number.parseInt(clinicId, 10)
+      user.clinicId !== Number.parseInt(clinicId, 10)
     ) {
       return c.json(
         { error: "Forbidden" },
