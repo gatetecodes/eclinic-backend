@@ -111,8 +111,8 @@ export const getApprovalRequests = async (c: Context) => {
         take,
         skip,
         where: {
-          clinicId: Number(user.clinic.id),
-          branchId: Number(user.branch.id),
+          clinicId: Number(user.clinicId ?? user.clinic.id),
+          branchId: Number(user.branchId ?? user.branch.id),
         },
         orderBy: { [orderByField]: orderByDirection },
         select: {
@@ -128,17 +128,19 @@ export const getApprovalRequests = async (c: Context) => {
       }),
       db.approval.count({
         where: {
-          clinicId: Number(user.clinic.id),
-          branchId: Number(user.branch.id),
+          clinicId: Number(user.clinicId ?? user.clinic.id),
+          branchId: Number(user.branchId ?? user.branch.id),
         },
       }),
     ]);
 
     const pageCount = take ? Math.ceil(totalCount / take) : 0;
     return c.json({ data: approvalRequests, totalCount, pageCount });
-  } catch (_error) {
+  } catch (error) {
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
