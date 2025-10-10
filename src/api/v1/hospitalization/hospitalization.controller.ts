@@ -444,8 +444,8 @@ export const getHospitalizations = async (c: Context) => {
     const hospitalizations = await db.hospitalization.findMany({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.HospitalizationWhereInput,
       orderBy: orderBy as Prisma.HospitalizationOrderByWithRelationInput,
       ...restOptions,
@@ -499,8 +499,8 @@ export const getHospitalizations = async (c: Context) => {
     const totalCount = await db.hospitalization.count({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.HospitalizationWhereInput,
     });
     const pageCount = restOptions.take
@@ -529,8 +529,8 @@ export const getHospitalizationRooms = async (c: Context) => {
     const rooms = await db.room.findMany({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomWhereInput,
       orderBy: orderBy as Prisma.RoomOrderByWithRelationInput,
       ...restOptions,
@@ -559,8 +559,8 @@ export const getHospitalizationRooms = async (c: Context) => {
     const totalCount = await db.room.count({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomWhereInput,
     });
     const pageCount = restOptions.take
@@ -589,8 +589,8 @@ export const getHospitalizationRoomPrices = async (c: Context) => {
     const roomPrices = await db.roomPrice.findMany({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomPriceWhereInput,
 
       orderBy: orderBy as Prisma.RoomPriceOrderByWithRelationInput,
@@ -599,8 +599,8 @@ export const getHospitalizationRoomPrices = async (c: Context) => {
     const totalCount = await db.roomPrice.count({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomPriceWhereInput,
     });
     const pageCount = restOptions.take
@@ -635,8 +635,8 @@ export const addHospitalizationRoom = async (c: Context) => {
       data: {
         number,
         class: roomClass,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       },
     });
     return c.json(
@@ -667,7 +667,7 @@ export const setHospitalizationRoomPrice = async (c: Context) => {
     const roomPrice = await db.roomPrice.upsert({
       where: {
         clinicId_class: {
-          clinicId: user.clinic.id,
+          clinicId: user.clinicId ?? user.clinic.id,
           class: roomClass,
         },
       },
@@ -677,8 +677,8 @@ export const setHospitalizationRoomPrice = async (c: Context) => {
       create: {
         class: roomClass,
         price,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
       },
     });
     return c.json(
@@ -701,8 +701,8 @@ export const getRoomsByClass = async (c: Context) => {
     const roomClass = c.req.query("roomClass");
     const rooms = await db.room.findMany({
       where: {
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId ?? user.clinic.id,
+        branchId: user.branchId ?? user.branch.id,
         class: roomClass as RoomClass,
       },
     });

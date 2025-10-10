@@ -21,11 +21,11 @@ const router = new Hono<AppEnv>();
 router.use("*", crudAccess("insurance", "insuranceClaims"));
 
 router.get("/employers", getEmployersList);
-router.get("/insurance-companies", getInsuranceCompaniesList);
+router.get("/companies", getInsuranceCompaniesList);
 router.get("/by-number/:insuranceNumber", getInsuranceByNumber);
 router.get("/by-patient/:patientId", getInsuranceByPatientId);
 router.post(
-  "/insurance-company",
+  "/company",
   validate(insuranceCompanySchema, "json"),
   createNewInsuranceCompany
 );

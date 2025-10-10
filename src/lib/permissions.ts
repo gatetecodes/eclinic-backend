@@ -25,6 +25,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     approvals: { read: true, approve: true },
     analytics: { read: true, viewPerformanceReports: true },
     insuranceClaims: { read: true, create: true, update: true },
+    insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
   },
   BRANCH_ADMIN: {
@@ -34,6 +35,8 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     payments: { read: true, create: true, update: true },
     approvals: { read: true },
     analytics: { read: true },
+    insuranceClaims: { read: true, create: true, update: true },
+    insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
   },
   DOCTOR: {
@@ -47,12 +50,14 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     },
     exams: { read: true, create: true, update: true },
     analytics: { read: true },
+    insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
   },
   NURSE: {
     visits: { read: true, update: true, readVisitDetails: true },
     patients: { read: true, update: true },
     exams: { read: true, create: true, update: true },
+    insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
   },
   LAB_TECHNICIAN: {
@@ -76,6 +81,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
   CASHIER: {
     payments: { read: true, create: true, update: true },
     approvals: { read: true },
+    insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
   },
   MARKETING: {
