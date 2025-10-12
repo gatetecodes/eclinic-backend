@@ -2,9 +2,11 @@ import type { User } from "./auth";
 
 type CacheEntry = { user: User; cachedAt: number };
 
-const configuredTTL = Number(process.env.SESSION_CACHE_TTL_MS ?? "1000");
+const configuredTTL = Number(process.env.SESSION_CACHE_TTL_MS ?? "300_000");
 const CACHE_TTL_MS =
-  Number.isFinite(configuredTTL) && configuredTTL >= 0 ? configuredTTL : 1000; // 1 second
+  Number.isFinite(configuredTTL) && configuredTTL >= 0
+    ? configuredTTL
+    : 300_000; // 5 minutes
 
 const cache = new Map<string, CacheEntry>();
 

@@ -11,7 +11,7 @@ import mainRoutes from "./routes";
 const MS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
 const ONE_MINUTE_MS = SECONDS_PER_MINUTE * MS_PER_SECOND;
-const RATE_LIMIT_WINDOW_MINUTES = 15;
+const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_WINDOW_MS = RATE_LIMIT_WINDOW_MINUTES * ONE_MINUTE_MS;
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const DEFAULT_PORT = 4002;
@@ -41,6 +41,8 @@ app.use(
       c.req.header("x-client-ip") ??
       c.req.header("host") ??
       "global",
+    skip: (c) =>
+      c.req.path === "/api/v1/auth/get-session" && c.req.method === "GET",
   })
 );
 
