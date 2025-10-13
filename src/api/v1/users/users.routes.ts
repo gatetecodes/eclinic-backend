@@ -21,29 +21,36 @@ import {
 import {
   addDoctorAvailabilitySchema,
   assignDepartmentsToDoctorSchema,
+  getAvailableDoctorsByDepartmentIdSchema,
 } from "./users.validation.ts";
 
 const router = new Hono<AppEnv>();
 
-router.use("*", crudAccess("users"));
-
-router.get("/clinic", getClinicUsers);
-router.get("/clinic/doctors", getClinicDoctors);
-router.get("/branch/doctors", getAllBranchDoctors);
-router.get("/doctors", getAllClinicDoctors);
-router.get("/cashiers", getCashiers);
-router.get("/department/:departmentId/doctors", getDoctorsByDepartmentId);
+router.get("/clinic", crudAccess("users"), getClinicUsers);
+router.get("/clinic/doctors", crudAccess("users"), getClinicDoctors);
+router.get("/branch/doctors", crudAccess("users"), getAllBranchDoctors);
+router.get("/doctors", crudAccess("users"), getAllClinicDoctors);
+router.get("/cashiers", crudAccess("users"), getCashiers);
 router.get(
-  "/department/:departmentId/doctors/available",
+  "/department/:departmentId/doctors",
+  crudAccess("users"),
+  getDoctorsByDepartmentId
+);
+router.post(
+  "/doctors/available-by-department",
+  validate(getAvailableDoctorsByDepartmentIdSchema, "json"),
+  ...withAccess({ resource: "users", action: "read", feature: "users" }),
   getAvailableDoctorsByDepartmentId
 );
 router.put(
   "/:id/availability",
+  crudAccess("users"),
   validate(addDoctorAvailabilitySchema, "json"),
   addDoctorAvailability
 );
 router.put(
   "/:id/departments",
+  crudAccess("users"),
   validate(assignDepartmentsToDoctorSchema, "json"),
   assignDepartmentsToDoctor
 );
@@ -52,8 +59,8 @@ router.post(
   ...withAccess({ resource: "users", action: "update", feature: "users" }),
   deactivateUser
 );
-router.put("/:userId", editUser);
-router.put("/doctors/:doctorId", editDoctor);
-router.get("/:userId", getUserById);
+router.put("/:userId", crudAccess("users"), editUser);
+router.put("/doctors/:doctorId", crudAccess("users"), editDoctor);
+router.get("/:userId", crudAccess("users"), getUserById);
 
 export default router;

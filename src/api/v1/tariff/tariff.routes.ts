@@ -41,7 +41,7 @@ tariffRouter.post(
   createProduct
 );
 tariffRouter.post(
-  "/products/import-csv",
+  "/products/import",
   validate(importProductsSchema, "json"),
   importProductsFromCSV
 );
