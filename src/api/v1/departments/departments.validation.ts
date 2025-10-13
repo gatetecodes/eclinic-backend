@@ -23,6 +23,12 @@ export const createClinicDepartmentsSchema = z.object({
     .min(1, { message: "Departments are required" }),
 });
 
+export const assignDepartmentsToClinicSchema = z.object({
+  departments: z
+    .array(z.string())
+    .min(1, { message: "Departments are required" }),
+});
+
 export type CreateDepartmentData = z.infer<typeof createDepartmentSchema>;
 export type UpdateDepartmentData = z.infer<typeof updateDepartmentSchema>;
 export type CreateClinicDepartmentsData = z.infer<

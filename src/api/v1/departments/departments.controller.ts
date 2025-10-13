@@ -630,3 +630,57 @@ export const getDepartmentsList = async (c: Context) => {
     );
   }
 };
+
+export const assignDepartmentsToClinic = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (user.role !== Role.SUPER_ADMIN) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const data = c.get("validatedJson");
+    const { clinicId } = await c.req.param();
+    const clinic = await db.clinic.findUnique({
+      where: { id: Number.parseInt(clinicId, 10) },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const updatedClinic = await db.clinic.update({
+      where: { id: Number.parseInt(clinicId, 10) },
+      data: {
+        departments: {
+          connect: data.departments.map((id: string) => ({
+            id: Number.parseInt(id, 10),
+          })),
+        },
+      },
+      include: {
+        departments: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Departments assigned to clinic successfully",
+      data: updatedClinic.departments,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
