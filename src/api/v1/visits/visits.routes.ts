@@ -82,6 +82,11 @@ const router = new Hono<AppEnv>();
 router.use("*", crudAccess("visits", "visits"));
 
 router.get("/", listVisits);
+router.post(
+  "/patient-by-phone",
+  validate(getPatientByPhoneSchema, "json"),
+  getPatientsByPhone
+);
 router.get("/:id", validate(getVisitParamsSchema, "param"), getVisitById);
 
 // New parity endpoints
@@ -203,11 +208,7 @@ router.get(
   validate(getPatientVisitsParamsSchema, "param"),
   getPatientVisits
 );
-router.post(
-  "/patient-by-phone",
-  validate(getPatientByPhoneSchema, "json"),
-  getPatientsByPhone
-);
+
 // Handoffs
 router.post("/handoff", validate(handoffSchema, "json"), initiateHandoff);
 router.post(
