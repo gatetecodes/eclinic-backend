@@ -1040,12 +1040,6 @@ export const getCashiers = async (c: Context) => {
 export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
   try {
     const user = c.get("user") as AuthenticatedUser | undefined;
-    if (!user) {
-      return c.json(
-        { error: "Unauthorized" },
-        httpCodes.UNAUTHORIZED as ContentfulStatusCode
-      );
-    }
     const { departmentId, date, includeDoctorId } = c.get("validatedJson");
     const clinic = await db.clinic.findUnique({
       where: { id: Number(user?.clinicId) },

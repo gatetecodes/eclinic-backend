@@ -129,6 +129,12 @@ export const assignDepartmentsToDoctorSchema = z.object({
   departments: z.array(z.coerce.number()).nonempty(),
 });
 
+export const getAvailableDoctorsByDepartmentIdSchema = z.object({
+  departmentId: z.coerce.number().int().positive(),
+  date: z.string(),
+  includeDoctorId: z.coerce.number().int().positive().optional(),
+});
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type CreateDoctorInput = z.infer<typeof createDoctorSchema>;
 export type EditDoctorInput = z.infer<typeof editDoctorSchema>;
