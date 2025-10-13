@@ -121,7 +121,7 @@ export const getTariff = async (c: Context) => {
         ...where,
         clinics: {
           some: {
-            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
           },
         },
       } as Prisma.ProductWhereInput,
@@ -172,7 +172,7 @@ export const getTariff = async (c: Context) => {
         ...where,
         clinics: {
           some: {
-            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
           },
         },
       } as Prisma.ProductWhereInput,
@@ -216,7 +216,7 @@ export const getProductsList = async (c: Context) => {
       ? {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
             },
           },
           departments: {
@@ -230,7 +230,7 @@ export const getProductsList = async (c: Context) => {
       : {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
             },
           },
         };
@@ -284,7 +284,7 @@ export const getProductsListWithPricing = async (c: Context) => {
       ? {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
             },
           },
           departments: {
@@ -298,7 +298,7 @@ export const getProductsListWithPricing = async (c: Context) => {
       : {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
+              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
             },
           },
         };
@@ -506,7 +506,7 @@ export const createProduct = async (c: Context) => {
           ? (consumables as Prisma.InputJsonValue)
           : undefined,
         clinics: {
-          connect: { id: user.clinic.id },
+          connect: { id: user.clinicId },
         },
         departments: departmentIds
           ? {
@@ -710,7 +710,7 @@ export const updateProductPricing = async (c: Context) => {
 
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingProduct.clinics.some((clinic) => clinic.id === user.clinic.id)
+      !existingProduct.clinics.some((clinic) => clinic.id === user.clinicId)
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -806,7 +806,7 @@ export const getConsultationProducts = async (c: Context) => {
 
     const products = await db.product.findMany({
       where: {
-        clinics: { some: { id: user.clinic.id } },
+        clinics: { some: { id: user.clinicId } },
         OR: [
           {
             departments: {
@@ -850,16 +850,10 @@ export const getConsultationProducts = async (c: Context) => {
 export const getConsultationProductsWithPricing = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
 
     const products = await db.product.findMany({
       where: {
-        clinics: { some: { id: user.clinic.id } },
+        clinics: { some: { id: user.clinicId } },
         OR: [
           {
             departments: {
@@ -974,7 +968,7 @@ export const importProductsFromCSV = async (c: Context) => {
       const results = await Promise.all(
         batch.map(async (record) => {
           try {
-            return await processRecord(user.clinic.id)(record);
+            return await processRecord(user.clinicId)(record);
           } catch (error) {
             logger.error(`Error processing product ${record.NAME}:`, { error });
             return null;

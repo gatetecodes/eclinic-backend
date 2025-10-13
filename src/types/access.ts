@@ -31,7 +31,8 @@ export type Action =
   | "process"
   | "readVisitDetails"
   | "printPrescription"
-  | "viewPerformanceReports";
+  | "viewPerformanceReports"
+  | "readMyProfile";
 
 // Feature flags represent product-surface capabilities that can be plan/tier gated
 export type FeatureKey =

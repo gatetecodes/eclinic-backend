@@ -15,7 +15,7 @@ export const getPatientsByPhone = async (c: Context) => {
         await db.patient.findMany({
           where: {
             AND: [
-              { clinics: { some: { id: user.clinic.id } } },
+              { clinics: { some: { id: user.clinicId } } },
               {
                 OR: [{ phoneNumber: phone }, { guardianPhoneNumber: phone }],
               },
