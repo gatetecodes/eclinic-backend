@@ -81,6 +81,7 @@ router.get(
 // Assign departments to clinic
 router.put(
   "/clinic/:clinicId/assign",
+  validate(getClinicIdParamsSchema, "param"),
   validate(assignDepartmentsToClinicSchema, "json"),
   assignDepartmentsToClinic
 );

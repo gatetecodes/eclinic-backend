@@ -641,13 +641,27 @@ export const assignDepartmentsToClinic = async (c: Context) => {
       );
     }
     const data = c.get("validatedJson");
-    const { clinicId } = await c.req.param();
+    const { clinicId } = c.get("validatedParam");
     const clinic = await db.clinic.findUnique({
       where: { id: Number.parseInt(clinicId, 10) },
     });
     if (!clinic) {
       return c.json(
         { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    //Verify all departments exist
+    const existingDepartments = await db.clinicalDepartment.findMany({
+      where: {
+        id: {
+          in: data.departments.map((id: string) => Number.parseInt(id, 10)),
+        },
+      },
+    });
+    if (existingDepartments.length !== data.departments.length) {
+      return c.json(
+        { error: "One or more departments not found" },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
