@@ -3,6 +3,7 @@ import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import {
+  assignDepartmentsToClinic,
   createClinicDepartments,
   createDepartment,
   deleteDepartment,
@@ -15,6 +16,7 @@ import {
   updateDepartment,
 } from "./departments.controller.ts";
 import {
+  assignDepartmentsToClinicSchema,
   createClinicDepartmentsSchema,
   createDepartmentSchema,
   getClinicIdParamsSchema,
@@ -74,6 +76,13 @@ router.get(
   "/clinic/:clinicId",
   validate(getClinicIdParamsSchema, "param"),
   getDepartmentsByClinicId
+);
+
+// Assign departments to clinic
+router.put(
+  "/clinic/:clinicId/assign",
+  validate(assignDepartmentsToClinicSchema, "json"),
+  assignDepartmentsToClinic
 );
 
 export default router;

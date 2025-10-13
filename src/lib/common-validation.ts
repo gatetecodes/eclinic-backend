@@ -26,4 +26,8 @@ export const searchParamsSchema = z.object({
   processedById: z.string().optional(),
 });
 
+export const validateIdParamsSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
 export type ParamsSchema = z.infer<typeof searchParamsSchema>;
