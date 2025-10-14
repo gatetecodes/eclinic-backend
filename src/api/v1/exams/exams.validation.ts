@@ -40,18 +40,39 @@ export const updateExamSchema = z.object({
   status: z.enum(ExamStatus).optional(),
 });
 
-export const createExamResultSchema = z.object({
-  visitId: z.number().int().positive(),
-  examId: z.number().int().positive(),
-  examDate: z.string().datetime().optional(),
-  results: examResultSchema,
-  notes: z.string().optional(),
-});
+export const createExamResultSchema = z.union([
+  z.object({
+    visitId: z.number().int().positive(),
+    examId: z.number().int().positive(),
+    examDate: z.string().datetime().optional(),
+    results: examResultSchema,
+    notes: z.string().optional(),
+  }),
+  // Accept flattened payload from the frontend
+  z.object({
+    visitId: z.number().int().positive(),
+    examId: z.number().int().positive(),
+    examDate: z.string().datetime().optional(),
+    productName: z.string().min(1, "Product name is required"),
+    parameters: z.array(parameterSchema).optional(),
+    conclusion: z.string().optional(),
+    notes: z.string().optional(),
+  }),
+]);
 
-export const updateExamResultSchema = z.object({
-  results: examResultSchema.optional(),
-  notes: z.string().optional(),
-});
+export const updateExamResultSchema = z.union([
+  z.object({
+    results: examResultSchema.optional(),
+    notes: z.string().optional(),
+  }),
+  // Accept flattened updates
+  z.object({
+    productName: z.string().min(1, "Product name is required").optional(),
+    parameters: z.array(parameterSchema).optional(),
+    conclusion: z.string().optional(),
+    notes: z.string().optional(),
+  }),
+]);
 
 export const createExamTestSchema = z.object({
   name: z.string().min(1, "Test name is required"),
