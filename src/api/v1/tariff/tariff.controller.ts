@@ -268,12 +268,6 @@ export const getProductsList = async (c: Context) => {
 export const getProductsListWithPricing = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
 
     const { departmentIds } = c.req.query();
     const parsedDepartmentIds = departmentIds

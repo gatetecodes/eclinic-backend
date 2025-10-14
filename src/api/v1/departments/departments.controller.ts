@@ -608,9 +608,9 @@ export const getDepartmentsByClinicId = async (c: Context) => {
   }
 };
 
-export const getDepartmentsList = async (c: Context) => {
+export const getProductsDepartmentsList = async (c: Context) => {
   try {
-    const departments = await db.clinicalDepartment.findMany({
+    const departments = await db.department.findMany({
       where: { isActive: true },
       select: { id: true, name: true },
       orderBy: {

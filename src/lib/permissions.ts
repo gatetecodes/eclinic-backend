@@ -76,6 +76,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     insurance: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     users: { read: true, update: true, readMyProfile: true },
+    appointments: { read: true, create: true, update: true, delete: true },
   },
   NURSE: {
     visits: { read: true, update: true, create: true, readVisitDetails: true },
