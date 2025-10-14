@@ -56,7 +56,12 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     },
   },
   DOCTOR: {
-    visits: { read: true, update: true, readVisitDetails: true },
+    visits: {
+      read: true,
+      update: true,
+      readVisitDetails: true,
+      addExams: true,
+    },
     patients: { read: true, update: true },
     prescription: {
       create: true,
@@ -85,7 +90,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
   },
   LAB_TECHNICIAN: {
     exams: { read: true, create: true, update: true, process: true },
-    visits: { read: true, readVisitDetails: true },
+    visits: { read: true, readVisitDetails: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     tariff: { read: true },
@@ -110,6 +115,8 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     tariff: { read: true },
+    users: { read: true },
+    visits: { read: true, addPaymentMethod: true, dischargePatient: true },
   },
   MARKETING: {
     analytics: { read: true },
