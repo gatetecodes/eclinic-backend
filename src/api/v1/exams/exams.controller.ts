@@ -20,7 +20,6 @@ import {
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import {
-  createExamResultSchema,
   createExamSchema,
   createExamTestSchema,
   updateExamResultSchema,
@@ -54,8 +53,8 @@ export const getExams = async (c: Context) => {
       where: {
         ...where,
         visit: {
-          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branch.id,
+          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
         },
       } as Prisma.ExamWhereInput,
       orderBy: orderBy as Prisma.ExamOrderByWithRelationInput,
@@ -117,8 +116,8 @@ export const getExams = async (c: Context) => {
       where: {
         ...where,
         visit: {
-          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branch.id,
+          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
         },
       } as Prisma.ExamWhereInput,
     });
@@ -186,7 +185,7 @@ export const createExam = async (c: Context) => {
       );
     }
 
-    if (user.role !== Role.SUPER_ADMIN && visit.clinicId !== user.clinic.id) {
+    if (user.role !== Role.SUPER_ADMIN && visit.clinicId !== user.clinicId) {
       return c.json(
         { error: "Forbidden" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -199,7 +198,7 @@ export const createExam = async (c: Context) => {
         id: { in: productIds },
         ...(user.role === Role.SUPER_ADMIN
           ? {}
-          : { clinics: { some: { id: user.clinic.id } } }),
+          : { clinics: { some: { id: user.clinicId } } }),
       },
     });
 
@@ -244,8 +243,8 @@ export const createExam = async (c: Context) => {
 
     // Invalidate visit-related caches
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
     });
 
@@ -354,7 +353,7 @@ export const getExamById = async (c: Context) => {
     // Check if user has access to this exam
     if (
       user.role !== Role.SUPER_ADMIN &&
-      exam.visit.clinicId !== user.clinic.id
+      exam.visit.clinicId !== user.clinicId
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -421,7 +420,7 @@ export const updateExam = async (c: Context) => {
 
     if (
       user.role !== Role.SUPER_ADMIN &&
-      existingExam.visit.clinicId !== user.clinic.id
+      existingExam.visit.clinicId !== user.clinicId
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -455,8 +454,8 @@ export const updateExam = async (c: Context) => {
 
     // Invalidate visit-related caches
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId: updatedExam.visitId,
     });
 
@@ -634,7 +633,7 @@ const findProductByName = async (productName: string, clinicId: number) => {
 
 // Type for exam result creation data
 type ExamResultData = {
-  user: { clinic: { id: number }; branch: { id: number }; id: string };
+  user: { clinicId: number; branchId: number; id: string };
   visitId: number;
   examId: number;
   examDate?: string;
@@ -647,8 +646,8 @@ const createExamResultRecord = async (data: ExamResultData) => {
   const { user, visitId, examId, examDate, results, notes } = data;
   return await db.examResult.create({
     data: {
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
       examId,
       examDate: examDate ? new Date(examDate) : new Date(),
@@ -731,6 +730,25 @@ const handleExamResultError = (error: Error, c: Context) => {
   return c.json({ error: message }, status as ContentfulStatusCode);
 };
 
+// Local normalized payload type for create exam result
+type NormalizedCreateExamPayload = {
+  visitId: number;
+  examId: number;
+  examDate?: string;
+  results: {
+    productName: string;
+    parameters?: {
+      name?: string;
+      value?: string;
+      unit?: string;
+      referenceRange?: string;
+    }[];
+    conclusion?: string;
+    notes?: string;
+  };
+  notes?: string;
+};
+
 export const createExamResult = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -746,26 +764,31 @@ export const createExamResult = async (c: Context) => {
       );
     }
 
-    const validatedFields = createExamResultSchema.safeParse(
-      await c.req.json()
-    );
-    if (!validatedFields.success) {
-      return c.json({
-        error: validatedFields.error.flatten().fieldErrors,
-        status: httpCodes.BAD_REQUEST,
-      });
-    }
+    const raw = c.get("validatedJson") as Record<string, unknown>;
+    // Normalize payload to nested "results" shape if frontend sends flattened fields
+    const data: NormalizedCreateExamPayload =
+      typeof raw === "object" && raw !== null && "results" in raw
+        ? (raw as unknown as NormalizedCreateExamPayload)
+        : {
+            visitId: raw.visitId as number,
+            examId: raw.examId as number,
+            examDate: raw.examDate as string | undefined,
+            results: {
+              productName: raw.productName as string,
+              parameters:
+                raw.parameters as NormalizedCreateExamPayload["results"]["parameters"],
+              conclusion: raw.conclusion as string | undefined,
+            },
+            notes: raw.notes as string | undefined,
+          };
 
-    const { visitId, examId, examDate, results, notes } = validatedFields.data;
+    const { visitId, examId, examDate, results, notes } = data;
 
     // Validate exam access
     await validateExamAccess(examId, visitId, user);
 
     // Find product by name
-    const product = await findProductByName(
-      results.productName,
-      user.clinic.id
-    );
+    const product = await findProductByName(results.productName, user.clinicId);
 
     // Create exam result
     const examResult = await createExamResultRecord({
@@ -782,14 +805,14 @@ export const createExamResult = async (c: Context) => {
       product,
       visitId,
       userId: Number(user.id),
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     // Invalidate visit-related caches
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
     });
 
@@ -831,8 +854,8 @@ export const getExamResults = async (c: Context) => {
     const results = await db.examResult.findMany({
       where: {
         ...where,
-        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branch.id,
+        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
       } as Prisma.ExamResultWhereInput,
       orderBy: orderBy as Prisma.ExamResultOrderByWithRelationInput,
       ...restOptions,
@@ -869,8 +892,8 @@ export const getExamResults = async (c: Context) => {
     const totalCount = await db.examResult.count({
       where: {
         ...where,
-        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branch.id,
+        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
       } as Prisma.ExamResultWhereInput,
     });
 
@@ -966,7 +989,7 @@ export const getExamResultById = async (c: Context) => {
     }
 
     // Check if user has access to this result
-    if (user.role !== Role.SUPER_ADMIN && result.clinicId !== user.clinic.id) {
+    if (user.role !== Role.SUPER_ADMIN && result.clinicId !== user.clinicId) {
       return c.json(
         { error: "Forbidden" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -1032,7 +1055,7 @@ export const updateExamResult = async (c: Context) => {
 
     if (
       user.role !== Role.SUPER_ADMIN &&
-      existingResult.clinicId !== user.clinic.id
+      existingResult.clinicId !== user.clinicId
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -1040,13 +1063,43 @@ export const updateExamResult = async (c: Context) => {
       );
     }
 
+    const flatUpdate = validatedFields.data as Record<string, unknown>;
+    const hasNestedResults = "results" in flatUpdate;
+    const hasFlattenedResultsFields =
+      "productName" in flatUpdate ||
+      "parameters" in flatUpdate ||
+      "conclusion" in flatUpdate;
+
+    let normalizedResults: Prisma.InputJsonValue | undefined;
+    if (hasNestedResults) {
+      normalizedResults = flatUpdate.results as Prisma.InputJsonValue;
+    } else if (
+      hasFlattenedResultsFields &&
+      typeof flatUpdate.productName === "string"
+    ) {
+      normalizedResults = {
+        productName: flatUpdate.productName as string,
+        parameters: flatUpdate.parameters as
+          | {
+              name?: string;
+              value?: string;
+              unit?: string;
+              referenceRange?: string;
+            }[]
+          | undefined,
+        conclusion: flatUpdate.conclusion as string | undefined,
+      } as Prisma.InputJsonValue;
+    } else {
+      normalizedResults = undefined;
+    }
+
     const updatedResult = await db.examResult.update({
       where: { id: resultId },
       data: {
-        ...validatedFields.data,
-        results: validatedFields.data.results
-          ? (validatedFields.data.results as Prisma.InputJsonValue)
-          : undefined,
+        // notes may be present in either union branch
+        notes: (flatUpdate.notes as string | undefined) ?? undefined,
+        // results only when provided
+        results: normalizedResults,
       },
       include: {
         exam: {
@@ -1077,8 +1130,8 @@ export const updateExamResult = async (c: Context) => {
 
     // Invalidate visit-related caches
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId: updatedResult.visitId,
     });
 
