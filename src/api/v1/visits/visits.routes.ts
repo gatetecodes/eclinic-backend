@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
-import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
@@ -79,7 +78,6 @@ import {
 } from "./visits.validation.ts";
 
 const router = new Hono<AppEnv>();
-router.use("*", crudAccess("visits", "visits"));
 
 router.get("/", listVisits);
 router.post(
@@ -93,12 +91,14 @@ router.get("/:id", validate(getVisitParamsSchema, "param"), getVisitById);
 router.post(
   "/check-in",
   validate(initialCheckInSchema, "json"),
+  ...withAccess({ resource: "visits", action: "create" }),
   createInitialCheckIn
 );
 router.put(
   "/:id/pre-consultation",
   validate(getVisitParamsSchema, "param"),
   validate(updatePreConsultationRequestSchema, "json"),
+  ...withAccess({ resource: "visits", action: "update" }),
   updatePreConsultation
 );
 
@@ -107,6 +107,7 @@ router.post(
   "/:id/payment-mode",
   validate(getVisitParamsSchema, "param"),
   validate(addPaymentMethodSchema, "json"),
+  ...withAccess({ resource: "visits", action: "addPaymentMethod" }),
   addPaymentMethod
 );
 
@@ -115,6 +116,7 @@ router.post(
   "/:id/exams",
   validate(getVisitParamsSchema, "param"),
   validate(addExamsSchema, "json"),
+  ...withAccess({ resource: "visits", action: "addExams" }),
   addExams
 );
 router.get("/:id/exam", validate(getVisitParamsSchema, "param"), getVisitExam);
@@ -123,6 +125,7 @@ router.get("/:id/exam", validate(getVisitParamsSchema, "param"), getVisitExam);
 router.post(
   "/:id/results-ready",
   validate(getVisitParamsSchema, "param"),
+  ...withAccess({ resource: "visits", action: "update" }),
   markResultsReady
 );
 

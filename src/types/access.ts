@@ -32,7 +32,10 @@ export type Action =
   | "readVisitDetails"
   | "printPrescription"
   | "viewPerformanceReports"
-  | "readMyProfile";
+  | "readMyProfile"
+  | "addPaymentMethod"
+  | "dischargePatient"
+  | "addExams";
 
 // Feature flags represent product-surface capabilities that can be plan/tier gated
 export type FeatureKey =

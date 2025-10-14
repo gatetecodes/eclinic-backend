@@ -33,7 +33,6 @@ import {
   getCachedData,
 } from "../../../../services/redis.service";
 import {
-  addPaymentMethodSchema,
   consultationNoteSchema,
   editChiefComplaintSchema,
   finalizeVisitSchema,
@@ -188,16 +187,10 @@ export const updatePreConsultation = async (c: Context) => {
 export const addPaymentMethod = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
-    const parsed = addPaymentMethodSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
-    const { paymentMode, insurance } = parsed.data as {
+    const data = c.get("validatedJson");
+    const { paymentMode, insurance } = data as {
       paymentMode: string;
       insurance?: Record<string, unknown>;
     };
@@ -257,7 +250,7 @@ export const addPaymentMethod = async (c: Context) => {
           updatedVisit.id,
           PaymentType.CONSULTATION
         );
-        const paymentCashier = await getCachier(user.branch.id);
+        const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
           await db.notification.create({
             data: {
@@ -774,7 +767,7 @@ export const finalizeVisit = async (c: Context) => {
 export const dischargeVisit = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
 
     const visit = await db.visit.findUnique({
