@@ -399,7 +399,7 @@ export const addTreatment = async (c: Context) => {
       action: `Dr. ${user.name} added ${treatment.name} to ${visit.patient.firstName} ${visit.patient.lastName}`,
     });
 
-    const cachier = await getCachier(user.clinicId);
+    const cachier = await getCachier(user.branchId);
     if (cachier) {
       await db.notification.create({
         data: {
