@@ -12,7 +12,7 @@ import {
   getDepartmentById,
   getDepartments,
   getDepartmentsByClinicId,
-  getDepartmentsList,
+  getProductsDepartmentsList,
   updateDepartment,
 } from "./departments.controller.ts";
 import {
@@ -34,7 +34,7 @@ router.get("/", getDepartments);
 router.get("/clinic", getAllClinicDepartments);
 
 // Get departments list (for dropdowns/selection)
-router.get("/list", getDepartmentsList);
+router.get("/list", getProductsDepartmentsList);
 
 // Create a new department
 router.post("/", validate(createDepartmentSchema, "json"), createDepartment);

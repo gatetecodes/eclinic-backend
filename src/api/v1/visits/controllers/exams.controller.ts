@@ -18,21 +18,13 @@ import {
   invalidatePaymentRelatedCaches,
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
-import { addExamsSchema } from "../visits.validation";
 
 export const addExams = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
-    const parsed = addExamsSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
-    const { exams } = parsed.data;
+    const data = c.get("validatedJson");
 
     const visit = await db.visit.findUnique({
       where: { id: visitId },
@@ -48,7 +40,7 @@ export const addExams = async (c: Context) => {
       );
     }
 
-    const productIds = exams.map((e) => Number.parseInt(e, 10));
+    const productIds = data.exams.map((e: string) => Number.parseInt(e, 10));
     let payment: { id: number; paymentType: string } | null;
     try {
       payment = await createPaymentForProducts(
@@ -74,7 +66,7 @@ export const addExams = async (c: Context) => {
       data: {
         clinic: { connect: { id: user.clinicId } },
         visit: { connect: { id: visitId } },
-        products: { connect: productIds.map((pid) => ({ id: pid })) },
+        products: { connect: productIds.map((pid: number) => ({ id: pid })) },
       },
     });
 
@@ -93,8 +85,8 @@ export const addExams = async (c: Context) => {
       action: `Dr. ${user.name} requested additional lab exams for ${visit.patient.firstName} ${visit.patient.lastName}`,
     });
 
-    const labTechs = await getLabTechnicians(user.branch.id);
-    const cachier = await getCachier(user.branch.id);
+    const labTechs = await getLabTechnicians(user.branchId);
+    const cachier = await getCachier(user.branchId);
     if (labTechs.length > 0) {
       await db.notification.create({
         data: {
@@ -119,13 +111,13 @@ export const addExams = async (c: Context) => {
     }
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
     });
     await invalidatePaymentRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
     });
 
@@ -325,8 +317,8 @@ export const editVisitExams = async (c: Context) => {
     });
 
     await invalidateVisitRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
       visitId,
     });
 
@@ -407,7 +399,7 @@ export const addTreatment = async (c: Context) => {
       action: `Dr. ${user.name} added ${treatment.name} to ${visit.patient.firstName} ${visit.patient.lastName}`,
     });
 
-    const cachier = await getCachier(user.clinic.id);
+    const cachier = await getCachier(user.clinicId);
     if (cachier) {
       await db.notification.create({
         data: {
