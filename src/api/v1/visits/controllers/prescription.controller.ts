@@ -120,7 +120,7 @@ export const createPrescription = async (c: Context) => {
     });
 
     await logActivity({
-      userId: doctorIdNum,
+      userId: user.id,
       visitId: visit.id,
       action: `Prescription created for ${visit.patient.firstName} ${visit.patient.lastName}`,
       type: ActivityType.STATUS_UPDATE,
@@ -253,7 +253,7 @@ export const createSpectaclePrescription = async (c: Context) => {
         data: {
           branchId: user.branchId,
           doctorId: doctorIdNum,
-          visitId,
+          visitId: visitIdNum,
           rightEye: prescription.rightEye,
           leftEye: prescription.leftEye,
           interpupillaryDistance: prescription.interpupillaryDistance,
