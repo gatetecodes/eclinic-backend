@@ -1,6 +1,7 @@
 import { parse } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 import { httpCodes } from "@/lib/constants";
 import type {
   PaymentMode,
@@ -35,7 +36,7 @@ import {
 import {
   consultationNoteSchema,
   editChiefComplaintSchema,
-  finalizeVisitSchema,
+  type finalizeVisitSchema,
   initialCheckInSchema,
   preConsultationSchema,
   updateVisitStatusSchema,
@@ -675,17 +676,11 @@ export const editConsultationNote = async (c: Context) => {
 export const finalizeVisit = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
-    const parsed = finalizeVisitSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+    const data = c.get("validatedJson") as z.infer<typeof finalizeVisitSchema>;
     const { diagnosis, examConclusions, treatmentComments, followUpDate } =
-      parsed.data;
+      data;
 
     let parsedFollowUpDate: Date | undefined;
     if (followUpDate) {

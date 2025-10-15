@@ -298,21 +298,23 @@ export const getPatientByPhoneSchema = z
   .transform(({ phone }) => phone);
 
 export const createPrescriptionSchema = z.object({
-  items: z.array(
-    z.object({
-      medicationName: z.string(),
-      dosage: z.string(),
-      frequency: z.string(),
-      duration: z.string(),
-      instructions: z.string().optional(),
-    })
-  ),
-  visitId: z.string(),
-  doctorId: z.string(),
+  prescription: z.object({
+    items: z.array(
+      z.object({
+        medicationName: z.string(),
+        dosage: z.string(),
+        frequency: z.string(),
+        duration: z.string(),
+        instructions: z.string().optional(),
+      })
+    ),
+  }),
+  visitId: z.number(),
+  doctorId: z.number(),
   followUpAppointment: z
     .object({
-      startTime: z.string(),
-      endTime: z.string(),
+      startTime: z.union([z.string(), z.date()]),
+      endTime: z.union([z.string(), z.date()]),
       treatment: z.string(),
     })
     .optional(),
