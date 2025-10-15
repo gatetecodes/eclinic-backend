@@ -165,7 +165,7 @@ export const getVisitExam = async (c: Context) => {
 export const markResultsReady = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
 
     const visit = await db.visit.findUnique({

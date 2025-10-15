@@ -15,11 +15,12 @@ import type {
 export const createPrescription = async (c: Context) => {
   try {
     const user = c.get("user");
-    const validatedData = c.get("validatedJson");
-
-    const { items, visitId, doctorId, followUpAppointment } = validatedData;
-    const visitIdNum = Number(visitId);
-    const doctorIdNum = Number(doctorId);
+    const { prescription, visitId, doctorId, followUpAppointment } = c.get(
+      "validatedJson"
+    ) as CreatePrescription;
+    const items = prescription.items;
+    const visitIdNum = visitId;
+    const doctorIdNum = doctorId;
     if (!(Number.isFinite(visitIdNum) && Number.isFinite(doctorIdNum))) {
       return c.json(
         { error: "Invalid visitId or doctorId" },
@@ -61,17 +62,19 @@ export const createPrescription = async (c: Context) => {
     const result = await db.$transaction(async (tx) => {
       const newPrescription = await tx.prescription.create({
         data: {
-          clinicId: user.clinic.id,
+          clinicId: user.clinicId,
           doctorId: doctorIdNum,
-          visitId,
+          visitId: visitIdNum,
           items: {
-            create: items.map((item: CreatePrescription["items"][number]) => ({
-              medicationName: item.medicationName,
-              dosage: item.dosage,
-              frequency: item.frequency,
-              duration: item.duration,
-              instructions: item.instructions,
-            })),
+            create: items.map(
+              (item: CreatePrescription["prescription"]["items"][number]) => ({
+                medicationName: item.medicationName,
+                dosage: item.dosage,
+                frequency: item.frequency,
+                duration: item.duration,
+                instructions: item.instructions,
+              })
+            ),
           },
         },
       });
@@ -87,12 +90,12 @@ export const createPrescription = async (c: Context) => {
             appointmentType: AppointmentType.FOLLOW_UP,
             doctor: {
               connect: {
-                id: doctorId,
+                id: doctorIdNum,
               },
             },
             clinic: {
               connect: {
-                id: user.clinic.id,
+                id: user.clinicId,
               },
             },
             patient: {
@@ -117,15 +120,15 @@ export const createPrescription = async (c: Context) => {
     });
 
     await logActivity({
-      userId: doctorId,
+      userId: doctorIdNum,
       visitId: visit.id,
       action: `Prescription created for ${visit.patient.firstName} ${visit.patient.lastName}`,
       type: ActivityType.STATUS_UPDATE,
     });
     await invalidateVisitRelatedCaches({
       visitId: visit.id,
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     return c.json(
@@ -189,8 +192,8 @@ export const updatePrescription = async (c: Context) => {
     });
     await invalidateVisitRelatedCaches({
       visitId: prescription.visitId,
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
     return c.json(
       { success: "Prescription updated successfully!", data: result },
@@ -248,7 +251,7 @@ export const createSpectaclePrescription = async (c: Context) => {
     const result = await db.$transaction(async (tx) => {
       const newSpectaclePrescription = await tx.spectaclePrescription.create({
         data: {
-          branchId: user.branch.id,
+          branchId: user.branchId,
           doctorId: doctorIdNum,
           visitId,
           rightEye: prescription.rightEye,
@@ -267,8 +270,8 @@ export const createSpectaclePrescription = async (c: Context) => {
     });
     await invalidateVisitRelatedCaches({
       visitId: visit.id,
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     return c.json(

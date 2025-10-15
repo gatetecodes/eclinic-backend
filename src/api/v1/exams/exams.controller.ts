@@ -576,7 +576,7 @@ const processInventoryConsumables = async (data: InventoryConsumablesData) => {
 const validateExamAccess = async (
   examId: number,
   visitId: number,
-  user: { role: Role; clinic: { id: number } }
+  user: { role: Role; clinicId: number }
 ) => {
   const exam = await db.exam.findUnique({
     where: { id: examId },
@@ -594,10 +594,7 @@ const validateExamAccess = async (
     throw new Error("Exam not found");
   }
 
-  if (
-    user.role !== Role.SUPER_ADMIN &&
-    exam.visit.clinicId !== user.clinic.id
-  ) {
+  if (user.role !== Role.SUPER_ADMIN && exam.visit.clinicId !== user.clinicId) {
     throw new Error("Forbidden");
   }
 
@@ -730,24 +727,7 @@ const handleExamResultError = (error: Error, c: Context) => {
   return c.json({ error: message }, status as ContentfulStatusCode);
 };
 
-// Local normalized payload type for create exam result
-type NormalizedCreateExamPayload = {
-  visitId: number;
-  examId: number;
-  examDate?: string;
-  results: {
-    productName: string;
-    parameters?: {
-      name?: string;
-      value?: string;
-      unit?: string;
-      referenceRange?: string;
-    }[];
-    conclusion?: string;
-    notes?: string;
-  };
-  notes?: string;
-};
+// Removed legacy NormalizedCreateExamPayload; we accept frontend-only flattened payload now
 
 export const createExamResult = async (c: Context) => {
   try {
@@ -764,31 +744,35 @@ export const createExamResult = async (c: Context) => {
       );
     }
 
-    const raw = c.get("validatedJson") as Record<string, unknown>;
-    // Normalize payload to nested "results" shape if frontend sends flattened fields
-    const data: NormalizedCreateExamPayload =
-      typeof raw === "object" && raw !== null && "results" in raw
-        ? (raw as unknown as NormalizedCreateExamPayload)
-        : {
-            visitId: raw.visitId as number,
-            examId: raw.examId as number,
-            examDate: raw.examDate as string | undefined,
-            results: {
-              productName: raw.productName as string,
-              parameters:
-                raw.parameters as NormalizedCreateExamPayload["results"]["parameters"],
-              conclusion: raw.conclusion as string | undefined,
-            },
-            notes: raw.notes as string | undefined,
-          };
-
-    const { visitId, examId, examDate, results, notes } = data;
+    const {
+      visitId,
+      examId,
+      examDate,
+      productName,
+      parameters,
+      conclusion,
+      notes,
+    } = c.get("validatedJson") as {
+      visitId: number;
+      examId: number;
+      examDate?: string;
+      productName: string;
+      parameters?: {
+        name?: string;
+        value?: string;
+        unit?: string;
+        referenceRange?: string;
+      }[];
+      conclusion?: string;
+      notes?: string;
+    };
+    const results = { productName, parameters, conclusion, notes };
 
     // Validate exam access
     await validateExamAccess(examId, visitId, user);
 
     // Find product by name
-    const product = await findProductByName(results.productName, user.clinicId);
+    const product = await findProductByName(productName, user.clinicId);
 
     // Create exam result
     const examResult = await createExamResultRecord({
