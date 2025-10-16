@@ -33,7 +33,7 @@ export const getInsuranceClaims = async (c: Context) => {
           } as Prisma.InsuranceClaimWhereInput,
           orderBy: orderBy as Prisma.InsuranceClaimOrderByWithRelationInput,
           ...restOptions,
-          select: {
+          include: {
             visit: {
               select: {
                 id: true,
