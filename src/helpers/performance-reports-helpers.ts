@@ -1,4 +1,5 @@
 import {
+  differenceInCalendarDays,
   endOfDay,
   endOfMonth,
   endOfQuarter,
@@ -35,10 +36,10 @@ export const getDateRanges = (
     startDate = startOfDay(new Date(filters.startDate));
     endDate = endOfDay(new Date(filters.endDate));
 
-    // For previous period, use the same duration before the start date
-    const durationMs = endDate.getTime() - startDate.getTime();
-    prevEndDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000); // Day before start
-    prevStartDate = new Date(prevEndDate.getTime() - durationMs);
+    // Compute previous period using calendar-day math to preserve whole days
+    const periodDays = differenceInCalendarDays(endDate, startDate) + 1;
+    prevEndDate = endOfDay(subDays(startDate, 1));
+    prevStartDate = startOfDay(subDays(startDate, periodDays));
   } else {
     // Use existing logic for predefined ranges
     switch (dateRange as PerformanceDateRange) {

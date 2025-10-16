@@ -72,7 +72,7 @@ export const getPerformanceOverview = async (c: Context) => {
         // Completed visits
         db.visit.count({
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             createdAt: { gte: startDate, lte: endDate },
             status: {
               in: [
@@ -90,7 +90,7 @@ export const getPerformanceOverview = async (c: Context) => {
         // Active staff count
         db.user.count({
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             status: "ACTIVE",
             role: { in: [Role.DOCTOR, Role.NURSE, Role.LAB_TECHNICIAN] },
           },
@@ -100,7 +100,7 @@ export const getPerformanceOverview = async (c: Context) => {
         // Previous period visits
         db.visit.count({
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             createdAt: { gte: prevStartDate, lte: prevEndDate },
             doctorId: filters?.doctorId ? Number(filters.doctorId) : undefined,
             departmentId: filters?.departmentId
@@ -112,7 +112,7 @@ export const getPerformanceOverview = async (c: Context) => {
         db.payment.aggregate({
           _sum: { amount: true },
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             createdAt: { gte: prevStartDate, lte: prevEndDate },
             paymentStatus: {
               in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
@@ -130,7 +130,7 @@ export const getPerformanceOverview = async (c: Context) => {
         // Previous period completed visits
         db.visit.count({
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             createdAt: { gte: prevStartDate, lte: prevEndDate },
             status: {
               in: [
@@ -148,7 +148,7 @@ export const getPerformanceOverview = async (c: Context) => {
         // Previous period active staff (same as current)
         db.user.count({
           where: {
-            clinicId: user.clinic.id,
+            clinicId: user.clinicId,
             status: "ACTIVE",
             role: { in: [Role.DOCTOR, Role.NURSE, Role.LAB_TECHNICIAN] },
           },
@@ -498,7 +498,7 @@ export const getTopPerformers = async (c: Context) => {
 
     const topDoctorsByVisits = await db.user.findMany({
       where: {
-        clinicId: user.clinic.id,
+        clinicId: user.clinicId,
         role: Role.DOCTOR,
         status: "ACTIVE",
         doctorVisits: {
@@ -530,7 +530,7 @@ export const getTopPerformers = async (c: Context) => {
 
     const topDoctorsByRevenue = await db.user.findMany({
       where: {
-        clinicId: user.clinic.id,
+        clinicId: user.clinicId,
         role: Role.DOCTOR,
         status: "ACTIVE",
       },
@@ -632,7 +632,7 @@ export const getPerformanceChartData = async (c: Context) => {
         const [visits, revenue, completedVisits] = await db.$transaction([
           db.visit.count({
             where: {
-              clinicId: user.clinic.id,
+              clinicId: user.clinicId,
               createdAt: { gte: dayStart, lte: dayEnd },
               ...(filters?.doctorId && {
                 doctorId: Number(filters.doctorId),
@@ -645,7 +645,7 @@ export const getPerformanceChartData = async (c: Context) => {
           db.payment.aggregate({
             _sum: { amount: true },
             where: {
-              clinicId: user.clinic.id,
+              clinicId: user.clinicId,
               createdAt: { gte: dayStart, lte: dayEnd },
               paymentStatus: {
                 in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
@@ -666,7 +666,7 @@ export const getPerformanceChartData = async (c: Context) => {
           }),
           db.visit.count({
             where: {
-              clinicId: user.clinic.id,
+              clinicId: user.clinicId,
               createdAt: { gte: dayStart, lte: dayEnd },
               status: {
                 in: [
@@ -729,7 +729,7 @@ export const exportPerformanceData = async (c: Context) => {
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const performanceData = await db.visit.findMany({
       where: {
-        clinicId: user.clinic.id,
+        clinicId: user.clinicId,
         createdAt: { gte: startDate, lte: endDate },
         ...(filters?.doctorId && { doctorId: Number(filters.doctorId) }),
         ...(filters?.departmentId && {
@@ -809,7 +809,7 @@ export const getDetailedVisits = async (c: Context) => {
     const whereClause: Prisma.VisitWhereInput & {
       status?: { in: VisitStatus[] };
     } = {
-      clinicId: user.clinic.id,
+      clinicId: user.clinicId,
       doctorId,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
@@ -901,7 +901,7 @@ export const getDetailedExams = async (c: Context) => {
     const { dateRange, filters, page, pageSize, doctorId } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const whereClause = {
-      clinicId: user.clinic.id,
+      clinicId: user.clinicId,
       doctorId,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
@@ -980,7 +980,7 @@ export const getDetailedTreatments = async (c: Context) => {
     const { dateRange, filters, page, pageSize, doctorId } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const whereClause = {
-      clinicId: user.clinic.id,
+      clinicId: user.clinicId,
       doctorId,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
@@ -1078,7 +1078,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
         // Fetch visits checked in by this nurse
         const whereClauseNurse = {
           checkedInById: staffId,
-          clinicId: user.clinic.id,
+          clinicId: user.clinicId,
           createdAt: { gte: startDate, lte: endDate },
           departmentId: filters?.departmentId
             ? Number(filters.departmentId)
@@ -1150,7 +1150,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
         // Fetch payments processed by this staff member
         const whereClausePayment = {
           processedById: staffId,
-          clinicId: user.clinic.id,
+          clinicId: user.clinicId,
           createdAt: { gte: startDate, lte: endDate },
           paymentStatus: {
             in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
@@ -1219,7 +1219,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
           createdById: staffId,
           createdAt: { gte: startDate, lte: endDate },
           exam: {
-            visit: { clinicId: user.clinic.id },
+            visit: { clinicId: user.clinicId },
           },
         };
 
