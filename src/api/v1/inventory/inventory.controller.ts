@@ -74,7 +74,7 @@ export const getInventoryItems = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinic.id}:${user.branch.id}:${JSON.stringify(params || {})}`;
+    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:${JSON.stringify(params || {})}`;
     const queryOptions = buildQueryOptions<InventoryItem>(params);
 
     const { where, orderBy, ...restOptions } = queryOptions;
@@ -84,8 +84,7 @@ export const getInventoryItems = async (c: Context) => {
         return await db.inventoryItem.findMany({
           where: {
             ...where,
-            clinicId: user.clinic.id,
-            branchId: user.branch.id,
+            clinicId: user.clinicId,
           },
           orderBy: orderBy as Prisma.InventoryItemOrderByWithRelationInput,
           ...restOptions,
@@ -97,11 +96,12 @@ export const getInventoryItems = async (c: Context) => {
       DEFAULT_CACHE_TTL.MEDIUM
     );
     const totalCount = await db.inventoryItem.count({
-      where: { ...where, clinicId: user.clinic.id, branchId: user.branch.id },
+      where: { ...where, clinicId: user.clinicId, branchId: user.branchId },
     });
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
       : 0;
+
     return c.json(
       { data: inventoryItems, totalCount, pageCount },
       httpCodes.OK as ContentfulStatusCode
@@ -132,8 +132,8 @@ export const updateInventoryItem = async (c: Context) => {
     const updatedInventoryItem = await db.inventoryItem.update({
       where: {
         id: Number(id),
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
       },
       data: {
         itemName,
@@ -265,7 +265,7 @@ export const getInventoryBatches = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinic.id}:${user.branch.id}:${JSON.stringify(params || {})}`;
+    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:${JSON.stringify(params || {})}`;
 
     const queryOptions = buildQueryOptions<InventoryBatch>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
@@ -275,8 +275,8 @@ export const getInventoryBatches = async (c: Context) => {
         where: {
           ...where,
           item: {
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
+            clinicId: user.clinicId,
+            branchId: user.branchId,
           },
         },
         orderBy: orderBy as Prisma.InventoryBatchOrderByWithRelationInput,
@@ -290,8 +290,8 @@ export const getInventoryBatches = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId ?? user.clinic.id,
-          branchId: user.branchId ?? user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
         },
       },
     });
@@ -338,8 +338,8 @@ export const importInventoryItemsFromCSV = async (c: Context) => {
         batch.map(async (record) => {
           try {
             return await processInventoryItemRecord(
-              user.clinicId ?? user.clinic.id,
-              user.branchId ?? user.branch.id
+              user.clinicId,
+              user.branchId
             )(record);
           } catch (error) {
             logger.error(`Error processing consumable ${record.NAME}:`, {
@@ -378,7 +378,7 @@ export const getInventoryItemsList = async (c: Context) => {
   try {
     const user = c.get("user");
     const inventoryItems = await db.inventoryItem.findMany({
-      where: { clinicId: user.clinicId ?? user.clinic.id },
+      where: { clinicId: user.clinicId, branchId: user.branchId },
       select: {
         id: true,
         itemName: true,
@@ -467,8 +467,8 @@ export const addStock = async (c: Context) => {
         }
       }
       await invalidateInventoryRelatedCaches({
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
       });
       return { batch, transaction };
     });
@@ -569,8 +569,8 @@ export const createSaleTransaction = async (c: Context) => {
       }
 
       await invalidateInventoryRelatedCaches({
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
       });
       return { transaction };
     });
@@ -589,7 +589,7 @@ export const getStockTransactions = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinic.id}:${user.branch.id}:stock-transactions`;
+    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:stock-transactions`;
     const queryOptions = buildQueryOptions<Transaction>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -598,8 +598,8 @@ export const getStockTransactions = async (c: Context) => {
         where: {
           ...where,
           item: {
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
+            clinicId: user.clinicId,
+            branchId: user.branchId,
           },
         },
         orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
@@ -614,8 +614,8 @@ export const getStockTransactions = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId ?? user.clinic.id,
-          branchId: user.branchId ?? user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
         },
       },
     });
@@ -688,8 +688,8 @@ export const getInventoryTransactions = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId ?? user.clinic.id,
-          branchId: user.branchId ?? user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
         },
       },
     });

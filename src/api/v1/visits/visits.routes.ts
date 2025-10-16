@@ -199,7 +199,7 @@ router.post(
   addTreatment
 );
 router.post(
-  "/:id/nurse-treatments",
+  "/:id/nurse-treatment",
   validate(getVisitParamsSchema, "param"),
   validate(addVisitNurseTreatmentBodySchema, "json"),
   addNurseTreatment

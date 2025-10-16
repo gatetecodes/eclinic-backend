@@ -147,7 +147,8 @@ function calculatePaymentAmounts(
 export const createPaymentForInventoryItems = async (
   treatments: ITreatment[],
   visitId: number,
-  paymentType: PaymentType
+  paymentType: PaymentType,
+  allowPartial = false
 ) => {
   // Convert treatment IDs to numbers once
   const treatmentIds = treatments.map((t) => +t.id);
@@ -184,7 +185,6 @@ export const createPaymentForInventoryItems = async (
   let totalAmount = 0;
   let totalPatientAmount = 0;
   let totalInsuranceAmount = 0;
-  const selectedBatches: { id: number; quantity: number }[] = [];
   const paymentDetails: IPaymentDetail[] = [];
 
   for (const treatment of treatments) {
@@ -192,16 +192,9 @@ export const createPaymentForInventoryItems = async (
     if (!item) {
       throw new Error(`Item not found: ${treatment.id}`);
     }
-
     const batch = batches.find((b) => b.itemId === +treatment.id);
     if (!batch) {
       throw new Error(`No valid batch found for item: ${item.itemName}`);
-    }
-
-    if (batch.currentQuantity < treatment.quantity) {
-      throw new Error(
-        `Insufficient stock for item ${item.itemName} in batch ${batch.batchNumber ?? batch.id}`
-      );
     }
 
     const unitPrice = batch.unitPrice ?? item.unitPrice;
@@ -227,8 +220,6 @@ export const createPaymentForInventoryItems = async (
       batchId: batch.id,
     });
 
-    selectedBatches.push({ id: batch.id, quantity: treatment.quantity });
-
     totalAmount += totalPrice;
     totalInsuranceAmount += insuranceAmount;
     totalPatientAmount += patientAmount;
@@ -238,7 +229,13 @@ export const createPaymentForInventoryItems = async (
     throw new Error("Amount is 0");
   }
 
-  await performStockOut(selectedBatches);
+  await performStockOut(
+    batches.map((batch) => ({
+      id: batch.id,
+      quantity:
+        treatments.find((t) => t.id === batch.itemId.toString())?.quantity || 0,
+    }))
+  );
 
   return db.payment.create({
     data: {
@@ -251,6 +248,7 @@ export const createPaymentForInventoryItems = async (
       amount: totalAmount,
       patientAmount: totalPatientAmount,
       insuranceAmount: totalInsuranceAmount,
+      allowPartial,
     },
   });
 };
