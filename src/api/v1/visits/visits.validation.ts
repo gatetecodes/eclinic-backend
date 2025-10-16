@@ -269,6 +269,7 @@ export const addVisitNurseTreatmentBodySchema = z.object({
       })
     )
     .nonempty("At least one treatment is required"),
+  allowPartial: z.boolean().optional().default(false),
 });
 
 export const getPatientVisitsParamsSchema = z.object({ patientId: z.string() });

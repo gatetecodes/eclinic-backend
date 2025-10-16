@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { createPaymentForInventoryItems } from "@/helpers/inventory-helpers";
 import { httpCodes } from "@/lib/constants";
 import type { Prisma } from "../../../../../generated/prisma";
 import {
@@ -426,9 +427,9 @@ export const addTreatment = async (c: Context) => {
 
 export const addNurseTreatment = async (c: Context) => {
   try {
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
-    const { treatments } = await c.req.json();
+    const { treatments, allowPartial } = c.get("validatedJson");
 
     const visit = await db.visit.findUnique({
       where: { id: visitId },
@@ -451,16 +452,27 @@ export const addNurseTreatment = async (c: Context) => {
           medicConsumables: treatments as unknown as Prisma.InputJsonValue,
         },
       });
-      return { updatedVisit };
+      const payment = await createPaymentForInventoryItems(
+        treatments.map((treatment: { id: string; quantity: string }) => ({
+          id: treatment.id,
+          quantity: Number(treatment.quantity),
+        })),
+        visitId,
+        PaymentType.MEDICATION,
+        allowPartial
+      );
+      return { updatedVisit, payment };
     });
 
     return c.json({
       success: "Medic/Consumables added successfully",
-      data: result.updatedVisit,
+      data: { updatedVisit: result.updatedVisit, payment: result.payment },
     });
-  } catch (_error) {
+  } catch (error) {
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

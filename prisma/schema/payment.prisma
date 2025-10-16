@@ -12,6 +12,7 @@ model Payment {
     paidAmount      Decimal       @default(0) @db.Decimal(10, 2)
     insuranceAmount Decimal?      @db.Decimal(10, 2)
     patientAmount   Decimal       @db.Decimal(10, 2)
+    allowPartial    Boolean       @default(false)
     paymentDetails  Json?
     products        Product[]
     paymentType     PaymentType
