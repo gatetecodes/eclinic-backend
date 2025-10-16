@@ -96,8 +96,9 @@ export const getInventoryItems = async (c: Context) => {
       DEFAULT_CACHE_TTL.MEDIUM
     );
     const totalCount = await db.inventoryItem.count({
-      where: { ...where, clinicId: user.clinicId, branchId: user.branchId },
+      where: { ...where, clinicId: user.clinicId },
     });
+
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
       : 0;
