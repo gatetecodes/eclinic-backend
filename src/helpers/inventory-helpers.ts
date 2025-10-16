@@ -186,6 +186,7 @@ export const createPaymentForInventoryItems = async (
   let totalPatientAmount = 0;
   let totalInsuranceAmount = 0;
   const paymentDetails: IPaymentDetail[] = [];
+  const selectedBatches: { id: number; quantity: number }[] = [];
 
   for (const treatment of treatments) {
     const item = items.find((i) => i.id === +treatment.id);
@@ -196,6 +197,7 @@ export const createPaymentForInventoryItems = async (
     if (!batch) {
       throw new Error(`No valid batch found for item: ${item.itemName}`);
     }
+    selectedBatches.push({ id: batch.id, quantity: treatment.quantity });
 
     const unitPrice = batch.unitPrice ?? item.unitPrice;
     if (!unitPrice) {
@@ -229,13 +231,7 @@ export const createPaymentForInventoryItems = async (
     throw new Error("Amount is 0");
   }
 
-  await performStockOut(
-    batches.map((batch) => ({
-      id: batch.id,
-      quantity:
-        treatments.find((t) => t.id === batch.itemId.toString())?.quantity || 0,
-    }))
-  );
+  await performStockOut(selectedBatches);
 
   return db.payment.create({
     data: {
