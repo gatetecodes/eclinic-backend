@@ -8,6 +8,7 @@ export const filterSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   minVisits: z.coerce.number().int().nonnegative().optional(),
+  staffId: z.coerce.number().int().positive().optional(),
 });
 
 export const rangeAndFiltersSchema = z.object({
@@ -24,4 +25,8 @@ export const detailedVisitsSchema = rangeAndFiltersSchema.extend({
 export const detailedExamsSchema = rangeAndFiltersSchema.extend({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(10),
+});
+
+export const getTopPerformersSchema = rangeAndFiltersSchema.extend({
+  limit: z.coerce.number().int().positive().max(100).default(10),
 });

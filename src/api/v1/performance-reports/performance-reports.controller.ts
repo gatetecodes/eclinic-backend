@@ -977,11 +977,11 @@ export const getDetailedTreatments = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { dateRange, filters, page, pageSize, doctorId } = query;
+    const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const whereClause = {
       clinicId: user.clinicId,
-      doctorId,
+      doctorId: filters?.doctorId ? Number(filters.doctorId) : undefined,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
         ? Number(filters.departmentId)
@@ -1054,7 +1054,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { dateRange, filters, page, pageSize, staffId, staffRole } = query;
+    const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
 
     let response: {
@@ -1073,11 +1073,11 @@ export const getStaffDetailedActivities = async (c: Context) => {
       totalPages: 0,
     } as const;
 
-    switch (staffRole) {
+    switch (filters?.role) {
       case Role.NURSE: {
         // Fetch visits checked in by this nurse
         const whereClauseNurse = {
-          checkedInById: staffId,
+          checkedInById: filters?.staffId ? Number(filters.staffId) : undefined,
           clinicId: user.clinicId,
           createdAt: { gte: startDate, lte: endDate },
           departmentId: filters?.departmentId
@@ -1149,7 +1149,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
       case Role.PHARMACIST: {
         // Fetch payments processed by this staff member
         const whereClausePayment = {
-          processedById: staffId,
+          processedById: filters?.staffId ? Number(filters.staffId) : undefined,
           clinicId: user.clinicId,
           createdAt: { gte: startDate, lte: endDate },
           paymentStatus: {
@@ -1216,7 +1216,7 @@ export const getStaffDetailedActivities = async (c: Context) => {
       case Role.LAB_TECHNICIAN: {
         // Fetch exam results completed by this lab technician
         const whereClauseExam = {
-          createdById: staffId,
+          createdById: filters?.staffId ? Number(filters.staffId) : undefined,
           createdAt: { gte: startDate, lte: endDate },
           exam: {
             visit: { clinicId: user.clinicId },

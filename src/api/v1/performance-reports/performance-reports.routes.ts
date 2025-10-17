@@ -6,14 +6,19 @@ import {
   exportPerformanceData,
   getDetailedExams,
   getDetailedPayments,
+  getDetailedTreatments,
   getDetailedVisits,
   getDoctorPerformanceMetrics,
+  getPerformanceChartData,
   getPerformanceOverview,
+  getStaffDetailedActivities,
   getStaffPerformanceMetrics,
+  getTopPerformers,
 } from "./performance-reports.controller.ts";
 import {
   detailedExamsSchema,
   detailedVisitsSchema,
+  getTopPerformersSchema,
   rangeAndFiltersSchema,
 } from "./performance-reports.validation.ts";
 
@@ -56,4 +61,24 @@ router.get(
   getDetailedPayments
 );
 
+router.get(
+  "/performance-chart",
+  validate(rangeAndFiltersSchema, "query"),
+  getPerformanceChartData
+);
+router.get(
+  "/top-performers",
+  validate(getTopPerformersSchema, "query"),
+  getTopPerformers
+);
+router.get(
+  "/staff-detailed-activities",
+  validate(detailedVisitsSchema, "query"),
+  getStaffDetailedActivities
+);
+router.get(
+  "/detailed-treatments",
+  validate(detailedExamsSchema, "query"),
+  getDetailedTreatments
+);
 export default router;
