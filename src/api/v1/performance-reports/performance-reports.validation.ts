@@ -8,7 +8,7 @@ export const filterSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   minVisits: z.coerce.number().int().nonnegative().optional(),
-  staffId: z.coerce.number().int().positive().optional(),
+  staffId: z.string().optional(),
 });
 
 export const rangeAndFiltersSchema = z.object({
