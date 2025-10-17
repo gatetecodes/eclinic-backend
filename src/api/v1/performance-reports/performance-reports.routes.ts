@@ -73,7 +73,7 @@ router.get(
 );
 router.get(
   "/staff-detailed-activities",
-  validate(detailedVisitsSchema, "query"),
+  validate(detailedExamsSchema, "query"),
   getStaffDetailedActivities
 );
 router.get(
