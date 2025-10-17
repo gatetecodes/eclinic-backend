@@ -21,6 +21,7 @@ import notificationsRouter from "./notifications/routes.ts";
 import patientPortalRouter from "./patient-portal/patient-portal.routes.ts";
 import patientsRouter from "./patients/routes.ts";
 import paymentsRouter from "./payments/payments.routes.ts";
+import performanceReportsRouter from "./performance-reports/performance-reports.routes.ts";
 import tariffRouter from "./tariff/tariff.routes.ts";
 // Resource routers
 import usersRouter from "./users/users.routes.ts";
@@ -70,5 +71,5 @@ v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/insurance-claims", insuranceClaimsRouter);
 v1.route("/insurance", insuranceRouter);
 v1.route("/hospitalization", hospitalizationRouter);
-
+v1.route("/performance-reports", performanceReportsRouter);
 export default v1;
