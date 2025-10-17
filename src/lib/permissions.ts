@@ -35,6 +35,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     departments: { read: true, create: true, update: true, delete: true },
     tariff: { read: true, create: true, update: true, delete: true },
+    performanceReports: { read: true },
   },
   BRANCH_ADMIN: {
     visits: { read: true, create: true, update: true, readVisitDetails: true },

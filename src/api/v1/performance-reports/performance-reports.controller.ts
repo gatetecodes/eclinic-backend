@@ -393,13 +393,13 @@ export const getStaffPerformanceMetrics = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { role, dateRange, filters } = query;
+    const { dateRange, filters } = query;
     const { startDate, endDate, prevStartDate, prevEndDate } = getDateRanges(
       dateRange,
       filters
     );
-    const roles = role
-      ? [role]
+    const roles = filters?.role
+      ? [filters.role]
       : [Role.NURSE, Role.LAB_TECHNICIAN, Role.CASHIER];
     const staff = await db.user.findMany({
       where: {
@@ -803,14 +803,14 @@ export const getDetailedVisits = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { dateRange, filters, metricType, page, pageSize, doctorId } = query;
+    const { dateRange, filters, metricType, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
 
     const whereClause: Prisma.VisitWhereInput & {
       status?: { in: VisitStatus[] };
     } = {
       clinicId: user.clinicId,
-      doctorId,
+      doctorId: filters?.doctorId ? Number(filters.doctorId) : undefined,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
         ? Number(filters.departmentId)
@@ -898,11 +898,11 @@ export const getDetailedExams = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { dateRange, filters, page, pageSize, doctorId } = query;
+    const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const whereClause = {
       clinicId: user.clinicId,
-      doctorId,
+      doctorId: filters?.doctorId ? Number(filters.doctorId) : undefined,
       createdAt: { gte: startDate, lte: endDate },
       departmentId: filters?.departmentId
         ? Number(filters.departmentId)
@@ -1342,17 +1342,17 @@ export const getDetailedPayments = async (c: Context) => {
       );
     }
     const query = c.get("validatedQuery");
-    const { dateRange, filters, page, pageSize, doctorId } = query;
+    const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
     const whereClause = {
       clinicId: user.clinicId,
-      doctorId,
+      doctorId: filters?.doctorId ? Number(filters.doctorId) : undefined,
       createdAt: { gte: startDate, lte: endDate },
       paymentStatus: {
         in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
       },
       visit: {
-        ...(doctorId && { doctorId }),
+        ...(filters?.doctorId && { doctorId: Number(filters.doctorId) }),
         departmentId: filters?.departmentId
           ? Number(filters.departmentId)
           : undefined,

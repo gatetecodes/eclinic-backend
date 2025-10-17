@@ -19,7 +19,8 @@ export type Resource =
   | "payments"
   | "tariff"
   | "users"
-  | "visits";
+  | "visits"
+  | "performanceReports";
 
 // Actions are coarse-grained verbs aligned with controller operations
 export type Action =
