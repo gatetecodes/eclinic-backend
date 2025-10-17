@@ -7,7 +7,7 @@ export const filterSchema = z.object({
   role: z.enum(Role).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
-  minVisits: z.number().optional(),
+  minVisits: z.coerce.number().int().nonnegative().optional(),
 });
 
 export const rangeAndFiltersSchema = z.object({
@@ -17,11 +17,11 @@ export const rangeAndFiltersSchema = z.object({
 
 export const detailedVisitsSchema = rangeAndFiltersSchema.extend({
   metricType: z.enum(["all", "completed"]),
-  page: z.number().optional(),
-  pageSize: z.number().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(10),
 });
 
 export const detailedExamsSchema = rangeAndFiltersSchema.extend({
-  page: z.number().optional(),
-  pageSize: z.number().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(10),
 });
