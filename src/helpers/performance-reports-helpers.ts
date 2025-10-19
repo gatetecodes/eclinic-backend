@@ -16,7 +16,12 @@ import {
   subWeeks,
   subYears,
 } from "date-fns";
-import { PaymentStatus, Role, VisitStatus } from "../../generated/prisma";
+import {
+  PaymentStatus,
+  Role,
+  UserStatus,
+  VisitStatus,
+} from "../../generated/prisma";
 import { db } from "../database/db";
 import type {
   PerformanceDateRange,
@@ -343,4 +348,94 @@ export const getStaffMetricsForPeriod = async ({
   }
 
   return baseMetrics;
+};
+
+export const getClinicDoctorsForFilter = async (clinicId: number) => {
+  try {
+    const doctors = await db.user.findMany({
+      where: {
+        clinicId,
+        role: Role.DOCTOR,
+        status: UserStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+    return { data: doctors, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Internal Server Error",
+    };
+  }
+};
+
+export const getClinicDepartmentsForFilter = async (clinicId: number) => {
+  try {
+    const departments = await db.clinicalDepartment.findMany({
+      where: {
+        clinics: {
+          some: {
+            id: clinicId,
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+    return { data: departments, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Internal Server Error",
+    };
+  }
+};
+
+export const getClinicStaffRolesForFilter = async (clinicId: number) => {
+  try {
+    const staffRoles = await db.user.findMany({
+      where: {
+        clinicId,
+        status: UserStatus.ACTIVE,
+      },
+      select: {
+        role: true,
+      },
+      distinct: ["role"],
+    });
+    // Filter out non-staff roles and format for dropdown
+    const relevantRoles = staffRoles
+      .map((staffRole) => staffRole.role)
+      .filter(
+        (role) =>
+          role !== Role.SUPER_ADMIN &&
+          role !== Role.CLINIC_ADMIN &&
+          role !== Role.BRANCH_ADMIN
+      )
+      .sort();
+    const formattedRoles = relevantRoles.map((role) => ({
+      value: role,
+      label: role
+        .replace(/_/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (l) => l.toUpperCase()),
+    }));
+    return { data: formattedRoles, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Internal Server Error",
+    };
+  }
 };
