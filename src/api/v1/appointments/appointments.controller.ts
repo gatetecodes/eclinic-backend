@@ -463,7 +463,10 @@ export const markAppointmentAsCompleted = async (c: Context) => {
       data: { status: "COMPLETED" },
       select: { id: true },
     });
-    return c.json({ success: true, data: appointment });
+    return c.json(
+      { success: true, data: appointment },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
