@@ -10,6 +10,7 @@ import {
   getDetailedVisits,
   getDoctorPerformanceMetrics,
   getPerformanceChartData,
+  getPerformanceFilterData,
   getPerformanceOverview,
   getStaffDetailedActivities,
   getStaffPerformanceMetrics,
@@ -81,4 +82,5 @@ router.get(
   validate(detailedExamsSchema, "query"),
   getDetailedTreatments
 );
+router.get("/filter-data", getPerformanceFilterData);
 export default router;

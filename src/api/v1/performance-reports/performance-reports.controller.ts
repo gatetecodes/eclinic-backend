@@ -11,6 +11,9 @@ import {
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
 import {
+  getClinicDepartmentsForFilter,
+  getClinicDoctorsForFilter,
+  getClinicStaffRolesForFilter,
   getContextualTrendText,
   getDateRanges,
   getDoctorMetricsForPeriod,
@@ -1408,6 +1411,41 @@ export const getDetailedPayments = async (c: Context) => {
           error instanceof Error
             ? error.message
             : "Failed to fetch detailed payments",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getPerformanceFilterData = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const [doctors, departments, roles] = await Promise.all([
+      getClinicDoctorsForFilter(user.clinicId),
+      getClinicDepartmentsForFilter(user.clinicId),
+      getClinicStaffRolesForFilter(user.clinicId),
+    ]);
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Performance filter data fetched successfully",
+        data: {
+          doctors: doctors.data,
+          departments: departments.data,
+          roles: roles.data,
+        },
+        errors: {
+          doctors: doctors.error,
+          departments: departments.error,
+          roles: roles.error,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
       },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
