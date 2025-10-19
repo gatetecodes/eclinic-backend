@@ -460,7 +460,7 @@ export const countVisitsByDepartments = async (c: Context) => {
         .reduce((acc, curr) => acc + curr.count, 0);
       top5.push({ departmentName: "Others", count: othersCount });
     }
-    return c.json({ data: top5 });
+    return c.json({ data: top5 }, httpCodes.OK as ContentfulStatusCode);
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -515,36 +515,39 @@ export const getClinicsOverview = async (c: Context) => {
       ]),
     ]);
 
-    return c.json({
-      data: {
-        totalClinics: {
-          count: currentDay[0],
-          trend: calculateTrend(currentDay[0], previousDay[0]),
-          trendText: calculateTrendText(currentDay[0], previousDay[0]),
-        },
-        activeUsers: {
-          count: currentDay[1],
-          trend: calculateTrend(currentDay[1], previousDay[1]),
-          trendText: calculateTrendText(currentDay[1], previousDay[1]),
-        },
-        totalRevenue: {
-          count: Number(currentDay[2]._sum.amount || 0),
-          trend: calculateTrend(
-            Number(currentDay[2]._sum.amount || 0),
-            Number(previousDay[2]._sum.amount || 0)
-          ),
-          trendText: calculateTrendText(
-            Number(currentDay[2]._sum.amount || 0),
-            Number(previousDay[2]._sum.amount || 0)
-          ),
-        },
-        newRegistrations: {
-          count: currentDay[3],
-          trend: calculateTrend(currentDay[3], previousDay[3]),
-          trendText: calculateTrendText(currentDay[3], previousDay[3]),
+    return c.json(
+      {
+        data: {
+          totalClinics: {
+            count: currentDay[0],
+            trend: calculateTrend(currentDay[0], previousDay[0]),
+            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+          },
+          activeUsers: {
+            count: currentDay[1],
+            trend: calculateTrend(currentDay[1], previousDay[1]),
+            trendText: calculateTrendText(currentDay[1], previousDay[1]),
+          },
+          totalRevenue: {
+            count: Number(currentDay[2]._sum.amount || 0),
+            trend: calculateTrend(
+              Number(currentDay[2]._sum.amount || 0),
+              Number(previousDay[2]._sum.amount || 0)
+            ),
+            trendText: calculateTrendText(
+              Number(currentDay[2]._sum.amount || 0),
+              Number(previousDay[2]._sum.amount || 0)
+            ),
+          },
+          newRegistrations: {
+            count: currentDay[3],
+            trend: calculateTrend(currentDay[3], previousDay[3]),
+            trendText: calculateTrendText(currentDay[3], previousDay[3]),
+          },
         },
       },
-    });
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -559,14 +562,17 @@ export const getClinicGrowthData = async (c: Context) => {
       by: ["subscriptionPlan"],
       _count: { id: true },
     });
-    return c.json({
-      data: clinics.map(
-        (clinic: {
-          subscriptionPlan: string | null;
-          _count: { id: number };
-        }) => ({ plan: clinic.subscriptionPlan, count: clinic._count.id })
-      ),
-    });
+    return c.json(
+      {
+        data: clinics.map(
+          (clinic: {
+            subscriptionPlan: string | null;
+            _count: { id: number };
+          }) => ({ plan: clinic.subscriptionPlan, count: clinic._count.id })
+        ),
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -585,7 +591,7 @@ export const getTopPerformingClinics = async (c: Context) => {
         payments: { select: { amount: true } },
       },
     });
-    return c.json({ data });
+    return c.json({ data }, httpCodes.OK as ContentfulStatusCode);
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -613,7 +619,7 @@ export const getClinicsRevenue = async (c: Context) => {
         revenue: Number(item.revenue) || 0,
       })
     );
-    return c.json({ data });
+    return c.json({ data }, httpCodes.OK as ContentfulStatusCode);
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
