@@ -391,7 +391,7 @@ export const togglePatientPortalForClinic = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const updatedClinic = await db.clinic.update({
+    await db.clinic.update({
       where: { id: clinicId },
       data: { isPatientPortalEnabled: !clinic.isPatientPortalEnabled },
     });
@@ -399,7 +399,7 @@ export const togglePatientPortalForClinic = async (c: Context) => {
     return c.json({
       status: httpCodes.OK,
       message: "Patient portal toggled successfully",
-      data: updatedClinic,
+      success: true,
     });
   } catch (error) {
     return c.json(

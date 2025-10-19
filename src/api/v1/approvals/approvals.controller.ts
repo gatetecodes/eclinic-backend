@@ -84,10 +84,13 @@ export const processApprovalRequest = async (c: Context) => {
       });
     }
 
-    return c.json({
-      success: true,
-      message: `Request successfully ${approve ? "approved" : "rejected"}`,
-    });
+    return c.json(
+      {
+        success: true,
+        message: `Request successfully ${approve ? "approved" : "rejected"}`,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -135,7 +138,10 @@ export const getApprovalRequests = async (c: Context) => {
     ]);
 
     const pageCount = take ? Math.ceil(totalCount / take) : 0;
-    return c.json({ data: approvalRequests, totalCount, pageCount });
+    return c.json(
+      { data: approvalRequests, totalCount, pageCount },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
