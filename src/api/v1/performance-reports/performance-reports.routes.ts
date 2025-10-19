@@ -24,6 +24,7 @@ import {
 } from "./performance-reports.validation.ts";
 
 const router = new Hono<AppEnv>();
+
 router.use("*", crudAccess("performanceReports"));
 
 router.get(

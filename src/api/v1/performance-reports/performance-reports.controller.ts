@@ -28,12 +28,7 @@ import { httpCodes } from "../../../lib/constants";
 export const getPerformanceOverview = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
+
     const query = c.get("validatedQuery");
     const { dateRange, filters } = query;
     const { startDate, endDate, prevStartDate, prevEndDate } = getDateRanges(
@@ -218,12 +213,6 @@ export const getPerformanceOverview = async (c: Context) => {
 export const getDoctorPerformanceMetrics = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters } = query;
     const { startDate, endDate, prevStartDate, prevEndDate } = getDateRanges(
@@ -389,12 +378,6 @@ export const getDoctorPerformanceMetrics = async (c: Context) => {
 export const getStaffPerformanceMetrics = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters } = query;
     const { startDate, endDate, prevStartDate, prevEndDate } = getDateRanges(
@@ -489,12 +472,6 @@ export const getStaffPerformanceMetrics = async (c: Context) => {
 export const getTopPerformers = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, limit } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -608,12 +585,6 @@ export const getTopPerformers = async (c: Context) => {
 export const getPerformanceChartData = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -721,12 +692,6 @@ export const getPerformanceChartData = async (c: Context) => {
 export const exportPerformanceData = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -799,12 +764,6 @@ export const exportPerformanceData = async (c: Context) => {
 export const getDetailedVisits = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, metricType, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -894,12 +853,6 @@ export const getDetailedVisits = async (c: Context) => {
 export const getDetailedExams = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -973,12 +926,6 @@ export const getDetailedExams = async (c: Context) => {
 export const getDetailedTreatments = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -1050,12 +997,6 @@ export const getDetailedTreatments = async (c: Context) => {
 export const getStaffDetailedActivities = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
@@ -1338,12 +1279,6 @@ export const getStaffDetailedActivities = async (c: Context) => {
 export const getDetailedPayments = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (![Role.SUPER_ADMIN, Role.CLINIC_ADMIN].includes(user.role)) {
-      return c.json(
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
-    }
     const query = c.get("validatedQuery");
     const { dateRange, filters, page, pageSize } = query;
     const { startDate, endDate } = getDateRanges(dateRange, filters);
