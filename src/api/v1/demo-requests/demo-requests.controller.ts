@@ -129,7 +129,7 @@ export const approveDemoRequest = async (c: Context) => {
       logger.error("Approved without email notification", { id: idNum, error });
     }
     return c.json(
-      { message: "Demo request approved successfully", data: demoRequest },
+      { message: "Demo request approved successfully", success: true },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -164,12 +164,12 @@ export const rejectDemoRequest = async (c: Context) => {
       );
     }
 
-    const demoRequest = await db.demoRequest.update({
+    await db.demoRequest.update({
       where: { id: idNum },
       data: { status: DemoRequestStatus.REJECTED },
     });
     return c.json(
-      { message: "Demo request rejected successfully", data: demoRequest },
+      { message: "Demo request rejected successfully", success: true },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
