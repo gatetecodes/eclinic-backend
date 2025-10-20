@@ -215,6 +215,29 @@ export const getPayments = async (c: Context) => {
                 },
               },
             },
+            partialPayments: {
+              select: {
+                id: true,
+                amount: true,
+                paymentMethod: true,
+                createdAt: true,
+                processedBy: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+            },
+            processedBy: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         });
         const totalCount = await db.payment.count({

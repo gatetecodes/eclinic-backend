@@ -474,7 +474,14 @@ export const addStock = async (c: Context) => {
       return { batch, transaction };
     });
 
-    return c.json(result, httpCodes.OK as ContentfulStatusCode);
+    return c.json(
+      {
+        success: true,
+        message: "Stock transaction created successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -575,7 +582,14 @@ export const createSaleTransaction = async (c: Context) => {
       });
       return { transaction };
     });
-    return c.json(result, httpCodes.OK as ContentfulStatusCode);
+    return c.json(
+      {
+        success: true,
+        message: "Sale transaction created successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {

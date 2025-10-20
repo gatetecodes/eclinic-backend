@@ -20,6 +20,7 @@ model Payment {
     paymentMethod   PaymentMethod @default(CASH)
     paymentStatus   PaymentStatus @default(PENDING)
     discounts       Discount[]
+    partialPayments PartialPayment[]
     processedBy     User?         @relation("ProcessedPayments", fields: [processedById], references: [id])
     processedById   Int?
     createdAt       DateTime      @default(now())
@@ -56,4 +57,19 @@ enum PaymentMethod {
     MOBILE_MONEY
     CARD
     BANK_TRANSFER
+}
+
+model PartialPayment {
+    id            Int           @id @default(autoincrement())
+    payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+    paymentId     Int
+    amount        Decimal       @db.Decimal(10, 2)
+    paymentMethod PaymentMethod
+    processedBy   User?         @relation("ProcessedPartialPayments", fields: [processedById], references: [id])
+    processedById Int?
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+
+    @@index([paymentId])
+    @@index([processedById])
 }

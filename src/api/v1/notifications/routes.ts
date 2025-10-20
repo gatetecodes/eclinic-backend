@@ -13,7 +13,7 @@ const router = new Hono<AppEnv>();
 router.use("*", crudAccess("notifications"));
 
 router.post("/", validate(notificationSchema, "json"), createNotification);
+router.get("/unread", getUnreadNotifications);
 router.put("/:id/read", markNotificationAsRead);
-router.get("/:id/unread", getUnreadNotifications);
 
 export default router;

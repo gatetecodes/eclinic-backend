@@ -31,7 +31,14 @@ export const uploadFiles = async (c: Context) => {
   });
   try {
     const uploadedUrls = await Promise.all(uploadPromises);
-    return c.json({ data: uploadedUrls }, httpCodes.OK as ContentfulStatusCode);
+    return c.json(
+      {
+        success: true,
+        message: "Files uploaded successfully",
+        data: uploadedUrls,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {

@@ -71,8 +71,8 @@ export const markNotificationAsRead = async (c: Context) => {
 
 export const getUnreadNotifications = async (c: Context) => {
   try {
-    const { id } = c.req.param();
-    const notificationId = Number.parseInt(id, 10);
+    const user = c.get("user");
+    const notificationId = Number.parseInt(user.id, 10);
     if (Number.isNaN(notificationId)) {
       return c.json(
         { error: "Invalid notificationId" },
@@ -83,10 +83,13 @@ export const getUnreadNotifications = async (c: Context) => {
       where: { userId: notificationId, isRead: false },
       orderBy: { createdAt: "desc" },
     });
-    return c.json({
-      success: "Notifications fetched successfully",
-      notifications,
-    });
+    return c.json(
+      {
+        success: "Notifications fetched successfully",
+        data: notifications,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {

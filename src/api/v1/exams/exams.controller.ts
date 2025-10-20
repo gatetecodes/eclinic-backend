@@ -1119,11 +1119,14 @@ export const updateExamResult = async (c: Context) => {
       visitId: updatedResult.visitId,
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Exam result updated successfully",
-      data: updatedResult,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Exam result updated successfully",
+        data: updatedResult,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -1503,15 +1506,20 @@ export const updateExamTestUnits = async (c: Context) => {
       );
     }
 
-    await db.examTest.update({
+    const updatedTest = await db.examTest.update({
       where: { id: testId },
       data: { unit },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Exam test units updated successfully",
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Exam test units updated successfully",
+        data: updatedTest,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -1583,15 +1591,20 @@ export const updateExamTestNormalRange = async (c: Context) => {
       );
     }
 
-    await db.examTest.update({
+    const updatedTest = await db.examTest.update({
       where: { id: testId },
       data: { normalRange },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Exam test normal range updated successfully",
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Exam test normal range updated successfully",
+        data: updatedTest,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -1668,15 +1681,20 @@ export const updateExamTestConsumables = async (c: Context) => {
         ? Prisma.JsonNull
         : (consumables as Prisma.InputJsonValue);
 
-    await db.examTest.update({
+    const updatedTest = await db.examTest.update({
       where: { id: testId },
       data: { consumables: consumablesData },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Exam test consumables updated successfully",
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Exam test consumables updated successfully",
+        data: updatedTest,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
