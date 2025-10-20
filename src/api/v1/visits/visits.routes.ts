@@ -193,7 +193,7 @@ router.post(
 
 // Treatments
 router.post(
-  "/:id/treatments",
+  "/:id/treatment",
   validate(getVisitParamsSchema, "param"),
   validate(addVisitTreatmentBodySchema, "json"),
   addTreatment

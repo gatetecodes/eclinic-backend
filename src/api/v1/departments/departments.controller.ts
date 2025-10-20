@@ -625,11 +625,14 @@ export const getProductsDepartmentsList = async (c: Context) => {
       },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Departments list fetched successfully",
-      data: departments,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Departments list fetched successfully",
+        data: departments,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

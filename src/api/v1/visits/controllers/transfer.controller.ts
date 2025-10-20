@@ -234,7 +234,7 @@ export const rejectHandoff = async (c: Context) => {
 export const transferVisitToDoctor = async (c: Context) => {
   try {
     const user = c.get("user");
-    const { id } = c.req.param();
+    const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const data = c.get("validatedJson") ?? (await c.req.json());
 
@@ -293,10 +293,15 @@ export const transferVisitToDoctor = async (c: Context) => {
       visitId: visit.id,
     });
 
-    return c.json({
-      success: "Visit transferred successfully",
-      data: updatedVisit,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Visit transferred successfully",
+        data: updatedVisit,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

@@ -828,6 +828,7 @@ export const getDetailedVisits = async (c: Context) => {
     }));
     return c.json(
       {
+        success: true,
         status: httpCodes.OK,
         message: "Detailed visits fetched successfully",
         data: detailedData,

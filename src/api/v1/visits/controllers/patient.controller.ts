@@ -57,7 +57,12 @@ export const getPatientsByPhone = async (c: Context) => {
       visits: undefined,
     }));
     return c.json(
-      { data: patientsWithLastVisit },
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Patients fetched successfully",
+        data: patientsWithLastVisit,
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
