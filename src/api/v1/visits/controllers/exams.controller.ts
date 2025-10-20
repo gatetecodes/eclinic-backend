@@ -413,18 +413,23 @@ export const addTreatment = async (c: Context) => {
       });
     }
 
-    return c.json({
-      success: "Treatment act(s) successfully",
-      data: updatedVisitRecord,
-    });
-  } catch (_error) {
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        success: true,
+        message: "Treatment act(s) successfully",
+        data: updatedVisitRecord,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
 };
-
 export const addNurseTreatment = async (c: Context) => {
   try {
     const { id } = c.get("validatedParam");

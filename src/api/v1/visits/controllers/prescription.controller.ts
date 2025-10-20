@@ -275,7 +275,11 @@ export const createSpectaclePrescription = async (c: Context) => {
     });
 
     return c.json(
-      { success: "Spectacle prescription created successfully!", data: result },
+      {
+        success: true,
+        message: "Spectacle prescription created successfully!",
+        spectaclePrescription: result,
+      },
       httpCodes.CREATED as ContentfulStatusCode
     );
   } catch (error) {
@@ -324,7 +328,11 @@ export const updateSpectaclePrescription = async (c: Context) => {
     });
 
     return c.json(
-      { success: "Spectacle prescription updated successfully!", data: result },
+      {
+        success: true,
+        message: "Spectacle prescription updated successfully!",
+        spectaclePrescription: result,
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {

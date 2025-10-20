@@ -634,7 +634,10 @@ export const createConsultationNote = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
-    return c.json({ success: "Consultation note added successfully", visit });
+    return c.json(
+      { success: true, message: "Consultation note added successfully", visit },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Failed to add consultation note" },
@@ -664,7 +667,14 @@ export const editConsultationNote = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
-    return c.json({ success: "Consultation note updated successfully", visit });
+    return c.json(
+      {
+        success: true,
+        message: "Consultation note updated successfully",
+        visit,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Failed to update consultation note" },
@@ -890,13 +900,26 @@ export const editChiefComplaint = async (c: Context) => {
       where: { id: visitId },
       data: { chiefComplaint: parsed.data.chiefComplaint },
     });
-    return c.json({
-      success: "Chief complaint updated successfully",
-      visit: updated,
+
+    await invalidateVisitRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
     });
-  } catch (_error) {
+
     return c.json(
-      { error: "Internal Server Error" },
+      {
+        success: true,
+        message: "Chief complaint updated successfully",
+        visit: updated,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
