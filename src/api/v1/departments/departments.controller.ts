@@ -520,11 +520,15 @@ export const createClinicDepartments = async (c: Context) => {
       },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Departments added to clinic successfully",
-      data: updatedClinic.departments,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        success: true,
+        message: "Departments added to clinic successfully",
+        data: updatedClinic.departments,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -548,11 +552,14 @@ export const getClinicalDepartmentsList = async (c: Context) => {
       },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinical departments list fetched successfully",
-      data: departments,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Clinical departments list fetched successfully",
+        data: departments,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
