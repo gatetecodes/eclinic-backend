@@ -896,6 +896,35 @@ export const getAllBranchDoctors = async (c: Context) => {
   }
 };
 
+export const getClinicNurses = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const nurses = await db.user.findMany({
+      where: {
+        role: Role.NURSE,
+        clinicId: authUser.clinicId,
+        branchId: authUser.branchId,
+        status: UserStatus.ACTIVE,
+      },
+      select: { id: true, name: true },
+    });
+    return c.json({ data: nurses }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
 export const editDoctor = async (c: Context) => {
   try {
     const authUser = c.get("user") as AuthenticatedUser | undefined;
