@@ -1,4 +1,4 @@
-import { formatDuration, intervalToDuration } from "date-fns";
+import { formatDuration, intervalToDuration, parse } from "date-fns";
 
 const PHONE_FORMAT_REGEX = /(\+\d{3})(\d{3})(\d{3})(\d{3})/;
 function formatFileSize(bytes?: number) {
@@ -189,3 +189,16 @@ export const parseNationalityFromPhoneNumber = (phoneNumber: string) => {
 
   return "Unknown";
 };
+
+export function parseDateString(dateString: string): Date {
+  const formats = ["dd/MM/yyyy", "MM/dd/yyyy", "yyyy-MM-dd"];
+
+  for (const format of formats) {
+    const date = parse(dateString, format, new Date());
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  throw new Error(`Invalid date format: ${dateString}`);
+}

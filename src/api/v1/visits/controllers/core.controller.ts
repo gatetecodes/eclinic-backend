@@ -3,7 +3,9 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { httpCodes } from "@/lib/constants";
+import { parseDateString } from "@/lib/utils";
 import type {
+  Gender,
   PaymentMode,
   Prisma,
   Visit,
@@ -37,6 +39,7 @@ import {
   consultationNoteSchema,
   editChiefComplaintSchema,
   type finalizeVisitSchema,
+  type IUpdateInitialCheckIn,
   initialCheckInSchema,
   preConsultationSchema,
   updateVisitStatusSchema,
@@ -95,6 +98,119 @@ export const createInitialCheckIn = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Failed to check in patient" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * UPDATE INITIAL CHECK-IN
+ * @param c
+ * @returns
+ */
+
+export const updateInitialCheckIn = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { id } = c.get("validatedParam");
+    const visitId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const {
+      patient,
+      basicTriage,
+      departmentId,
+      priority,
+      chiefComplaint,
+      isLabOnly,
+    } = data as IUpdateInitialCheckIn;
+
+    // Check if visit exists and belongs to the user's clinic
+    const existingVisit = await db.visit.findFirst({
+      where: {
+        id: visitId,
+        clinicId: user.clinic.id,
+      },
+      include: {
+        patient: true,
+      },
+    });
+
+    if (!existingVisit) {
+      return c.json(
+        { error: "Visit not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    if (
+      !(
+        [VisitStatus.CHECKED_IN, VisitStatus.TRIAGE_COMPLETED] as VisitStatus[]
+      ).includes(existingVisit.status)
+    ) {
+      // Only allow editing if visit is still in CHECKED_IN status
+      return c.json(
+        { error: "Only checked-in and triage completed visits can be edited" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    // Update patient information
+    const updatedPatient = await db.patient.update({
+      where: { id: existingVisit.patientId },
+      data: {
+        firstName: patient.firstName,
+        lastName: patient.lastName,
+        dateOfBirth: parseDateString(patient.dateOfBirth),
+        gender: patient.gender as Gender,
+        isChild: patient.isChild,
+        phoneNumber: patient.phoneNumber,
+        guardianPhoneNumber: patient.guardianPhoneNumber,
+        isAForeigner: patient.isAForeigner,
+      },
+    });
+
+    // Update visit
+    const updatedVisit = await db.visit.update({
+      where: { id: visitId },
+      data: {
+        chiefComplaint,
+        department: departmentId
+          ? { connect: { id: +departmentId } }
+          : { disconnect: true },
+        priority,
+        basicTriage,
+        isLabOnly: !!isLabOnly,
+        requiresConsultation: !isLabOnly,
+      },
+      include: {
+        patient: true,
+        department: true,
+      },
+    });
+
+    // Log activity
+    await logActivity({
+      userId: Number(user.id),
+      visitId,
+      action: `Initial check-in updated for ${updatedPatient.firstName} ${updatedPatient.lastName} by ${user?.name}`,
+      type: ActivityType.STATUS_UPDATE,
+    });
+
+    await invalidateVisitRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+
+    return c.json(
+      { success: "Initial check-in updated successfully", visit: updatedVisit },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -492,6 +608,7 @@ export const listVisits = async (c: Context) => {
           where: whereInput,
           orderBy: orderBy as Prisma.VisitOrderByWithRelationInput,
           include: {
+            clinic: { select: { id: true, name: true } },
             patient: {
               select: {
                 id: true,
