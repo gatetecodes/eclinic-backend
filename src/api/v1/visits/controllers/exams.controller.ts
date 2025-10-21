@@ -416,7 +416,7 @@ export const addTreatment = async (c: Context) => {
     return c.json(
       {
         success: true,
-        message: "Treatment act(s) successfully",
+        message: "Treatment act(s) added successfully",
         data: updatedVisitRecord,
       },
       httpCodes.OK as ContentfulStatusCode
