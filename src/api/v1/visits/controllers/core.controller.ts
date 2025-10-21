@@ -100,7 +100,7 @@ export const createInitialCheckIn = async (c: Context) => {
   }
 };
 
-export const updatePreConsultation = async (c: Context) => {
+export const addPreConsultation = async (c: Context) => {
   try {
     const user = c.get("user");
     const { id } = c.req.param();
@@ -180,6 +180,130 @@ export const updatePreConsultation = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Failed to update pre-consultation details" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * EDIT PRE-CONSULTATION
+ * @param c
+ * @returns
+ */
+
+export const editPreConsultation = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { id } = c.get("validatedParam");
+    const visitId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const {
+      vitals,
+      doctorId,
+      notes,
+      requiresConsultation,
+      consultationProductIds,
+    } = data as z.infer<typeof preConsultationSchema>;
+
+    // Check if visit exists and belongs to the user's clinic
+    const existingVisit = await db.visit.findFirst({
+      where: {
+        id: visitId,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
+      },
+      include: {
+        patient: true,
+      },
+    });
+
+    if (!existingVisit) {
+      return c.json(
+        { error: "Visit not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    if (existingVisit.status === VisitStatus.CHECKED_IN) {
+      // Check if visit is in appropriate status for editing pre-consultation
+      return c.json(
+        {
+          error:
+            "Please complete initial triage before editing pre-consultation details",
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    if (existingVisit.isLabOnly) {
+      return c.json(
+        {
+          error:
+            "Pre-consultation details are not applicable for lab-only visits.",
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const updatePatientAndVisit = await db.$transaction(async (tx) => {
+      // Update visit with new pre-consultation data
+      const updatedVisit = await tx.visit.update({
+        data: {
+          doctor: { connect: { id: +doctorId } },
+          notes,
+          consultations: {
+            set: [], // Clear existing consultations
+            connect: consultationProductIds?.map((pid) => ({ id: +pid })),
+          },
+          requiresConsultation,
+        },
+        where: {
+          id: visitId,
+        },
+      });
+
+      // Update patient's medical info with new vitals
+      const updatedPatient = await tx.patient.update({
+        data: {
+          medicalInfo: {
+            ...vitals,
+            ...(updatedVisit.basicTriage as Prisma.InputJsonObject),
+          },
+        },
+        where: {
+          id: existingVisit.patientId,
+        },
+      });
+
+      return { updatedPatient, updatedVisit };
+    });
+
+    // Log activity
+    await logActivity({
+      userId: Number(user.id),
+      visitId,
+      action: `Pre-consultation details updated for ${updatePatientAndVisit.updatedPatient.firstName} ${updatePatientAndVisit.updatedPatient.lastName} by ${user?.name}`,
+      type: ActivityType.STATUS_UPDATE,
+    });
+
+    await invalidateVisitRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+
+    return c.json(
+      {
+        success: "Pre-consultation details updated successfully",
+        data: updatePatientAndVisit,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

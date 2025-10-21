@@ -7,16 +7,17 @@ import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 // core controllers
 import {
   addPaymentMethod,
+  addPreConsultation,
   createConsultationNote,
   createInitialCheckIn,
   dischargeVisit,
   editChiefComplaint,
   editConsultationNote,
+  editPreConsultation,
   finalizeVisit,
   getPatientVisits,
   getVisitById,
   listVisits,
-  updatePreConsultation,
   updateVisitStatus,
 } from "./controllers/core.controller.ts";
 // exams controllers (migrated out for maintainability)
@@ -99,7 +100,15 @@ router.put(
   validate(getVisitParamsSchema, "param"),
   validate(updatePreConsultationRequestSchema, "json"),
   ...withAccess({ resource: "visits", action: "update" }),
-  updatePreConsultation
+  addPreConsultation
+);
+
+router.put(
+  "/:id/pre-consultation",
+  validate(getVisitParamsSchema, "param"),
+  validate(updatePreConsultationRequestSchema, "json"),
+  ...withAccess({ resource: "visits", action: "update" }),
+  editPreConsultation
 );
 
 // Payment mode

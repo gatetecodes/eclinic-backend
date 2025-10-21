@@ -14,6 +14,7 @@ import {
   getAvailableDoctorsByDepartmentId,
   getCashiers,
   getClinicDoctors,
+  getClinicNurses,
   getClinicUsers,
   getDoctorsByDepartmentId,
   getUserById,
@@ -30,6 +31,7 @@ router.get("/clinic", crudAccess("users"), getClinicUsers);
 router.get("/clinic/doctors", crudAccess("users"), getClinicDoctors);
 router.get("/branch/doctors", crudAccess("users"), getAllBranchDoctors);
 router.get("/doctors", crudAccess("users"), getAllClinicDoctors);
+router.get("/clinic/nurses", crudAccess("users"), getClinicNurses);
 router.get("/cashiers", crudAccess("users"), getCashiers);
 router.get(
   "/department/:departmentId/doctors",
