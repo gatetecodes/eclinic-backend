@@ -18,6 +18,7 @@ import {
   getPatientVisits,
   getVisitById,
   listVisits,
+  updateInitialCheckIn,
   updateVisitStatus,
 } from "./controllers/core.controller.ts";
 // exams controllers (migrated out for maintainability)
@@ -70,6 +71,7 @@ import {
   getVisitParamsSchema,
   handoffSchema,
   initialCheckInSchema,
+  preConsultationSchema,
   rejectHandoffBodySchema,
   transferVisitToDoctorSchema,
   updatePreConsultationRequestSchema,
@@ -96,6 +98,13 @@ router.post(
   createInitialCheckIn
 );
 router.put(
+  "/:id/initial-check-in",
+  validate(getVisitParamsSchema, "param"),
+  validate(initialCheckInSchema, "json"),
+  ...withAccess({ resource: "visits", action: "update" }),
+  updateInitialCheckIn
+);
+router.put(
   "/:id/pre-consultation",
   validate(getVisitParamsSchema, "param"),
   validate(updatePreConsultationRequestSchema, "json"),
@@ -104,9 +113,9 @@ router.put(
 );
 
 router.put(
-  "/:id/pre-consultation",
+  "/:id/pre-consultation/edit",
   validate(getVisitParamsSchema, "param"),
-  validate(updatePreConsultationRequestSchema, "json"),
+  validate(preConsultationSchema, "json"),
   ...withAccess({ resource: "visits", action: "update" }),
   editPreConsultation
 );

@@ -61,6 +61,7 @@ export const initialCheckInSchema = z.object({
       phoneNumber: z.string().optional(),
       guardianPhoneNumber: z.string().optional(),
       isAForeigner: z.boolean().optional(),
+      address: z.string().optional(),
     })
     .superRefine((data, ctx) => {
       if (data.isChild) {
@@ -117,7 +118,9 @@ export const initialCheckInSchema = z.object({
   isLabOnly: z.boolean().optional().default(false),
 });
 
-export type IInitialCheckIn = z.infer<typeof initialCheckInSchema>;
+export const updateInitialCheckInSchema = initialCheckInSchema.extend({
+  visitId: z.number(),
+});
 
 export const preConsultationSchema = z
   .object({
@@ -392,6 +395,8 @@ export const getPrescriptionParamsSchema = z.object({
   prescriptionId: z.string(),
 });
 
+export type IInitialCheckIn = z.infer<typeof initialCheckInSchema>;
+export type IUpdateInitialCheckIn = z.infer<typeof updateInitialCheckInSchema>;
 export type CreateSpectaclePrescription = z.infer<
   typeof createSpectaclePrescriptionSchema
 >;
