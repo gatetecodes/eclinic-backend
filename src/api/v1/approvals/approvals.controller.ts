@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils.ts";
 import { httpCodes } from "@/lib/constants";
 import { db } from "../../../database/db";
 import {
@@ -83,6 +84,11 @@ export const processApprovalRequest = async (c: Context) => {
         data: { approval: { connect: { id: approvalId } } },
       });
     }
+
+    await invalidatePaymentRelatedCaches({
+      clinicId: Number(user.clinicId),
+      branchId: Number(user.branchId),
+    });
 
     return c.json(
       {

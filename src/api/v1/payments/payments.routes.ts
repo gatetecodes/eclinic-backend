@@ -11,7 +11,10 @@ import {
   getPayments,
   markPaymentAsPaid,
 } from "./payments.controller.ts";
-import { markPaymentAsPaidSchema } from "./payments.validation.ts";
+import {
+  createDiscountSchema,
+  markPaymentAsPaidSchema,
+} from "./payments.validation.ts";
 
 const router = new Hono<AppEnv>();
 router.use("*", crudAccess("payments"));
@@ -19,7 +22,11 @@ router.use("*", crudAccess("payments"));
 router.get("/", getPayments);
 router.get("/export", exportPayments);
 router.get("/:paymentId/discounts", getDiscountsForPayment);
-router.post("/:paymentId/discounts", createDiscount);
+router.post(
+  "/:paymentId/discounts",
+  validate(createDiscountSchema, "json"),
+  createDiscount
+);
 router.post(
   "/:paymentId/mark-as-paid",
   validate(markPaymentAsPaidSchema, "json"),
