@@ -1,6 +1,7 @@
 import { ApprovalType, PaymentStatus } from "@prisma/client";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils";
 import { db } from "../../../database/db";
 import { httpCodes } from "../../../lib/constants";
 
@@ -41,6 +42,7 @@ export const createDiscount = async (c: Context) => {
       },
       select: {
         id: true,
+        visitId: true,
         paymentStatus: true,
         patientAmount: true,
         clinicId: true,
@@ -55,8 +57,8 @@ export const createDiscount = async (c: Context) => {
     }
 
     if (
-      payment.clinicId !== user.clinic.id ||
-      payment.branchId !== user.branch.id
+      payment.clinicId !== user.clinicId ||
+      payment.branchId !== user.branchId
     ) {
       return c.json(
         { error: "Forbidden: you cannot act on this payment" },
@@ -89,23 +91,29 @@ export const createDiscount = async (c: Context) => {
         data: {
           amount,
           reason,
-          clinicId: user.clinic.id,
-          branchId: user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
           paymentId,
-          createdById: user.id,
+          createdById: Number(user.id),
         },
       });
       const approvalRequest = await tx.approval.create({
         data: {
           type: ApprovalType.DISCOUNT,
-          clinicId: user.clinic.id,
-          branchId: user.branch.id,
-          requestedById: user.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
+          requestedById: Number(user.id),
           discountId: discount.id,
           reason,
         },
       });
       return { discount, approvalRequest };
+    });
+
+    await invalidatePaymentRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId: payment.visitId ?? undefined,
     });
 
     return c.json(
@@ -153,11 +161,11 @@ export const getDiscountsForPayment = async (c: Context) => {
       );
     }
     if (
-      payment.clinicId !== user.clinic.id ||
-      payment.branchId !== user.branch.id
+      payment.clinicId !== user.clinicId ||
+      payment.branchId !== user.branchId
     ) {
       return c.json(
-        { error: "Forbidden" },
+        { error: "Forbidden: you cannot act on this payment" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
       );
     }
