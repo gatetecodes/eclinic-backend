@@ -128,7 +128,7 @@ export const updateInitialCheckIn = async (c: Context) => {
     const existingVisit = await db.visit.findFirst({
       where: {
         id: visitId,
-        clinicId: user.clinic.id,
+        clinicId: user.clinicId,
       },
       include: {
         patient: true,
@@ -698,20 +698,27 @@ export const getVisitById = async (c: Context) => {
             consultationNote: true,
             transferReason: true,
             chiefComplaint: true,
+            basicTriage: true,
             updatedAt: true,
             clinicId: true,
             branchId: true,
+            clinic: { select: { id: true, name: true } },
+            branch: { select: { id: true, name: true } },
             patient: {
               select: {
                 id: true,
                 firstName: true,
                 lastName: true,
+                isChild: true,
                 dateOfBirth: true,
                 gender: true,
                 phoneNumber: true,
+                nationality: true,
+                isAForeigner: true,
                 address: true,
                 medicalInfo: true,
                 email: true,
+                guardianPhoneNumber: true,
               },
             },
             doctor: { select: { id: true, name: true } },
