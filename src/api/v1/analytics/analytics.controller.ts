@@ -346,6 +346,97 @@ export const getCashFlow = async (c: Context) => {
   }
 };
 
+export const getImportantStatusesVisitsCount = async (c: Context) => {
+  try {
+    const clinicId = c.get("clinicId");
+    const now = new Date();
+    // Current day window
+    const startDate = startOfDay(now);
+    const endDate = endOfDay(now);
+
+    const importantStatuses = [
+      VisitStatus.CHECKED_IN,
+      VisitStatus.TRIAGE_COMPLETED,
+      VisitStatus.IN_CONSULTATION,
+      VisitStatus.PENDING_TESTS,
+      VisitStatus.DISCHARGED,
+      VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
+      VisitStatus.ADMITTED,
+    ];
+    const returnedStatuses = [
+      VisitStatus.CHECKED_IN, // Combined: CHECKED_IN + TRIAGE_COMPLETED
+      VisitStatus.IN_CONSULTATION,
+      VisitStatus.PENDING_TESTS,
+      VisitStatus.DISCHARGED, // Combined: DISCHARGED + DISCHARGED_WITH_PRESCRIPTION
+      VisitStatus.ADMITTED,
+    ];
+
+    const [currentData] = await Promise.all([
+      db.visit.groupBy({
+        by: ["status"],
+        where: {
+          createdAt: { gte: startDate, lt: endDate },
+          clinicId,
+          status: { in: importantStatuses },
+        },
+        _count: { id: true },
+      }),
+    ]);
+
+    // Initialize returned statuses with 0, then overlay actual counts, combining discharge variants
+    const currentDataByStatus = returnedStatuses.reduce(
+      (acc, status) => {
+        acc[status] = 0;
+        return acc;
+      },
+      {} as Record<VisitStatus, number>
+    );
+    let dischargedTotal = 0;
+    let checkinTotal = 0;
+    for (const row of currentData) {
+      if (
+        row.status === VisitStatus.DISCHARGED ||
+        row.status === VisitStatus.DISCHARGED_WITH_PRESCRIPTION
+      ) {
+        dischargedTotal += row._count.id;
+      } else if (
+        row.status === VisitStatus.CHECKED_IN ||
+        row.status === VisitStatus.TRIAGE_COMPLETED
+      ) {
+        checkinTotal += row._count.id;
+      } else {
+        currentDataByStatus[row.status] = row._count.id;
+      }
+    }
+    currentDataByStatus[VisitStatus.DISCHARGED] = dischargedTotal;
+    currentDataByStatus[VisitStatus.CHECKED_IN] = checkinTotal;
+    const totalVisits = currentData.reduce(
+      (acc, curr) => acc + curr._count.id,
+      0
+    );
+
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Important statuses visits count fetched successfully",
+        data: {
+          totalVisits,
+          currentDataByStatus,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      {
+        error: "Internal Server Error",
+        status: httpCodes.INTERNAL_SERVER_ERROR,
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
 async function getDataForRange(
   startDate: Date,
   endDate: Date,

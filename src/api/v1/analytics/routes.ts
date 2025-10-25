@@ -12,6 +12,7 @@ import {
   getDashboard,
   getDashboardOverview,
   getDoctorStats,
+  getImportantStatusesVisitsCount,
   getLabTechnicianStats,
   getNurseStats,
   getPatientsByAge,
@@ -115,6 +116,12 @@ router.get(
   "/nurse/stats",
   ...withAccess({ resource: "analytics", action: "read" }),
   getNurseStats
+);
+
+router.get(
+  "/important-statuses-visits-count",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getImportantStatusesVisitsCount
 );
 
 export default router;
