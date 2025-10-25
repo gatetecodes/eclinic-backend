@@ -17,8 +17,8 @@ export const calculateTrendText = (
   current: number,
   previous: number
 ): string => {
-  const currentValue = Number(current) || 0;
-  const previousValue = Number(previous) || 0;
+  const currentValue = current || 0;
+  const previousValue = previous || 0;
 
   if (currentValue === previousValue) {
     return "Same as yesterday";
