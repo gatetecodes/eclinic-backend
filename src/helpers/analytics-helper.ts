@@ -26,5 +26,5 @@ export const calculateTrendText = (
 
   const difference = Math.abs(currentValue - previousValue);
   const direction = currentValue > previousValue ? "more than" : "less than";
-  return `${difference} ${direction} yesterday`;
+  return `${difference.toLocaleString()} ${direction} yesterday`;
 };
