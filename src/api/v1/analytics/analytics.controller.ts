@@ -375,7 +375,7 @@ export const getImportantStatusesVisitsCount = async (c: Context) => {
       db.visit.groupBy({
         by: ["status"],
         where: {
-          createdAt: { gte: startDate, lt: endDate },
+          createdAt: { gte: startDate, lte: endDate },
           clinicId,
           status: { in: importantStatuses },
         },
