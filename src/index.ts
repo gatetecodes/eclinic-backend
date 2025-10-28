@@ -82,11 +82,13 @@ app.notFound((c) => {
 });
 
 const port = process.env.PORT || DEFAULT_PORT;
+const host = process.env.HOST || "0.0.0.0";
 
 //biome-ignore lint/suspicious/noConsole: <>
-console.log(`🚀 eClinic Backend running on port ${port}`);
+console.log(`Server is running on ${host}:${port}`);
 
 export default {
   port,
+  host,
   fetch: app.fetch,
 };
