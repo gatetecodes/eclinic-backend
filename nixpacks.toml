@@ -20,13 +20,3 @@ LD_LIBRARY_PATH = "/nix/store/*-openssl-3.*/lib"
 
 [start]
 cmd = "bunx prisma migrate deploy && bun run start"
-
-[phases.debug]
-cmds = [
-  "echo 'OpenSSL version:'",
-  "openssl version",
-  "echo 'libssl.so.3 location:'",
-  "find /nix/store -name 'libssl.so.3' 2>/dev/null || echo 'not found'",
-  "echo 'LD_LIBRARY_PATH:' $LD_LIBRARY_PATH"
-]
-dependsOn = ["setup"]
