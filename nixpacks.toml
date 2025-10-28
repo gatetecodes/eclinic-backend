@@ -1,21 +1,4 @@
 [phases.setup]
-# Install bun + openssl 3.0.x (critical for Prisma 6+ on ARM64)
-nixPkgs = ["bun", "openssl_3"]
-
-[phases.install]
-cmds = ["bun install"]
-
-[phases.generate]
-cmds = ["bunx prisma generate"]
-dependsOn = ["install"]
-
-[phases.build]
-cmds = ["bun run build"]
-dependsOn = ["generate"]
-
-[start]
-cmd = "bunx prisma migrate deploy && bun run start"
-[phases.setup]
 nixPkgs = ["bun", "openssl_3"]
 # Force OpenSSL 3.0 libraries into runtime path
 nixLibs = ["openssl_3"]
