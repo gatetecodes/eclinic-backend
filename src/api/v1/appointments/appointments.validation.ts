@@ -1,5 +1,5 @@
-import { EventType } from "@prisma/client";
 import { z } from "zod";
+import { EventType } from "../../../../generated/prisma";
 import { patientSchema } from "../visits/visits.validation";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;

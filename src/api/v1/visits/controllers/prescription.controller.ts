@@ -1,8 +1,12 @@
-import type { Event } from "@prisma/client";
-import { ActivityType, AppointmentType, EventType } from "@prisma/client";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { invalidateVisitRelatedCaches } from "@/lib/cache-utils";
+import {
+  ActivityType,
+  AppointmentType,
+  type Event,
+  EventType,
+} from "../../../../../generated/prisma";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { httpCodes } from "../../../../lib/constants";

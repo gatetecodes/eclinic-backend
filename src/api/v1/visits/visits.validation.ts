@@ -1,5 +1,5 @@
-import { Priority } from "@prisma/client";
 import { z } from "zod";
+import { Priority } from "../../../../generated/prisma";
 
 const RWANDAN_PHONE_PATTERN = /^(\+?250|0)?7[2389][0-9]{7}$/;
 const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{6,14}$/;

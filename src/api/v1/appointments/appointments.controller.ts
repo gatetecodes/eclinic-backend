@@ -34,9 +34,9 @@ import {
   getCachedData,
 } from "../../../services/redis.service.ts";
 import {
-  eventSchema,
+  type eventSchema,
   getDoctorAvailabilityParamsSchema,
-  scheduleSchema,
+  type scheduleSchema,
 } from "./appointments.validation.ts";
 
 //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
@@ -156,16 +156,9 @@ export const getDoctorAvailability = async (c: Context) => {
 export const updateDoctorAvailability = async (c: Context) => {
   try {
     const doctorId = Number(c.req.param("doctorId"));
-    const json = await c.req.json();
-    const parsed = scheduleSchema.safeParse(json);
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+    const payload = c.get("validatedJson") as z.infer<typeof scheduleSchema>;
 
-    const scheduleByDay = parsed.data.reduce(
+    const scheduleByDay = payload.reduce(
       (acc, slot) => {
         if (!acc[slot.dayOfWeek]) {
           acc[slot.dayOfWeek] = [] as z.infer<typeof scheduleSchema>;
@@ -211,16 +204,9 @@ export const updateDoctorAvailability = async (c: Context) => {
 export const createEvent = async (c: Context) => {
   try {
     const user = c.get("user");
-    const json = await c.req.json();
-    const parsed = eventSchema.safeParse(json);
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten() },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+    const payload = c.get("validatedJson");
     const { doctorId, type, startTime, endTime, title, description } =
-      parsed.data;
+      payload as z.infer<typeof eventSchema>;
 
     let data: Prisma.EventCreateInput = {
       type: type as EventType,
@@ -231,14 +217,14 @@ export const createEvent = async (c: Context) => {
       branch: { connect: { id: user.branch.id } },
     };
     if (type === EventType.APPOINTMENT) {
-      const { patientId } = await getOrCreatePatient(parsed.data.patient, user);
+      const { patientId } = await getOrCreatePatient(payload.patient, user);
 
       data = {
         ...data,
         title:
-          `Appointment with ${parsed.data.patient.firstName ?? ""} ${parsed.data.patient.lastName ?? ""}`.trim(),
+          `Appointment with ${payload.patient.firstName ?? ""} ${payload.patient.lastName ?? ""}`.trim(),
         patient: { connect: { id: patientId } },
-        treatment: parsed.data.treatment,
+        treatment: payload.treatment,
       };
     } else {
       data = { ...data, title: title ?? "", description: description ?? "" };

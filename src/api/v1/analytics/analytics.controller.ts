@@ -1,13 +1,4 @@
 import {
-  EventType,
-  ExamStatus,
-  InventoryStatus,
-  PaymentMode,
-  PaymentStatus,
-  VisitStatus,
-} from "@prisma/client";
-import type { Decimal } from "@prisma/client/runtime/library";
-import {
   eachDayOfInterval,
   eachMonthOfInterval,
   endOfDay,
@@ -25,6 +16,15 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
 import { httpCodes } from "@/lib/constants";
+import {
+  EventType,
+  ExamStatus,
+  InventoryStatus,
+  PaymentMode,
+  PaymentStatus,
+  type Prisma,
+  VisitStatus,
+} from "../../../../generated/prisma";
 import { db } from "../../../database/db";
 
 const MONTHS_IN_6_MONTHS = 6;
@@ -477,7 +477,7 @@ async function getDataForRange(
     const {
       createdAt,
       _sum,
-    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    }: { createdAt: Date; _sum: { amount: Prisma.Decimal | null } } = item;
     const monthKey = format(createdAt, "MMM");
     monthlyIncome[monthKey] =
       (monthlyIncome[monthKey] || 0) + Number(_sum.amount || 0);
@@ -487,7 +487,7 @@ async function getDataForRange(
     const {
       createdAt,
       _sum,
-    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    }: { createdAt: Date; _sum: { amount: Prisma.Decimal | null } } = item;
     const monthKey = format(createdAt, "MMM");
     monthlyIncome[monthKey] =
       (monthlyIncome[monthKey] || 0) - Number(_sum.amount || 0);
@@ -497,7 +497,7 @@ async function getDataForRange(
     const {
       createdAt,
       _sum,
-    }: { createdAt: Date; _sum: { amount: Decimal | null } } = item;
+    }: { createdAt: Date; _sum: { amount: Prisma.Decimal | null } } = item;
     const monthKey = format(createdAt, "MMM");
     monthlyExpenses[monthKey] =
       (monthlyExpenses[monthKey] || 0) + Number(_sum.amount || 0);
