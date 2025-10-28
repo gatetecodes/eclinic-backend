@@ -4,8 +4,13 @@ nixPkgs = ["bun"]
 [phases.install]
 cmds = ["bun install"]
 
+[phases.generate]
+cmds = ["bunx prisma generate"]
+dependsOn = ["install"]
+
 [phases.build]
 cmds = ["bun run build"]
+dependsOn = ["generate"]  # Ensures generate runs before build
 
 [start]
-cmd = "bun run start"
+cmd = "bunx prisma migrate deploy && bun run start"  # Migrate at runtime, then start
