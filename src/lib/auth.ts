@@ -163,19 +163,6 @@ if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
 export const auth = betterAuth({
   baseURL: backendUrl,
   trustedOrigins: [frontendUrl],
-  cookies: {
-    sessionToken: {
-      options: {
-        httpOnly: true,
-        secure:
-          process.env.NODE_ENV === "production" ||
-          process.env.NODE_ENV === "staging",
-        sameSite: "lax",
-        path: "/",
-        domain: process.env.COOKIE_DOMAIN,
-      },
-    },
-  },
   database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),
@@ -259,11 +246,26 @@ export const auth = betterAuth({
     },
   },
   advanced: {
-    cors: {
-      origin: [frontendUrl],
-      credentials: true,
-      allowedHeaders: ["Content-Type"],
+    cookies: {
+      session_token: {
+        attributes: {
+          domain: process.env.COOKIE_DOMAIN || ".usecarelogic.com",
+          secure:
+            process.env.NODE_ENV === "production" ||
+            process.env.NODE_ENV === "staging",
+          sameSite: "lax",
+          path: "/",
+          httpOnly: true,
+        },
+      },
     },
+    crossSubDomainCookies: {
+      enabled: true,
+      domains: [process.env.COOKIE_DOMAIN || ".usecarelogic.com"],
+    },
+    useSecureCookies:
+      process.env.NODE_ENV === "production" ||
+      process.env.NODE_ENV === "staging",
     database: {
       generateId: false,
     },
