@@ -213,8 +213,8 @@ export const createEvent = async (c: Context) => {
       startTime,
       endTime,
       doctor: { connect: { id: doctorId } },
-      clinic: { connect: { id: user.clinic.id } },
-      branch: { connect: { id: user.branch.id } },
+      clinic: { connect: { id: user.clinicId } },
+      branch: { connect: { id: user.branchId } },
     };
     if (type === EventType.APPOINTMENT) {
       const { patientId } = await getOrCreatePatient(payload.patient, user);
@@ -244,7 +244,11 @@ export const createEvent = async (c: Context) => {
     });
 
     return c.json(
-      { success: true, data: event },
+      {
+        success: true,
+        message: "Appointment created successfully",
+        data: event,
+      },
       httpCodes.CREATED as ContentfulStatusCode
     );
   } catch (_error) {
@@ -383,8 +387,8 @@ export const getAppointments = async (c: Context) => {
       ...restOptions,
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
@@ -415,8 +419,8 @@ export const getAppointments = async (c: Context) => {
     const totalCount = await db.event.count({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
