@@ -186,6 +186,13 @@ export const auth = betterAuth({
   session: {
     expiresIn: SESSION_EXPIRES_IN,
     updateAge: SESSION_UPDATE_AGE,
+    cookie: {
+      sessionToken: {
+        domain: ".usecarelogic.com",
+        secure: true,
+        sameSite: "lax",
+      },
+    },
   },
   user: {
     additionalFields: {
