@@ -1,12 +1,12 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
 import { db } from "../../../database/db";
 
 export const listPatients = async (c: Context) => {
   try {
     const { page = "1", limit = "10", search = "" } = c.req.query();
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const skip = (Number.parseInt(page, 10) - 1) * Number.parseInt(limit, 10);
+    const take = Number.parseInt(limit, 10);
 
     type StringFilter = { contains: string; mode: "insensitive" };
     type PatientWhereInputLite = {
@@ -46,12 +46,11 @@ export const listPatients = async (c: Context) => {
     return c.json({
       data: patients,
       total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      totalPages: Math.ceil(total / Number.parseInt(limit, 10)),
     });
-  } catch (error) {
-    console.error("Get patients error:", error);
+  } catch (_error) {
     return c.json({ error: "Internal Server Error" }, 500);
   }
 };

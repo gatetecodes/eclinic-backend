@@ -1,30 +1,177 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "@prisma/client";
+import { type Branch, type Clinic, PrismaClient } from "../../generated/prisma";
 
 const prisma = new PrismaClient();
+
+const SESSION_EXPIRES_IN_DAYS = 7;
+const SESSION_EXPIRES_IN = 60 * 60 * 24 * SESSION_EXPIRES_IN_DAYS; // 7 days
+const SESSION_UPDATE_AGE = 60 * 60 * 24; // 1 day
+
+const IS_NUMERIC_STRING = /^-?\d+$/;
+
+// Wrap Prisma client to coerce string userId -> number for auth models
+function createCoercingPrisma(client: PrismaClient): PrismaClient {
+  const targetModels = new Set([
+    "account",
+    "session",
+    "twofactorconfirmation",
+    "user",
+  ]);
+
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+
+  const isNumericString = (s: unknown): s is string =>
+    typeof s === "string" && IS_NUMERIC_STRING.test(s);
+
+  type CoerceResult =
+    | { coerced: true; value: number | string | Date | null }
+    | { coerced: false };
+
+  const coerceUserField = (key: string, value: unknown): CoerceResult => {
+    if (key === "emailVerified" && typeof value === "boolean") {
+      return { coerced: true, value: value ? new Date() : null };
+    }
+    if (
+      (key === "clinicId" || key === "branchId" || key === "id") &&
+      isNumericString(value)
+    ) {
+      return { coerced: true, value: Number(value) };
+    }
+    return { coerced: false };
+  };
+  const coerceAccountRelatedField = (
+    model: string,
+    key: string,
+    value: unknown
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
+  ): CoerceResult => {
+    if (model === "account") {
+      if ((key === "userId" || key === "id") && isNumericString(value)) {
+        return { coerced: true, value: Number(value) };
+      }
+      if (key === "accountId" && typeof value === "number") {
+        return { coerced: true, value: String(value) };
+      }
+      return { coerced: false };
+    }
+    if (model === "session" || model === "twofactorconfirmation") {
+      if ((key === "userId" || key === "id") && isNumericString(value)) {
+        return { coerced: true, value: Number(value) };
+      }
+      return { coerced: false };
+    }
+    return { coerced: false };
+  };
+
+  const coerceValue = (
+    model: string,
+    key: string,
+    value: unknown
+  ): CoerceResult => {
+    // Only coerce on allowlisted keys per model
+    if (model === "user") {
+      return coerceUserField(key, value);
+    }
+    return coerceAccountRelatedField(model, key, value);
+  };
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Recursive coercion for Prisma args
+  const coerceDeep = (v: unknown, model: string): void => {
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        coerceDeep(item, model);
+      }
+      return;
+    }
+    if (!isObject(v)) {
+      return;
+    }
+    for (const key of Object.keys(v)) {
+      const value = (v as Record<string, unknown>)[key];
+      const result = coerceValue(model, key, value);
+      if (result.coerced) {
+        (v as Record<string, unknown>)[key] = result.value as unknown;
+        continue;
+      }
+      // Handle nested where clauses like { where: { id: "1" } }
+      if (key === "where" && isObject(value)) {
+        coerceDeep(value, model);
+        continue;
+      }
+      coerceDeep(value, model);
+    }
+  };
+
+  const proxied = new Proxy(client as unknown as Record<string, unknown>, {
+    get(target, prop, receiver) {
+      const original = Reflect.get(target, prop, receiver);
+      if (typeof prop !== "string") {
+        return original;
+      }
+      const model = prop.toLowerCase();
+      if (!targetModels.has(model)) {
+        return original;
+      }
+      if (!isObject(original)) {
+        return original;
+      }
+      return new Proxy(original as Record<string, unknown>, {
+        get(modelTarget, methodProp, r2) {
+          const method = Reflect.get(modelTarget, methodProp, r2);
+          if (typeof method !== "function") {
+            return method;
+          }
+          return (
+            args: Record<string, unknown> | undefined,
+            ...rest: unknown[]
+          ) => {
+            if (isObject(args)) {
+              coerceDeep(args, model);
+            }
+            if (model === "account") {
+              const _where = (args as Record<string, unknown> | undefined)
+                ?.where;
+            }
+            return (method as (...a: unknown[]) => unknown).apply(modelTarget, [
+              args,
+              ...rest,
+            ]);
+          };
+        },
+      });
+    },
+  });
+
+  return proxied as unknown as PrismaClient;
+}
+
+const prismaForAuth = createCoercingPrisma(prisma);
 
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
 
-if (!backendUrl || !frontendUrl) {
+if (!(backendUrl && frontendUrl)) {
   throw new Error("BACKEND_URL or APP_URL is not set");
 }
 
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
   throw new Error("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set");
 }
 
 export const auth = betterAuth({
   baseURL: backendUrl,
   trustedOrigins: [frontendUrl],
-  database: prismaAdapter(prisma, {
+  database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),
-  basePath: "/api/v1/auth",
+  // Mount under v1 router at /auth so the final path is /api/v1/auth/*
+  basePath: "/auth",
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true,
+    autoSignIn: false,
+    requireEmailVerification: false,
   },
   socialProviders: {
     // google: {
@@ -37,14 +184,18 @@ export const auth = betterAuth({
     // },
   },
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day
+    expiresIn: SESSION_EXPIRES_IN,
+    updateAge: SESSION_UPDATE_AGE,
   },
   user: {
     additionalFields: {
       role: {
         type: "string",
         required: true,
+      },
+      patientId: {
+        type: "number",
+        required: false,
       },
       clinicId: {
         type: "number",
@@ -89,9 +240,34 @@ export const auth = betterAuth({
       },
       isTwoFactorEnabled: {
         type: "boolean",
-        required: true,
+        required: false,
         defaultValue: false,
       },
+    },
+  },
+  advanced: {
+    cookies: {
+      session_token: {
+        attributes: {
+          domain: process.env.COOKIE_DOMAIN || ".usecarelogic.com",
+          secure:
+            process.env.NODE_ENV === "production" ||
+            process.env.NODE_ENV === "staging",
+          sameSite: "lax",
+          path: "/",
+          httpOnly: true,
+        },
+      },
+    },
+    crossSubDomainCookies: {
+      enabled: true,
+      domains: [process.env.COOKIE_DOMAIN || ".usecarelogic.com"],
+    },
+    useSecureCookies:
+      process.env.NODE_ENV === "production" ||
+      process.env.NODE_ENV === "staging",
+    database: {
+      generateId: false,
     },
   },
   plugins: [
@@ -100,6 +276,14 @@ export const auth = betterAuth({
 });
 
 export type Session = Omit<typeof auth.$Infer.Session, "user"> & {
-  user: typeof auth.$Infer.Session.user & { role: string };
+  user: typeof auth.$Infer.Session.user & {
+    id: number;
+    role: string;
+    patientId?: number;
+    clinicId?: number;
+    branchId?: number;
+    clinic?: Clinic;
+    branch?: Branch;
+  };
 };
 export type User = Session["user"];

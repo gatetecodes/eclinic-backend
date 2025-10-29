@@ -4,8 +4,8 @@ const prismaClientSingleton = () => {
   return new PrismaClient({
     log: ["error", "warn"],
     transactionOptions: {
-      maxWait: 10000,
-      timeout: 10000,
+      maxWait: 10_000,
+      timeout: 10_000,
     },
   });
 };
@@ -16,6 +16,8 @@ declare global {
 
 const db = globalThis.prisma ?? prismaClientSingleton();
 
-if (process.env.NODE_ENV === "development") globalThis.prisma = db;
+if (process.env.NODE_ENV === "development") {
+  globalThis.prisma = db;
+}
 
 export { db };

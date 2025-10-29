@@ -1,4 +1,7 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils.ts";
+import { httpCodes } from "@/lib/constants";
 import { db } from "../../../database/db";
 import {
   createApprovalSchema,
@@ -10,7 +13,12 @@ export const createApprovalRequest = async (c: Context) => {
     const user = c.get("user");
     const json = await c.req.json();
     const parsed = createApprovalSchema.safeParse(json);
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
 
     const { type, reason, discountId } = parsed.data;
 
@@ -25,10 +33,15 @@ export const createApprovalRequest = async (c: Context) => {
       },
     });
 
-    return c.json({ success: true, data: approval }, 201);
-  } catch (error) {
-    console.error("createApprovalRequest error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { success: true, data: approval },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -38,13 +51,23 @@ export const processApprovalRequest = async (c: Context) => {
     const approvalId = Number(c.req.param("id"));
     const json = await c.req.json();
     const parsed = processApprovalSchema.safeParse(json);
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { approve } = parsed.data;
 
     const approval = await db.approval.findUnique({
       where: { id: approvalId },
     });
-    if (!approval) return c.json({ error: "Approval request not found" }, 404);
+    if (!approval) {
+      return c.json(
+        { error: "Approval request not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
 
     await db.approval.update({
       where: { id: approvalId },
@@ -62,13 +85,23 @@ export const processApprovalRequest = async (c: Context) => {
       });
     }
 
-    return c.json({
-      success: true,
-      message: `Request successfully ${approve ? "approved" : "rejected"}`,
+    await invalidatePaymentRelatedCaches({
+      clinicId: Number(user.clinicId),
+      branchId: Number(user.branchId),
     });
-  } catch (error) {
-    console.error("processApprovalRequest error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+
+    return c.json(
+      {
+        success: true,
+        message: `Request successfully ${approve ? "approved" : "rejected"}`,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -76,19 +109,19 @@ export const getApprovalRequests = async (c: Context) => {
   try {
     const user = c.get("user");
     const query = c.req.query();
-    const take = query["take"] ? Number(query["take"]) : undefined;
-    const skip = query["skip"] ? Number(query["skip"]) : undefined;
-    const orderByField = (query["orderByField"] as string) || "updatedAt";
+    const take = query.take ? Number(query.take) : undefined;
+    const skip = query.skip ? Number(query.skip) : undefined;
+    const orderByField = (query.orderByField as string) || "updatedAt";
     const orderByDirection =
-      (query["orderByDirection"] as "asc" | "desc") || "desc";
+      (query.orderByDirection as "asc" | "desc") || "desc";
 
     const [approvalRequests, totalCount] = await Promise.all([
       db.approval.findMany({
         take,
         skip,
         where: {
-          clinicId: Number(user.clinic.id),
-          branchId: Number(user.branch.id),
+          clinicId: Number(user.clinicId ?? user.clinic.id),
+          branchId: Number(user.branchId ?? user.branch.id),
         },
         orderBy: { [orderByField]: orderByDirection },
         select: {
@@ -104,16 +137,23 @@ export const getApprovalRequests = async (c: Context) => {
       }),
       db.approval.count({
         where: {
-          clinicId: Number(user.clinic.id),
-          branchId: Number(user.branch.id),
+          clinicId: Number(user.clinicId ?? user.clinic.id),
+          branchId: Number(user.branchId ?? user.branch.id),
         },
       }),
     ]);
 
     const pageCount = take ? Math.ceil(totalCount / take) : 0;
-    return c.json({ data: approvalRequests, totalCount, pageCount });
+    return c.json(
+      { data: approvalRequests, totalCount, pageCount },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
-    console.error("getApprovalRequests error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };

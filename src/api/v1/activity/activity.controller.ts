@@ -1,8 +1,10 @@
-import { type Context } from "hono";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { httpCodes } from "@/lib/constants.ts";
 import { db } from "../../../database/db";
 import {
-  logActivitySchema,
   getVisitTimelineParamsSchema,
+  logActivitySchema,
 } from "./activity.validation.ts";
 
 // Using centralized validation from activity.validation.ts
@@ -13,7 +15,10 @@ export const logActivity = async (c: Context) => {
     const json = await c.req.json();
     const parsed = logActivitySchema.safeParse(json);
     if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
+      return c.json(
+        { error: parsed.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
 
     const { visitId, action, type, duration, eventId } = parsed.data;
@@ -29,10 +34,15 @@ export const logActivity = async (c: Context) => {
       },
     });
 
-    return c.json({ success: true, data: activityLog }, 201);
-  } catch (error) {
-    console.error("Log activity error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+    return c.json(
+      { success: true, data: activityLog },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };
 
@@ -40,11 +50,17 @@ export const getVisitActivitiesTimeline = async (c: Context) => {
   try {
     const parsedParams = getVisitTimelineParamsSchema.safeParse(c.req.param());
     if (!parsedParams.success) {
-      return c.json({ error: parsedParams.error.flatten() }, 400);
+      return c.json(
+        { error: parsedParams.error.flatten() },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
     const id = Number(parsedParams.data.visitId);
     if (!Number.isFinite(id)) {
-      return c.json({ error: "Invalid visit id" }, 400);
+      return c.json(
+        { error: "Invalid visit id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
     }
 
     const activities = await db.activityLog.findMany({
@@ -54,8 +70,10 @@ export const getVisitActivitiesTimeline = async (c: Context) => {
     });
 
     return c.json({ success: true, data: activities });
-  } catch (error) {
-    console.error("Get visit activities error:", error);
-    return c.json({ error: "Internal Server Error" }, 500);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
   }
 };

@@ -1,0 +1,22 @@
+[phases.setup]
+nixPkgs = ["bun", "openssl_3"]
+# Force OpenSSL 3.0 libraries into runtime path
+nixLibs = ["openssl_3"]
+
+[phases.install]
+cmds = ["bun install"]
+
+[phases.generate]
+cmds = ["bunx prisma generate"]
+dependsOn = ["install"]
+
+[phases.build]
+cmds = ["bun run build"]
+dependsOn = ["generate"]
+
+# Critical: Set LD_LIBRARY_PATH to include OpenSSL 3.0 libs
+[environment]
+LD_LIBRARY_PATH = "/nix/store/*-openssl-3.*/lib"
+
+[start]
+cmd = "bunx prisma migrate deploy && bun run start"

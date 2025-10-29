@@ -1,7 +1,10 @@
-import * as z from "zod";
+import { z } from "zod";
+
+const PER_PAGE_DEFAULT = 20;
+
 export const searchParamsSchema = z.object({
   page: z.coerce.number().default(1),
-  per_page: z.coerce.number().default(20),
+  per_page: z.coerce.number().default(PER_PAGE_DEFAULT),
   sort: z.string().optional(),
   name: z.string().optional(),
   status: z.string().optional(),
@@ -21,6 +24,10 @@ export const searchParamsSchema = z.object({
   branchId: z.string().optional(),
   insuranceCompany: z.string().optional(),
   processedById: z.string().optional(),
+});
+
+export const validateIdParamsSchema = z.object({
+  id: z.coerce.number().int().positive(),
 });
 
 export type ParamsSchema = z.infer<typeof searchParamsSchema>;

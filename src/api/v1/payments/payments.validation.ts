@@ -1,10 +1,14 @@
+import { PaymentMethod } from "generated/prisma";
 import { z } from "zod";
 
-export const listPaymentsQuerySchema = z.object({
-  page: z.string().optional(),
-  limit: z.string().optional(),
-  type: z.string().optional(),
-  status: z.string().optional(),
+export const markPaymentAsPaidSchema = z.object({
+  amount: z.number().min(1, { message: "Amount is required" }),
+  paymentMethod: z.nativeEnum(PaymentMethod),
 });
 
-export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;
+export const createDiscountSchema = z.object({
+  amount: z.number().min(1, { message: "Amount is required" }),
+  reason: z.string().min(1, { message: "Reason is required" }),
+});
+
+export type MarkPaymentAsPaid = z.infer<typeof markPaymentAsPaidSchema>;

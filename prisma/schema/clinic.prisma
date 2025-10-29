@@ -43,12 +43,17 @@ model Clinic {
     approvals              Approval[]
     roomPrices             RoomPrice[]
     rooms                  Room[]
+    exams                  Exam[]
     hospitalizations       Hospitalization[]
     insuranceClaims        InsuranceClaim[]
     branches               Branch[]
     patientAppointments    PatientAppointment[]
     isPatientPortalEnabled Boolean              @default(false)
     portalSettings         Json? // Store portal configuration
+
+    // Entitlements & quotas
+    entitlementOverrides EntitlementOverride[]
+    entitlementUsages    EntitlementUsage[]
 }
 
 model Branch {
@@ -73,6 +78,7 @@ model Branch {
     approvals              Approval[]
     roomPrices             RoomPrice[]
     rooms                  Room[]
+    exams                  Exam[]
     hospitalizations       Hospitalization[]
     insuranceClaims        InsuranceClaim[]
     discounts              Discount[]
@@ -86,4 +92,31 @@ model Branch {
 
     @@index([clinicId])
     @@index([code])
+}
+
+model EntitlementOverride {
+    id         Int      @id @default(autoincrement())
+    clinicId   Int
+    clinic     Clinic   @relation(fields: [clinicId], references: [id])
+    featureKey String
+    allowed    Boolean?
+    limit      Int?
+    notes      String?
+    updatedAt  DateTime @updatedAt
+
+    @@unique([clinicId, featureKey])
+    @@index([clinicId])
+}
+
+model EntitlementUsage {
+    id         Int      @id @default(autoincrement())
+    clinicId   Int
+    clinic     Clinic   @relation(fields: [clinicId], references: [id])
+    featureKey String
+    period     String
+    count      Int      @default(0)
+    updatedAt  DateTime @updatedAt
+
+    @@unique([clinicId, featureKey, period])
+    @@index([clinicId, featureKey])
 }
