@@ -40,7 +40,7 @@ export const eventSchema = z
       description: z.string().optional(),
       startTime: z.coerce.date(),
       endTime: z.coerce.date(),
-      doctorId: z.coerce.number(),
+      doctorId: z.coerce.number().optional(),
       clinicId: z.coerce.number().optional(),
     }),
   ])
