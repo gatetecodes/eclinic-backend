@@ -124,8 +124,8 @@ function getPatientNameCondition(patient?: string) {
     return {};
   }
 
-  // If single term, search in both firstName and lastName
   if (searchTerms.length === 1) {
+    // If single term, search in both firstName and lastName
     const term = searchTerms[0];
     return {
       OR: [
@@ -138,31 +138,15 @@ function getPatientNameCondition(patient?: string) {
   }
 
   // Multiple terms: match where terms appear in firstName and lastName
-  // For "petero nzukira", match firstName contains "petero" AND lastName contains "nzukira"
-  // or firstName contains "nzukira" AND lastName contains "petero"
-  const firstTerm = searchTerms[0];
-  const lastTerm = searchTerms.at(-1) || searchTerms[0];
-
-  // For 2 terms, check both orderings: first-last or last-first
-  return {
+  // Every term must appear in either firstName or lastName (in any combination)
+  const multiTermConditions = searchTerms.map((term) => ({
     OR: [
-      {
-        patient: {
-          AND: [
-            { firstName: { contains: firstTerm, mode: "insensitive" } },
-            { lastName: { contains: lastTerm, mode: "insensitive" } },
-          ],
-        },
-      },
-      {
-        patient: {
-          AND: [
-            { firstName: { contains: lastTerm, mode: "insensitive" } },
-            { lastName: { contains: firstTerm, mode: "insensitive" } },
-          ],
-        },
-      },
+      { patient: { firstName: { contains: term, mode: "insensitive" } } },
+      { patient: { lastName: { contains: term, mode: "insensitive" } } },
     ],
+  }));
+  return {
+    AND: multiTermConditions,
   };
 }
 

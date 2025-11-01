@@ -649,9 +649,13 @@ export const getClinicsOverview = async (c: Context) => {
       )?._count.id || 0;
     const previousTotalClinics = prevTrials + prevActive + prevInactive;
 
+    // Calculate conversion rate: converted / (converted + remaining_trials)
+    // This excludes INACTIVE clinics and measures trial-to-active conversion
     const conversionRate =
-      totalClinics > 0
-        ? Number(((currentActive / totalClinics) * 100).toFixed(2))
+      currentActive + currentTrials > 0
+        ? Number(
+            ((currentActive / (currentActive + currentTrials)) * 100).toFixed(2)
+          )
         : 0;
 
     return c.json(
@@ -898,10 +902,10 @@ export const getRevenueGrowth = async (c: Context) => {
       const growth = calculateTrend(currentRevenue, previousRevenue);
 
       const monthKey = format(item.month, "MMM yyyy");
+
+      const lastYearMonth = format(subYears(item.month, 1), "yyyy-MM");
       const sameMonthLastYear = currentYearRevenue.find(
-        (r) =>
-          format(r.month, "MMM yyyy") === monthKey &&
-          format(r.month, "yyyy") !== format(new Date(), "yyyy")
+        (r) => format(r.month, "yyyy-MM") === lastYearMonth
       );
       const yoyGrowth = sameMonthLastYear
         ? calculateTrend(currentRevenue, Number(sameMonthLastYear.revenue) || 0)
@@ -935,33 +939,34 @@ export const getConversionRate = async (c: Context) => {
         subscriptionStatus: true,
         subscriptionPlan: true,
         createdAt: true,
-        updatedAt: true,
+        convertedAt: true,
       },
     });
 
+    // Current TRIAL clinics (clinics that are currently in trial)
     const trials = allClinics.filter(
       (clinic) => clinic.subscriptionStatus === "TRIAL"
     );
-    const activeClinics = allClinics.filter(
-      (clinic) => clinic.subscriptionStatus === "ACTIVE"
-    );
-    const converted = allClinics.filter((clinic) => {
-      const daysSinceCreated = Math.floor(
-        (Date.now() - new Date(clinic.createdAt).getTime()) /
-          (1000 * 60 * 60 * 24)
-      );
-      return clinic.subscriptionStatus === "ACTIVE" && daysSinceCreated > 0;
-    });
 
+    // Clinics that have converted from TRIAL to ACTIVE (have convertedAt timestamp set)
+    const converted = allClinics.filter(
+      (clinic) => clinic.convertedAt !== null
+    );
+
+    // Calculate conversion times using convertedAt - createdAt (trial start time)
     const conversionTimes = converted
       .map((clinic) => {
+        if (!clinic.convertedAt) {
+          return null;
+        }
         const createdAt = new Date(clinic.createdAt);
-        const updatedAt = new Date(clinic.updatedAt);
-        return Math.floor(
-          (updatedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        const convertedAt = new Date(clinic.convertedAt);
+        const daysDiff = Math.floor(
+          (convertedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
         );
+        return daysDiff > 0 ? daysDiff : null;
       })
-      .filter((days) => days > 0);
+      .filter((days): days is number => days !== null);
 
     const avgConversionTime =
       conversionTimes.length > 0
@@ -970,47 +975,57 @@ export const getConversionRate = async (c: Context) => {
           )
         : 0;
 
+    // Total clinics currently in TRIAL status
     const totalTrials = trials.length;
-    const totalConverted = activeClinics.length;
+
+    // Total clinics that have converted from TRIAL to ACTIVE (have convertedAt set)
+    const totalConverted = converted.length;
+
+    // All clinics that were ever TRIAL = current TRIAL + clinics with convertedAt set
+    // This accurately represents all clinics that started as TRIAL
+    const totalClinicsEverTrial = totalTrials + totalConverted;
+
+    // Conversion rate = (number of TRIAL→ACTIVE conversions) / (number of clinics that were ever TRIAL)
     const conversionRate =
-      totalTrials + totalConverted > 0
-        ? Number(
-            ((totalConverted / (totalTrials + totalConverted)) * 100).toFixed(2)
-          )
+      totalClinicsEverTrial > 0
+        ? Number(((totalConverted / totalClinicsEverTrial) * 100).toFixed(2))
         : 0;
 
-    const byPlan = await db.clinic.groupBy({
-      by: ["subscriptionPlan", "subscriptionStatus"],
-      _count: { id: true },
-    });
-
-    const planConversion = byPlan.reduce(
-      (acc, item) => {
-        const plan = item.subscriptionPlan || "UNKNOWN";
+    // Calculate conversion metrics by plan
+    const planConversion = allClinics.reduce(
+      (acc, clinic) => {
+        const plan = clinic.subscriptionPlan || "UNKNOWN";
         if (!acc[plan]) {
-          acc[plan] = { trials: 0, active: 0 };
+          acc[plan] = { trials: 0, converted: 0 };
         }
-        if (item.subscriptionStatus === "TRIAL") {
-          acc[plan].trials = item._count.id;
-        } else if (item.subscriptionStatus === "ACTIVE") {
-          acc[plan].active = item._count.id;
+        // Count current TRIAL clinics for this plan
+        if (clinic.subscriptionStatus === "TRIAL") {
+          acc[plan].trials += 1;
+        }
+        // Count clinics that have converted (have convertedAt set) for this plan
+        if (clinic.convertedAt !== null) {
+          acc[plan].converted += 1;
         }
         return acc;
       },
-      {} as Record<string, { trials: number; active: number }>
+      {} as Record<string, { trials: number; converted: number }>
     );
 
-    const byPlanData = Object.entries(planConversion).map(([plan, data]) => ({
-      plan,
-      conversionRate:
-        data.trials + data.active > 0
-          ? Number(
-              ((data.active / (data.trials + data.active)) * 100).toFixed(2)
-            )
-          : 0,
-      totalTrials: data.trials,
-      totalActive: data.active,
-    }));
+    // Calculate conversion rate by plan using the same logic:
+    // conversionRate = converted / (all clinics that were ever TRIAL)
+    // For each plan: converted / (trials + converted)
+    const byPlanData = Object.entries(planConversion).map(([plan, data]) => {
+      const totalEverTrial = data.trials + data.converted;
+      return {
+        plan,
+        conversionRate:
+          totalEverTrial > 0
+            ? Number(((data.converted / totalEverTrial) * 100).toFixed(2))
+            : 0,
+        totalTrials: data.trials,
+        totalActive: data.converted,
+      };
+    });
 
     return c.json(
       {

@@ -54,6 +54,10 @@ model Clinic {
     // Entitlements & quotas
     entitlementOverrides EntitlementOverride[]
     entitlementUsages    EntitlementUsage[]
+
+    convertedAt DateTime?
+
+    @@index([convertedAt])
 }
 
 model Branch {

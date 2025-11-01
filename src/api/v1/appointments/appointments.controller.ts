@@ -208,8 +208,8 @@ export const createEvent = async (c: Context) => {
     const { doctorId, type, startTime, endTime, title, description } =
       payload as z.infer<typeof eventSchema>;
 
-    // For non-appointments, use current user as doctor if doctorId is not provided
-    // For appointments, doctorId is required by the schema, so it will always be a number
+    // For appointments, doctorId is required by the schema
+    // For non-appointments (MEETING, TASK, OTHER), doctorId is optional and may be undefined
     const finalDoctorId: number | undefined =
       type === EventType.APPOINTMENT ? (doctorId as number) : undefined;
 
