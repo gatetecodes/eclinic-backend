@@ -208,11 +208,16 @@ export const createEvent = async (c: Context) => {
     const { doctorId, type, startTime, endTime, title, description } =
       payload as z.infer<typeof eventSchema>;
 
+    // For non-appointments, use current user as doctor if doctorId is not provided
+    // For appointments, doctorId is required by the schema, so it will always be a number
+    const finalDoctorId: number | undefined =
+      type === EventType.APPOINTMENT ? (doctorId as number) : undefined;
+
     let data: Prisma.EventCreateInput = {
       type: type as EventType,
       startTime,
       endTime,
-      doctor: { connect: { id: doctorId } },
+      doctor: finalDoctorId ? { connect: { id: finalDoctorId } } : undefined,
       clinic: { connect: { id: user.clinicId } },
       branch: { connect: { id: user.branchId } },
     };
@@ -233,7 +238,10 @@ export const createEvent = async (c: Context) => {
     const event = await db.event.create({ data, include: { patient: true } });
 
     //Invalidate the appointment cache
-    await invalidateAppointmentRelatedCaches({ doctorId, date: startTime });
+    await invalidateAppointmentRelatedCaches({
+      doctorId: finalDoctorId,
+      date: startTime,
+    });
 
     //Log activity
     await logActivity({

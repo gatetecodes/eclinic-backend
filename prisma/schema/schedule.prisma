@@ -19,8 +19,8 @@ model Event {
     description        String?
     startTime          DateTime
     endTime            DateTime
-    doctor             User                @relation(fields: [doctorId], references: [id])
-    doctorId           Int
+    doctor             User?                @relation(fields: [doctorId], references: [id])
+    doctorId           Int?
     patient            Patient?            @relation(fields: [patientId], references: [id])
     patientId          Int?
     clinic             Clinic              @relation(fields: [clinicId], references: [id])

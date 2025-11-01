@@ -110,16 +110,60 @@ function getNameCondition(name?: string) {
 }
 
 function getPatientNameCondition(patient?: string) {
-  return patient
-    ? {
-        OR: [
-          {
-            patient: { firstName: { contains: patient, mode: "insensitive" } },
-          },
-          { patient: { lastName: { contains: patient, mode: "insensitive" } } },
-        ],
-      }
-    : {};
+  if (!patient) {
+    return {};
+  }
+
+  // Decode URL-encoded spaces (+) and split into search terms
+  const decodedPatient = patient.replace(/\+/g, " ");
+  const searchTerms = decodedPatient
+    .split(" ")
+    .filter((term) => term.length > 0);
+
+  if (searchTerms.length === 0) {
+    return {};
+  }
+
+  // If single term, search in both firstName and lastName
+  if (searchTerms.length === 1) {
+    const term = searchTerms[0];
+    return {
+      OR: [
+        {
+          patient: { firstName: { contains: term, mode: "insensitive" } },
+        },
+        { patient: { lastName: { contains: term, mode: "insensitive" } } },
+      ],
+    };
+  }
+
+  // Multiple terms: match where terms appear in firstName and lastName
+  // For "petero nzukira", match firstName contains "petero" AND lastName contains "nzukira"
+  // or firstName contains "nzukira" AND lastName contains "petero"
+  const firstTerm = searchTerms[0];
+  const lastTerm = searchTerms.at(-1) || searchTerms[0];
+
+  // For 2 terms, check both orderings: first-last or last-first
+  return {
+    OR: [
+      {
+        patient: {
+          AND: [
+            { firstName: { contains: firstTerm, mode: "insensitive" } },
+            { lastName: { contains: lastTerm, mode: "insensitive" } },
+          ],
+        },
+      },
+      {
+        patient: {
+          AND: [
+            { firstName: { contains: lastTerm, mode: "insensitive" } },
+            { lastName: { contains: firstTerm, mode: "insensitive" } },
+          ],
+        },
+      },
+    ],
+  };
 }
 
 function getDateCondition(from?: string, to?: string) {

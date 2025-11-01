@@ -9,6 +9,8 @@ import {
   getClinicGrowthData,
   getClinicsOverview,
   getClinicsRevenue,
+  getConversionRate,
+  getCustomerSuccess,
   getDashboard,
   getDashboardOverview,
   getDoctorStats,
@@ -16,8 +18,10 @@ import {
   getLabTechnicianStats,
   getNurseStats,
   getPatientsByAge,
+  getRevenueGrowth,
   getStockManagerStats,
   getTopPerformingClinics,
+  getVisitGrowth,
 } from "./analytics.controller.ts";
 
 const router = new Hono<AppEnv>();
@@ -87,6 +91,46 @@ router.get(
   }),
   requireQuota("analyticsPro", 1, "soft"),
   getClinicsRevenue
+);
+router.get(
+  "/platform/visit-growth",
+  ...withAccess({
+    resource: "analytics",
+    action: "read",
+    feature: "analyticsPro",
+  }),
+  requireQuota("analyticsPro", 1, "soft"),
+  getVisitGrowth
+);
+router.get(
+  "/platform/revenue-growth",
+  ...withAccess({
+    resource: "analytics",
+    action: "read",
+    feature: "analyticsPro",
+  }),
+  requireQuota("analyticsPro", 1, "soft"),
+  getRevenueGrowth
+);
+router.get(
+  "/platform/conversion-rate",
+  ...withAccess({
+    resource: "analytics",
+    action: "read",
+    feature: "analyticsPro",
+  }),
+  requireQuota("analyticsPro", 1, "soft"),
+  getConversionRate
+);
+router.get(
+  "/platform/customer-success",
+  ...withAccess({
+    resource: "analytics",
+    action: "read",
+    feature: "analyticsPro",
+  }),
+  requireQuota("analyticsPro", 1, "soft"),
+  getCustomerSuccess
 );
 router.get(
   "/stock-manager/stats",
