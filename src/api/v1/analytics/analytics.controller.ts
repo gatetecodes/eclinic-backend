@@ -566,7 +566,12 @@ export const getClinicsOverview = async (c: Context) => {
     const today = new Date();
     const yesterday = subDays(today, 1);
 
-    const [currentDay, previousDay] = await Promise.all([
+    const [
+      currentDay,
+      previousDay,
+      clinicStatusCounts,
+      previousClinicStatusCounts,
+    ] = await Promise.all([
       db.$transaction([
         db.clinic.count({ where: { subscriptionStatus: "ACTIVE" } }),
         db.user.count({ where: { status: "ACTIVE" } }),
@@ -604,15 +609,67 @@ export const getClinicsOverview = async (c: Context) => {
           },
         }),
       ]),
+      db.clinic.groupBy({
+        by: ["subscriptionStatus"],
+        _count: { id: true },
+      }),
+      db.clinic.groupBy({
+        by: ["subscriptionStatus"],
+        where: {
+          createdAt: { lte: endOfDay(yesterday) },
+        },
+        _count: { id: true },
+      }),
     ]);
+
+    const currentTrials =
+      clinicStatusCounts.find((clinic) => clinic.subscriptionStatus === "TRIAL")
+        ?._count.id || 0;
+    const currentActive =
+      clinicStatusCounts.find(
+        (clinic) => clinic.subscriptionStatus === "ACTIVE"
+      )?._count.id || 0;
+    const currentInactive =
+      clinicStatusCounts.find(
+        (clinic) => clinic.subscriptionStatus === "INACTIVE"
+      )?._count.id || 0;
+    const totalClinics = currentTrials + currentActive + currentInactive;
+
+    const prevTrials =
+      previousClinicStatusCounts.find(
+        (clinic) => clinic.subscriptionStatus === "TRIAL"
+      )?._count.id || 0;
+    const prevActive =
+      previousClinicStatusCounts.find(
+        (clinic) => clinic.subscriptionStatus === "ACTIVE"
+      )?._count.id || 0;
+    const prevInactive =
+      previousClinicStatusCounts.find(
+        (clinic) => clinic.subscriptionStatus === "INACTIVE"
+      )?._count.id || 0;
+    const previousTotalClinics = prevTrials + prevActive + prevInactive;
+
+    // Calculate conversion rate: converted / (converted + remaining_trials)
+    // This excludes INACTIVE clinics and measures trial-to-active conversion
+    const conversionRate =
+      currentActive + currentTrials > 0
+        ? Number(
+            ((currentActive / (currentActive + currentTrials)) * 100).toFixed(2)
+          )
+        : 0;
 
     return c.json(
       {
         data: {
           totalClinics: {
-            count: currentDay[0],
-            trend: calculateTrend(currentDay[0], previousDay[0]),
-            trendText: calculateTrendText(currentDay[0], previousDay[0]),
+            count: totalClinics,
+            trend: calculateTrend(totalClinics, previousTotalClinics),
+            trendText: calculateTrendText(totalClinics, previousTotalClinics),
+            breakdown: {
+              trials: currentTrials,
+              converted: currentActive,
+              conversionRate,
+            },
           },
           activeUsers: {
             count: currentDay[1],
@@ -711,6 +768,401 @@ export const getClinicsRevenue = async (c: Context) => {
       })
     );
     return c.json({ data }, httpCodes.OK as ContentfulStatusCode);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getVisitGrowth = async (c: Context) => {
+  try {
+    const sixMonthsAgo = subMonths(new Date(), MONTHS_IN_6_MONTHS);
+
+    const monthlyVisits = await db.$queryRaw<
+      Array<{ month: Date; visits: number }>
+    >`
+      SELECT
+        DATE_TRUNC('month', "createdAt") as month,
+        COUNT(*)::integer as visits
+      FROM "Visit"
+      WHERE "createdAt" >= ${sixMonthsAgo}
+      GROUP BY DATE_TRUNC('month', "createdAt")
+      ORDER BY month ASC`;
+
+    const formattedData = monthlyVisits.map((item, index) => {
+      const previousVisits =
+        index > 0 ? Number(monthlyVisits[index - 1].visits) || 0 : 0;
+      const currentVisits = Number(item.visits) || 0;
+      const growth = calculateTrend(currentVisits, previousVisits);
+
+      return {
+        month: format(item.month, "MMM yyyy"),
+        visits: currentVisits,
+        growth,
+      };
+    });
+
+    const clinicGrowth = await db.$queryRaw<
+      Array<{
+        clinicId: number;
+        clinicName: string;
+        currentVisits: number;
+        previousVisits: number;
+      }>
+    >`
+      WITH current_period AS (
+        SELECT
+          "clinicId",
+          COUNT(*)::integer as visits
+        FROM "Visit"
+        WHERE "createdAt" >= DATE_TRUNC('month', CURRENT_DATE)
+        GROUP BY "clinicId"
+      ),
+      previous_period AS (
+        SELECT
+          "clinicId",
+          COUNT(*)::integer as visits
+        FROM "Visit"
+        WHERE "createdAt" >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND "createdAt" < DATE_TRUNC('month', CURRENT_DATE)
+        GROUP BY "clinicId"
+      )
+      SELECT
+        c.id as "clinicId",
+        c.name as "clinicName",
+        COALESCE(cp.visits, 0)::integer as "currentVisits",
+        COALESCE(pp.visits, 0)::integer as "previousVisits"
+      FROM "Clinic" c
+      LEFT JOIN current_period cp ON c.id = cp."clinicId"
+      LEFT JOIN previous_period pp ON c.id = pp."clinicId"
+      WHERE COALESCE(cp.visits, 0) > 0 OR COALESCE(pp.visits, 0) > 0
+      ORDER BY COALESCE(cp.visits, 0) DESC
+      LIMIT 10
+    `;
+
+    const clinics = clinicGrowth.map((clinic) => ({
+      clinicId: clinic.clinicId,
+      name: clinic.clinicName,
+      growth: calculateTrend(
+        Number(clinic.currentVisits),
+        Number(clinic.previousVisits)
+      ),
+    }));
+
+    return c.json(
+      {
+        data: {
+          monthly: formattedData,
+          clinics,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getRevenueGrowth = async (c: Context) => {
+  try {
+    const sixMonthsAgo = subMonths(new Date(), MONTHS_IN_6_MONTHS);
+    const twelveMonthsAgo = subMonths(new Date(), 12);
+
+    const monthlyRevenue = await db.$queryRaw<
+      Array<{ month: Date; revenue: number }>
+    >`
+      SELECT
+        DATE_TRUNC('month', "createdAt") as month,
+        SUM(amount) as revenue
+      FROM "Payment"
+      WHERE "createdAt" >= ${sixMonthsAgo}
+      GROUP BY DATE_TRUNC('month', "createdAt")
+      ORDER BY month ASC`;
+
+    const currentYearRevenue = await db.$queryRaw<
+      Array<{ month: Date; revenue: number }>
+    >`
+      SELECT
+        DATE_TRUNC('month', "createdAt") as month,
+        SUM(amount) as revenue
+      FROM "Payment"
+      WHERE "createdAt" >= ${twelveMonthsAgo}
+      GROUP BY DATE_TRUNC('month', "createdAt")
+      ORDER BY month ASC`;
+
+    const formattedData = monthlyRevenue.map((item, index) => {
+      const previousRevenue =
+        index > 0 ? Number(monthlyRevenue[index - 1].revenue) || 0 : 0;
+      const currentRevenue = Number(item.revenue) || 0;
+      const growth = calculateTrend(currentRevenue, previousRevenue);
+
+      const monthKey = format(item.month, "MMM yyyy");
+
+      const lastYearMonth = format(subYears(item.month, 1), "yyyy-MM");
+      const sameMonthLastYear = currentYearRevenue.find(
+        (r) => format(r.month, "yyyy-MM") === lastYearMonth
+      );
+      const yoyGrowth = sameMonthLastYear
+        ? calculateTrend(currentRevenue, Number(sameMonthLastYear.revenue) || 0)
+        : 0;
+
+      return {
+        month: monthKey,
+        revenue: currentRevenue,
+        growth,
+        yoyGrowth,
+      };
+    });
+
+    return c.json(
+      { data: formattedData },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getConversionRate = async (c: Context) => {
+  try {
+    const allClinics = await db.clinic.findMany({
+      select: {
+        id: true,
+        subscriptionStatus: true,
+        subscriptionPlan: true,
+        createdAt: true,
+        convertedAt: true,
+      },
+    });
+
+    // Current TRIAL clinics (clinics that are currently in trial)
+    const trials = allClinics.filter(
+      (clinic) => clinic.subscriptionStatus === "TRIAL"
+    );
+
+    // Clinics that have converted from TRIAL to ACTIVE (have convertedAt timestamp set)
+    const converted = allClinics.filter(
+      (clinic) => clinic.convertedAt !== null
+    );
+
+    // Calculate conversion times using convertedAt - createdAt (trial start time)
+    const conversionTimes = converted
+      .map((clinic) => {
+        if (!clinic.convertedAt) {
+          return null;
+        }
+        const createdAt = new Date(clinic.createdAt);
+        const convertedAt = new Date(clinic.convertedAt);
+        const daysDiff = Math.floor(
+          (convertedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        return daysDiff > 0 ? daysDiff : null;
+      })
+      .filter((days): days is number => days !== null);
+
+    const avgConversionTime =
+      conversionTimes.length > 0
+        ? Math.round(
+            conversionTimes.reduce((a, b) => a + b, 0) / conversionTimes.length
+          )
+        : 0;
+
+    // Total clinics currently in TRIAL status
+    const totalTrials = trials.length;
+
+    // Total clinics that have converted from TRIAL to ACTIVE (have convertedAt set)
+    const totalConverted = converted.length;
+
+    // All clinics that were ever TRIAL = current TRIAL + clinics with convertedAt set
+    // This accurately represents all clinics that started as TRIAL
+    const totalClinicsEverTrial = totalTrials + totalConverted;
+
+    // Conversion rate = (number of TRIAL→ACTIVE conversions) / (number of clinics that were ever TRIAL)
+    const conversionRate =
+      totalClinicsEverTrial > 0
+        ? Number(((totalConverted / totalClinicsEverTrial) * 100).toFixed(2))
+        : 0;
+
+    // Calculate conversion metrics by plan
+    const planConversion = allClinics.reduce(
+      (acc, clinic) => {
+        const plan = clinic.subscriptionPlan || "UNKNOWN";
+        if (!acc[plan]) {
+          acc[plan] = { trials: 0, converted: 0 };
+        }
+        // Count current TRIAL clinics for this plan
+        if (clinic.subscriptionStatus === "TRIAL") {
+          acc[plan].trials += 1;
+        }
+        // Count clinics that have converted (have convertedAt set) for this plan
+        if (clinic.convertedAt !== null) {
+          acc[plan].converted += 1;
+        }
+        return acc;
+      },
+      {} as Record<string, { trials: number; converted: number }>
+    );
+
+    // Calculate conversion rate by plan using the same logic:
+    // conversionRate = converted / (all clinics that were ever TRIAL)
+    // For each plan: converted / (trials + converted)
+    const byPlanData = Object.entries(planConversion).map(([plan, data]) => {
+      const totalEverTrial = data.trials + data.converted;
+      return {
+        plan,
+        conversionRate:
+          totalEverTrial > 0
+            ? Number(((data.converted / totalEverTrial) * 100).toFixed(2))
+            : 0,
+        totalTrials: data.trials,
+        totalActive: data.converted,
+      };
+    });
+
+    return c.json(
+      {
+        data: {
+          conversionRate,
+          totalTrials,
+          totalConverted,
+          avgConversionTime,
+          byPlan: byPlanData,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getCustomerSuccess = async (c: Context) => {
+  try {
+    const thirtyDaysAgo = subDays(new Date(), 30);
+    const sixMonthsAgo = subMonths(new Date(), 6);
+
+    const activeClinics = await db.clinic.count({
+      where: { subscriptionStatus: "ACTIVE" },
+    });
+
+    const clinicsWithRecentVisits = await db.clinic.count({
+      where: {
+        visits: {
+          some: {
+            createdAt: { gte: thirtyDaysAgo },
+          },
+        },
+      },
+    });
+
+    const utilizationRate =
+      activeClinics > 0
+        ? Number(((clinicsWithRecentVisits / activeClinics) * 100).toFixed(2))
+        : 0;
+
+    const clinicStats = await db.clinic.findMany({
+      where: {
+        createdAt: { gte: sixMonthsAgo },
+      },
+      include: {
+        _count: {
+          select: {
+            visits: true,
+            patients: true,
+            users: true,
+          },
+        },
+        payments: {
+          select: { amount: true },
+        },
+      },
+    });
+
+    const clinicMetrics = clinicStats.map((clinic) => ({
+      clinicId: clinic.id,
+      visits: clinic._count.visits,
+      revenue: clinic.payments.reduce(
+        (sum, payment) => sum + Number(payment.amount || 0),
+        0
+      ),
+      monthsActive: Math.floor(
+        (Date.now() - new Date(clinic.createdAt).getTime()) /
+          (1000 * 60 * 60 * 24 * 30)
+      ),
+    }));
+
+    const avgVisitsPerClinic =
+      clinicMetrics.length > 0
+        ? Number(
+            (
+              clinicMetrics.reduce(
+                (sum, clinicMetric) => sum + clinicMetric.visits,
+                0
+              ) / clinicMetrics.length
+            ).toFixed(2)
+          )
+        : 0;
+
+    const avgRevenuePerClinic =
+      clinicMetrics.length > 0
+        ? Number(
+            (
+              clinicMetrics.reduce(
+                (sum, clinicMetric) => sum + clinicMetric.revenue,
+                0
+              ) / clinicMetrics.length
+            ).toFixed(2)
+          )
+        : 0;
+
+    const clinicsWithGrowth = clinicMetrics.filter((clinicMetric) => {
+      if (clinicMetric.monthsActive < 3) {
+        return false;
+      }
+      return clinicMetric.visits > 0 && clinicMetric.revenue > 0;
+    });
+
+    const successRate =
+      clinicMetrics.length > 0
+        ? Number(
+            ((clinicsWithGrowth.length / clinicMetrics.length) * 100).toFixed(2)
+          )
+        : 0;
+
+    const patientPortalEnabled = await db.clinic.count({
+      where: { isPatientPortalEnabled: true },
+    });
+
+    const featureAdoption = {
+      patientPortal:
+        activeClinics > 0
+          ? Number(((patientPortalEnabled / activeClinics) * 100).toFixed(2))
+          : 0,
+    };
+
+    return c.json(
+      {
+        data: {
+          utilizationRate,
+          avgVisitsPerClinic,
+          avgRevenuePerClinic,
+          successRate,
+          adoptionMetrics: featureAdoption,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },

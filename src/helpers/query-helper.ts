@@ -110,16 +110,44 @@ function getNameCondition(name?: string) {
 }
 
 function getPatientNameCondition(patient?: string) {
-  return patient
-    ? {
-        OR: [
-          {
-            patient: { firstName: { contains: patient, mode: "insensitive" } },
-          },
-          { patient: { lastName: { contains: patient, mode: "insensitive" } } },
-        ],
-      }
-    : {};
+  if (!patient) {
+    return {};
+  }
+
+  // Decode URL-encoded spaces (+) and split into search terms
+  const decodedPatient = patient.replace(/\+/g, " ");
+  const searchTerms = decodedPatient
+    .split(" ")
+    .filter((term) => term.length > 0);
+
+  if (searchTerms.length === 0) {
+    return {};
+  }
+
+  if (searchTerms.length === 1) {
+    // If single term, search in both firstName and lastName
+    const term = searchTerms[0];
+    return {
+      OR: [
+        {
+          patient: { firstName: { contains: term, mode: "insensitive" } },
+        },
+        { patient: { lastName: { contains: term, mode: "insensitive" } } },
+      ],
+    };
+  }
+
+  // Multiple terms: match where terms appear in firstName and lastName
+  // Every term must appear in either firstName or lastName (in any combination)
+  const multiTermConditions = searchTerms.map((term) => ({
+    OR: [
+      { patient: { firstName: { contains: term, mode: "insensitive" } } },
+      { patient: { lastName: { contains: term, mode: "insensitive" } } },
+    ],
+  }));
+  return {
+    AND: multiTermConditions,
+  };
 }
 
 function getDateCondition(from?: string, to?: string) {

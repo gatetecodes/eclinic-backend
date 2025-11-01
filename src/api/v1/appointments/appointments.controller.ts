@@ -208,11 +208,16 @@ export const createEvent = async (c: Context) => {
     const { doctorId, type, startTime, endTime, title, description } =
       payload as z.infer<typeof eventSchema>;
 
+    // For appointments, doctorId is required by the schema
+    // For non-appointments (MEETING, TASK, OTHER), doctorId is optional and may be undefined
+    const finalDoctorId: number | undefined =
+      type === EventType.APPOINTMENT ? (doctorId as number) : undefined;
+
     let data: Prisma.EventCreateInput = {
       type: type as EventType,
       startTime,
       endTime,
-      doctor: { connect: { id: doctorId } },
+      doctor: finalDoctorId ? { connect: { id: finalDoctorId } } : undefined,
       clinic: { connect: { id: user.clinicId } },
       branch: { connect: { id: user.branchId } },
     };
@@ -233,7 +238,10 @@ export const createEvent = async (c: Context) => {
     const event = await db.event.create({ data, include: { patient: true } });
 
     //Invalidate the appointment cache
-    await invalidateAppointmentRelatedCaches({ doctorId, date: startTime });
+    await invalidateAppointmentRelatedCaches({
+      doctorId: finalDoctorId,
+      date: startTime,
+    });
 
     //Log activity
     await logActivity({
@@ -268,11 +276,20 @@ export const getDoctorAppointments = async (c: Context) => {
     const end = endOfMonth(addMonths(startDate, 2));
     const formattedMonth = format(startDate, "yyyy-MM");
     const cacheKey = `doctor:appointments:${doctorId}:${formattedMonth}`;
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<Event>(params);
+    const { where: _, ...restOptions } = queryOptions;
+
     const data = await getCachedData(
       cacheKey,
       async () => {
         const appointments = await db.event.findMany({
-          where: { doctorId, startTime: { gte: start, lte: end } },
+          ...restOptions,
+          where: {
+            doctorId,
+            startTime: { gte: start, lte: end },
+            type: EventType.APPOINTMENT,
+          },
           select: {
             title: true,
             startTime: true,
@@ -288,14 +305,35 @@ export const getDoctorAppointments = async (c: Context) => {
                 phoneNumber: true,
               },
             },
+            doctor: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
           orderBy: { startTime: "asc" },
         });
-        return { appointments };
+        return appointments;
       },
       DEFAULT_CACHE_TTL.SHORT // Short TTL since appointments change frequently
     );
-    return c.json({ message: "Appointments fetched successfully", data });
+    const totalCount = await db.event.count({
+      where: { doctorId, startTime: { gte: start, lte: end } },
+    });
+    const pageCount = queryOptions.take
+      ? Math.ceil(totalCount / queryOptions.take)
+      : 0;
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Appointments fetched successfully",
+        data,
+        totalCount,
+        pageCount,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal Server Error";
@@ -428,13 +466,16 @@ export const getAppointments = async (c: Context) => {
     const pageCount = queryOptions.take
       ? Math.ceil(totalCount / queryOptions.take)
       : 0;
-    return c.json({
-      status: httpCodes.OK,
-      message: "Appointments fetched successfully",
-      data: appointments,
-      totalCount,
-      pageCount,
-    });
+    return c.json(
+      {
+        status: httpCodes.OK,
+        message: "Appointments fetched successfully",
+        data: appointments,
+        totalCount,
+        pageCount,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal Server Error";

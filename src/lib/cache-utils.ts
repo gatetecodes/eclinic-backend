@@ -143,14 +143,17 @@ export function invalidateAppointmentRelatedCaches({
   doctorId,
   date,
 }: {
-  doctorId: number;
+  doctorId?: number;
   date?: Date;
 }) {
-  const cacheInvalidationPromises = [
-    invalidateCache(
-      `${CACHE_KEYS.APPOINTMENTS.DOCTOR_APPOINTMENTS}:${doctorId}:*`
-    ),
-  ];
+  const cacheInvalidationPromises: Promise<void>[] = [];
+  if (doctorId) {
+    cacheInvalidationPromises.push(
+      invalidateCache(
+        `${CACHE_KEYS.APPOINTMENTS.DOCTOR_APPOINTMENTS}:${doctorId}:*`
+      )
+    );
+  }
 
   if (date) {
     const formattedDate = format(date, "yyyy-MM-dd");
