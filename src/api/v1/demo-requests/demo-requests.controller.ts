@@ -36,7 +36,12 @@ export const createDemoRequest = async (c: Context) => {
       },
     });
     return c.json(
-      { message: "Demo request created successfully", data: demoRequest },
+      {
+        success: true,
+        message:
+          "Demo request created successfully. We will get back to you soon.",
+        data: demoRequest,
+      },
       httpCodes.CREATED as ContentfulStatusCode
     );
   } catch (error) {

@@ -29,6 +29,8 @@ import visitsRouter from "./visits/visits.routes.ts";
 
 const v1 = new Hono();
 
+v1.route("/demo-requests", demoRequestsRouter);
+
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login
 v1.all("/auth/*", (c) => {
@@ -67,7 +69,6 @@ v1.route("/admin", adminRouter);
 v1.route("/activity", activityRouter);
 v1.route("/appointments", appointmentsRouter);
 v1.route("/approvals", approvalsRouter);
-v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/insurance-claims", insuranceClaimsRouter);
 v1.route("/insurance", insuranceRouter);
 v1.route("/hospitalization", hospitalizationRouter);
