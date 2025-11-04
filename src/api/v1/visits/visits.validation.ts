@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { Priority } from "../../../../generated/prisma";
 
-const RWANDAN_PHONE_PATTERN = /^(\+?250|0)?7[2389][0-9]{7}$/;
-const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{6,14}$/;
+const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{9,14}$/;
+const RWANDAN_CORE_PATTERN = /^7[2389][0-9]{7}$/;
+const NON_DIGIT_PATTERN = /\D/g;
+const RWANDA_PREFIX_PATTERN = /^\+?250/;
+const LEADING_ZERO_PATTERN = /^0/;
 
 // Define a reusable phone number validation schema
 const phoneSchema = z.string().refine(
@@ -12,18 +15,61 @@ const phoneSchema = z.string().refine(
       return true;
     }
 
-    // Check for Rwandan numbers
-    if (RWANDAN_PHONE_PATTERN.test(value)) {
+    // Remove all non-digit characters for length checking
+    const digitsOnly = value.replace(NON_DIGIT_PATTERN, "");
+
+    // Enforce minimum length - phone numbers should be at least 9 digits
+    if (digitsOnly.length < 9) {
+      return false;
+    }
+
+    // Check for Rwandan numbers first
+    // Format: +250712345678 or 250712345678 or 0712345678 or 712345678
+    // The core number must be exactly 9 digits: 7[2389] followed by 7 more digits
+
+    // Extract just the 9-digit core number (remove country code/prefix)
+    // Remove +250 or 250 prefix first
+    let normalized = value.replace(RWANDA_PREFIX_PATTERN, "");
+    // Remove leading 0 if present
+    normalized = normalized.replace(LEADING_ZERO_PATTERN, "");
+    // Remove all non-digit characters to get just the core digits
+    const coreDigits = normalized.replace(NON_DIGIT_PATTERN, "");
+
+    // If it starts with +250 or 250, it must be a valid Rwandan number
+    // Don't allow it to fall through to international validation
+    const isRwandanPrefix = RWANDA_PREFIX_PATTERN.test(value);
+
+    // Must have exactly 9 digits matching the Rwandan pattern
+    if (coreDigits.length === 9 && RWANDAN_CORE_PATTERN.test(coreDigits)) {
       return true;
     }
 
-    // Check for international format (E.164)
-    // Allows + followed by 7-15 digits
-    return INTERNATIONAL_PHONE_PATTERN.test(value);
+    // If it has Rwandan prefix but doesn't match, reject it (don't check international)
+    if (isRwandanPrefix) {
+      return false;
+    }
+
+    // Check for international format (E.164) - only for non-Rwandan numbers
+    // Must start with + and have at least 10 digits total (country code + number)
+    // Maximum 15 digits per E.164 standard
+    // Pattern: + followed by country code (1-3 digits, first digit 1-9) then number (at least 6 digits)
+    if (value.startsWith("+")) {
+      // Normalize: build a string with '+' followed by only digits
+      const normalizedInternational = `+${digitsOnly}`;
+      if (
+        INTERNATIONAL_PHONE_PATTERN.test(normalizedInternational) &&
+        digitsOnly.length >= 10 &&
+        digitsOnly.length <= 15
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   },
   {
     message:
-      "Invalid phone number format. Must be a valid Rwandan number or international format (e.g. +12345678901)",
+      "Invalid phone number format. Must be a valid Rwandan number (9 digits) or international format (minimum 10 digits with country code)",
   }
 );
 

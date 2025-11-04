@@ -97,7 +97,7 @@ export const createInitialCheckIn = async (c: Context) => {
     );
   } catch (_error) {
     return c.json(
-      { error: "Failed to check in patient" },
+      { error: "Failed to check in patient." },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
