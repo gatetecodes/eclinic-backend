@@ -53,13 +53,16 @@ const phoneSchema = z.string().refine(
     // Must start with + and have at least 10 digits total (country code + number)
     // Maximum 15 digits per E.164 standard
     // Pattern: + followed by country code (1-3 digits, first digit 1-9) then number (at least 6 digits)
-    if (
-      value.startsWith("+") &&
-      INTERNATIONAL_PHONE_PATTERN.test(value) &&
-      digitsOnly.length >= 10 &&
-      digitsOnly.length <= 15
-    ) {
-      return true;
+    if (value.startsWith("+")) {
+      // Normalize: build a string with '+' followed by only digits
+      const normalizedInternational = `+${digitsOnly}`;
+      if (
+        INTERNATIONAL_PHONE_PATTERN.test(normalizedInternational) &&
+        digitsOnly.length >= 10 &&
+        digitsOnly.length <= 15
+      ) {
+        return true;
+      }
     }
 
     return false;
