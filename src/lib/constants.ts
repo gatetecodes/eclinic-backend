@@ -66,6 +66,8 @@ export const InsuranceCompanies = {
   CIMERWA: "CIMERWA",
   SINALAC: "SINALAC",
   UBUZIMA_BWIZA: "UBUZIMA BWIZA",
+  URWEGO: "URWEGO",
+  EQUITY: "EQUITY",
 };
 export const SpecialInsurers = {
   RSSB: "RSSB",

@@ -66,7 +66,8 @@ function userCanAccessProduct(
 
 async function createInitialInsurancePricesForNewProduct(
   productId: number,
-  tariffs: { tariff: number; tariffWithCo: number; govTariff: number }
+  tariffs: { tariff: number; tariffWithCo: number; govTariff: number },
+  clinicId: number
 ) {
   const { tariff, tariffWithCo, govTariff } = tariffs;
   if (!Number.isNaN(tariff)) {
@@ -76,6 +77,7 @@ async function createInitialInsurancePricesForNewProduct(
         price: tariff,
         insuranceCompanyName,
         priceType: PriceType.PRIVATE,
+        clinicId,
       });
     }
   }
@@ -86,6 +88,7 @@ async function createInitialInsurancePricesForNewProduct(
         price: tariffWithCo,
         insuranceCompanyName,
         priceType: PriceType.PRIVATE,
+        clinicId,
       });
     }
   }
@@ -96,6 +99,7 @@ async function createInitialInsurancePricesForNewProduct(
         price: govTariff,
         insuranceCompanyName,
         priceType: PriceType.GOV,
+        clinicId,
       });
     }
   }
@@ -297,6 +301,8 @@ export const getProductsListWithPricing = async (c: Context) => {
           },
         };
 
+    const clinicId = user.role === Role.SUPER_ADMIN ? undefined : user.clinicId;
+
     const products = await db.product.findMany({
       where,
       select: {
@@ -305,12 +311,31 @@ export const getProductsListWithPricing = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
+        foreignersPrice: true,
+        clinicProductPrices: clinicId
+          ? {
+              where: {
+                clinicId,
+              },
+              select: {
+                basePrice: true,
+                foreignersPrice: true,
+              },
+              take: 1,
+            }
+          : undefined,
         insurancePrices: {
+          where: clinicId
+            ? {
+                OR: [{ clinicId }, { clinicId: null }],
+              }
+            : undefined,
           select: {
             id: true,
             price: true,
             priceWithCo: true,
             priceType: true,
+            clinicId: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -328,10 +353,41 @@ export const getProductsListWithPricing = async (c: Context) => {
       },
     });
 
+    // Transform products to include clinic-specific prices with fallback
+    const productsWithPricing = products.map((product) => {
+      const clinicPrice = product.clinicProductPrices?.[0];
+      return {
+        ...product,
+        basePrice: clinicPrice?.basePrice ?? product.basePrice,
+        foreignersPrice:
+          clinicPrice?.foreignersPrice ?? product.foreignersPrice,
+        // Filter insurance prices to prefer clinic-specific, then global
+        insurancePrices: clinicId
+          ? (() => {
+              const clinicSpecific = product.insurancePrices.filter(
+                (ip) => ip.clinicId === clinicId
+              );
+              const global = product.insurancePrices.filter(
+                (ip) => ip.clinicId === null
+              );
+              // Merge: clinic-specific first, then global for missing companies
+              const clinicCompanyIds = new Set(
+                clinicSpecific.map((ip) => ip.insuranceCompany.id)
+              );
+              const globalOnly = global.filter(
+                (ip) => !clinicCompanyIds.has(ip.insuranceCompany.id)
+              );
+              return [...clinicSpecific, ...globalOnly];
+            })()
+          : product.insurancePrices,
+        clinicProductPrices: undefined, // Remove from response
+      };
+    });
+
     return c.json({
       status: httpCodes.OK,
       message: "Products list with pricing fetched successfully",
-      data: products,
+      data: productsWithPricing,
     });
   } catch (_error) {
     return c.json(
@@ -353,6 +409,7 @@ export const getProductById = async (c: Context) => {
 
     const { id } = c.get("validatedParam");
     const productId = Number.parseInt(id, 10);
+    const clinicId = user.role === Role.SUPER_ADMIN ? undefined : user.clinicId;
 
     const product = await db.product.findUnique({
       where: { id: productId },
@@ -368,6 +425,18 @@ export const getProductById = async (c: Context) => {
         normalRange: true,
         consumables: true,
         isActive: true,
+        clinicProductPrices: clinicId
+          ? {
+              where: {
+                clinicId,
+              },
+              select: {
+                basePrice: true,
+                foreignersPrice: true,
+              },
+              take: 1,
+            }
+          : undefined,
         departments: {
           select: {
             id: true,
@@ -381,11 +450,17 @@ export const getProductById = async (c: Context) => {
           },
         },
         insurancePrices: {
+          where: clinicId
+            ? {
+                OR: [{ clinicId }, { clinicId: null }],
+              }
+            : undefined,
           select: {
             id: true,
             price: true,
             priceWithCo: true,
             priceType: true,
+            clinicId: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -417,10 +492,38 @@ export const getProductById = async (c: Context) => {
       );
     }
 
+    // Transform product to include clinic-specific prices with fallback
+    const clinicPrice = product.clinicProductPrices?.[0];
+    const transformedProduct = {
+      ...product,
+      basePrice: clinicPrice?.basePrice ?? product.basePrice,
+      foreignersPrice: clinicPrice?.foreignersPrice ?? product.foreignersPrice,
+      // Filter insurance prices to prefer clinic-specific, then global
+      insurancePrices: clinicId
+        ? (() => {
+            const clinicSpecific = product.insurancePrices.filter(
+              (ip) => ip.clinicId === clinicId
+            );
+            const global = product.insurancePrices.filter(
+              (ip) => ip.clinicId === null
+            );
+            // Merge: clinic-specific first, then global for missing companies
+            const clinicCompanyIds = new Set(
+              clinicSpecific.map((ip) => ip.insuranceCompany.id)
+            );
+            const globalOnly = global.filter(
+              (ip) => !clinicCompanyIds.has(ip.insuranceCompany.id)
+            );
+            return [...clinicSpecific, ...globalOnly];
+          })()
+        : product.insurancePrices,
+      clinicProductPrices: undefined, // Remove from response
+    };
+
     return c.json({
       status: httpCodes.OK,
       message: "Product fetched successfully",
-      data: product,
+      data: transformedProduct,
     });
   } catch (_error) {
     return c.json(
@@ -712,7 +815,9 @@ export const updateProductPricing = async (c: Context) => {
       );
     }
 
-    const { basePrice, insurancePrices } = validatedFields.data;
+    const { basePrice, foreignersPrice, insurancePrices } =
+      validatedFields.data;
+    const clinicId = user.clinicId;
 
     // Verify insurance companies exist (no clinic relation in backend schema)
     const insuranceCompanyIds = insurancePrices.map((ip) =>
@@ -729,22 +834,51 @@ export const updateProductPricing = async (c: Context) => {
       );
     }
 
-    const updatedProduct = await db.product.update({
-      where: { id: productId },
-      data: {
-        basePrice,
-        insurancePrices: {
-          deleteMany: {},
-          createMany: {
-            data: insurancePrices.map((ip) => ({
-              price: ip.price,
-              priceWithCo: ip.priceWithCo ?? undefined,
-              priceType: ip.priceType ?? PriceType.PRIVATE,
-              insuranceCompanyId: Number.parseInt(ip.companyId, 10),
-            })),
-          },
+    // Update or create clinic-specific product prices
+    await db.clinicProductPrice.upsert({
+      where: {
+        clinicId_productId: {
+          clinicId,
+          productId,
         },
       },
+      update: {
+        basePrice: basePrice ?? null,
+        foreignersPrice: foreignersPrice ?? null,
+      },
+      create: {
+        clinicId,
+        productId,
+        basePrice: basePrice ?? null,
+        foreignersPrice: foreignersPrice ?? null,
+      },
+    });
+
+    // Delete existing clinic-specific insurance prices for this product and clinic
+    await db.insurancePrice.deleteMany({
+      where: {
+        productId,
+        clinicId,
+      },
+    });
+
+    // Create new clinic-specific insurance prices
+    if (insurancePrices.length > 0) {
+      await db.insurancePrice.createMany({
+        data: insurancePrices.map((ip) => ({
+          price: ip.price,
+          priceWithCo: ip.priceWithCo ?? undefined,
+          priceType: ip.priceType ?? PriceType.PRIVATE,
+          insuranceCompanyId: Number.parseInt(ip.companyId, 10),
+          productId,
+          clinicId,
+        })),
+      });
+    }
+
+    // Fetch updated product with clinic-specific pricing
+    const updatedProduct = await db.product.findUnique({
+      where: { id: productId },
       include: {
         departments: {
           select: {
@@ -758,7 +892,19 @@ export const updateProductPricing = async (c: Context) => {
             name: true,
           },
         },
+        clinicProductPrices: {
+          where: {
+            clinicId,
+          },
+          select: {
+            basePrice: true,
+            foreignersPrice: true,
+          },
+        },
         insurancePrices: {
+          where: {
+            clinicId,
+          },
           select: {
             id: true,
             price: true,
@@ -1020,11 +1166,15 @@ function processRecord(clinicId: number) {
         return true;
       }
       const newProduct = await createNewProduct(record, clinicId);
-      await createInitialInsurancePricesForNewProduct(newProduct.id, {
-        tariff: Number.parseFloat(record.TARIFF),
-        tariffWithCo: Number.parseFloat(record.TARIFF_WITH_CO as string),
-        govTariff: Number.parseFloat(record.GOV_INSURANCE as string),
-      });
+      await createInitialInsurancePricesForNewProduct(
+        newProduct.id,
+        {
+          tariff: Number.parseFloat(record.TARIFF),
+          tariffWithCo: Number.parseFloat(record.TARIFF_WITH_CO as string),
+          govTariff: Number.parseFloat(record.GOV_INSURANCE as string),
+        },
+        clinicId
+      );
       return true;
     } catch (error) {
       logger.error(`Error processing product ${record.NAME}:`, { error });

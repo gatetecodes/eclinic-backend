@@ -91,6 +91,10 @@ export const getProductsByDepartmentSchema = z.object({
 
 export const updateProductPricingSchema = z.object({
   basePrice: z.coerce.number().min(0, "Base price must be non-negative"),
+  foreignersPrice: z.coerce
+    .number()
+    .min(0, "Foreigners price must be non-negative")
+    .optional(),
   insurancePrices: z.array(
     z.object({
       companyId: z.string(),
