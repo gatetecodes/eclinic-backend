@@ -1279,7 +1279,7 @@ export const createPaymentForProducts = async (
     const effectiveForeignersPrice =
       clinicPrices.foreignersPrice ?? productItem.foreignersPrice;
 
-    if (!(effectiveBasePrice || effectiveForeignersPrice)) {
+    if (effectiveBasePrice === null && effectiveForeignersPrice === null) {
       throw new Error(
         `Base price not defined for product: ${productItem.name}`
       );
