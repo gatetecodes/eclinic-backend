@@ -74,3 +74,8 @@ export const SpecialInsurers = {
   MMI: "MMI",
   MIS_UR: "MIS_UR",
 };
+
+// Role helper(s)
+export function isSuperAdmin(role: string | undefined): boolean {
+  return role === "SUPER_ADMIN";
+}

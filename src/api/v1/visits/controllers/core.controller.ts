@@ -31,6 +31,7 @@ import {
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../../lib/common-validation";
+import { getScope } from "../../../../lib/request-scope";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
@@ -546,14 +547,18 @@ export const listVisits = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `visits:${user.clinicId}:${user.branchId}:${user.role}:${JSON.stringify(
+    const { clinicId, branchId } = getScope(user, params);
+    const cacheKey = `visits:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${user.role}:${JSON.stringify(
       params
     )}`;
 
     const data = await getCachedData(
       cacheKey,
       async () => {
-        const queryOptions = buildQueryOptions<Visit>(params);
+        const queryOptions = buildQueryOptions<Visit>(params, {
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
+        });
         const { where, orderBy, ...restOptions } = queryOptions;
 
         // Role-based status visibility
@@ -598,10 +603,6 @@ export const listVisits = async (c: Context) => {
           ...where,
           status: statusFilter,
         };
-        if (user.role !== Role.SUPER_ADMIN) {
-          whereInput.clinicId = user.clinicId;
-          whereInput.branchId = user.branchId;
-        }
 
         const visits = await db.visit.findMany({
           ...restOptions,
