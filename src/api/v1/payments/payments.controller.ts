@@ -17,6 +17,7 @@ import {
 } from "../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { getScope } from "../../../lib/request-scope";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
@@ -156,9 +157,13 @@ export const getPayments = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<Payment>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<Payment>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
-    const cacheKey = `payments:${user.clinicId ?? user.clinic.id}:${user.branchId ?? user.branch.id}:${JSON.stringify(params || {})}`;
+    const cacheKey = `payments:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
 
     const paymentsData = await getCachedData(
       cacheKey,
@@ -166,8 +171,6 @@ export const getPayments = async (c: Context) => {
         const payments = await db.payment.findMany({
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.PaymentWhereInput,
           orderBy: orderBy as Prisma.PaymentOrderByWithRelationInput,
           ...restOptions,
@@ -243,8 +246,6 @@ export const getPayments = async (c: Context) => {
         const totalCount = await db.payment.count({
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.PaymentWhereInput,
         });
         const pageCount = queryOptions.take
@@ -328,13 +329,15 @@ export const exportPayments = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<Payment>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<Payment>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
     const payments = await db.payment.findMany({
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
       } as Prisma.PaymentWhereInput,
       orderBy: orderBy as Prisma.PaymentOrderByWithRelationInput,
       ...restOptions,

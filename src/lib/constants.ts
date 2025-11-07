@@ -66,9 +66,16 @@ export const InsuranceCompanies = {
   CIMERWA: "CIMERWA",
   SINALAC: "SINALAC",
   UBUZIMA_BWIZA: "UBUZIMA BWIZA",
+  URWEGO: "URWEGO",
+  EQUITY: "EQUITY",
 };
 export const SpecialInsurers = {
   RSSB: "RSSB",
   MMI: "MMI",
   MIS_UR: "MIS_UR",
 };
+
+// Role helper(s)
+export function isSuperAdmin(role: string | undefined): boolean {
+  return role === "SUPER_ADMIN";
+}

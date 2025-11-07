@@ -44,6 +44,7 @@ type ProductForPayment = {
   foreignersPrice: unknown;
   insurancePrices: {
     price: unknown;
+    clinicId: number | null;
     insuranceCompany: { companyName: string };
   }[];
 };
@@ -66,6 +67,7 @@ export type IExistingProduct = {
     id: number;
     price: number;
     priceWithCo?: number;
+    clinicId: number | null;
     insuranceCompany: { companyName: string };
   }[];
   unit?: string;
@@ -81,6 +83,91 @@ type ParsedLabTest = {
 
 // Regex pattern for lab test parsing (defined at top level for performance)
 const LAB_TEST_REGEX = /^\((\d+)\)(.+)$/;
+
+// Helper function to get clinic-specific base price with fallback to global price
+export const getClinicProductPrice = async (
+  productId: number,
+  clinicId: number
+): Promise<{ basePrice: number | null; foreignersPrice: number | null }> => {
+  const clinicPrice = await db.clinicProductPrice.findUnique({
+    where: {
+      clinicId_productId: {
+        clinicId,
+        productId,
+      },
+    },
+    select: {
+      basePrice: true,
+      foreignersPrice: true,
+    },
+  });
+
+  const product = await db.product.findUnique({
+    where: { id: productId },
+    select: {
+      basePrice: true,
+      foreignersPrice: true,
+    },
+  });
+
+  let basePrice: number | null = null;
+  if (clinicPrice?.basePrice) {
+    basePrice = Number(clinicPrice.basePrice);
+  } else if (product?.basePrice) {
+    basePrice = Number(product.basePrice);
+  }
+
+  let foreignersPrice: number | null = null;
+  if (clinicPrice?.foreignersPrice) {
+    foreignersPrice = Number(clinicPrice.foreignersPrice);
+  } else if (product?.foreignersPrice) {
+    foreignersPrice = Number(product.foreignersPrice);
+  }
+
+  return {
+    basePrice,
+    foreignersPrice,
+  };
+};
+
+// Helper function to get clinic-specific insurance price with fallback to global price
+export const getClinicInsurancePrice = async (
+  productId: number,
+  insuranceCompanyId: number,
+  clinicId: number
+): Promise<number | null> => {
+  // Try clinic-specific insurance price first
+  const clinicInsurancePrice = await db.insurancePrice.findUnique({
+    where: {
+      productId_insuranceCompanyId_clinicId: {
+        productId,
+        insuranceCompanyId,
+        clinicId,
+      },
+    },
+    select: {
+      price: true,
+    },
+  });
+
+  if (clinicInsurancePrice) {
+    return Number(clinicInsurancePrice.price);
+  }
+
+  // Fallback to global insurance price (clinicId is NULL)
+  const globalInsurancePrice = await db.insurancePrice.findFirst({
+    where: {
+      productId,
+      insuranceCompanyId,
+      clinicId: null,
+    },
+    select: {
+      price: true,
+    },
+  });
+
+  return globalInsurancePrice ? Number(globalInsurancePrice.price) : null;
+};
 
 // Helper function to parse lab test names with reference numbers
 function parseLabTestName(name: string): ParsedLabTest {
@@ -154,16 +241,43 @@ async function isParentProduct(referenceNumber: string) {
   return Boolean(childTest);
 }
 
-// Helper function to get insurance company ID
+// Helper function to get insurance company ID (trim + case-insensitive match; auto-create if missing)
 async function getInsuranceCompanyId(companyName: string) {
-  const insuranceCompany = await db.insuranceCompany.findUnique({
-    where: { companyName },
+  const normalizedName = companyName.trim().replace(/\s+/g, " ");
+  // Try case-insensitive match first
+  const existing = await db.insuranceCompany.findFirst({
+    where: {
+      companyName: {
+        equals: normalizedName,
+        mode: "insensitive",
+      },
+    },
     select: { id: true },
   });
-  if (!insuranceCompany) {
+  if (existing) {
+    return existing.id;
+  }
+  // Auto-create when not found (handles new/misspelled entries). Normalize spacing.
+  try {
+    const created = await db.insuranceCompany.create({
+      data: { companyName: normalizedName },
+      select: { id: true },
+    });
+    logger.info("Created missing insurance company during pricing import", {
+      companyName: normalizedName,
+    });
+    return created.id;
+  } catch (_error) {
+    // Handle race condition on unique constraint by re-reading
+    const foundAfter = await db.insuranceCompany.findUnique({
+      where: { companyName: normalizedName },
+      select: { id: true },
+    });
+    if (foundAfter) {
+      return foundAfter.id;
+    }
     throw new Error("Insurance company not found");
   }
-  return insuranceCompany.id;
 }
 
 // Helper function to generate product code
@@ -219,6 +333,7 @@ export async function findExistingProduct(
           id: true,
           price: true,
           priceWithCo: true,
+          clinicId: true,
           insuranceCompany: { select: { companyName: true } },
         },
       },
@@ -248,6 +363,7 @@ export async function findExistingProduct(
       ...ip,
       price: Number(ip.price),
       priceWithCo: ip.priceWithCo ? Number(ip.priceWithCo) : undefined,
+      clinicId: ip.clinicId,
     })),
   };
 }
@@ -259,22 +375,60 @@ export const createNewInsurancePrice = async ({
   insuranceCompanyName,
   priceType,
   priceWithCo,
+  clinicId,
 }: {
   productId: number;
   price: number;
   insuranceCompanyName: string;
   priceType: PriceType;
   priceWithCo?: number;
+  clinicId?: number;
 }) => {
-  return db.insurancePrice.create({
-    data: {
+  try {
+    const insuranceCompanyId =
+      await getInsuranceCompanyId(insuranceCompanyName);
+    return db.insurancePrice.create({
+      data: {
+        productId,
+        price,
+        priceWithCo,
+        insuranceCompanyId,
+        priceType,
+        clinicId: clinicId ?? null,
+      },
+    });
+  } catch (_error) {
+    logger.warn("Skipping insurance price creation: company not found", {
+      insuranceCompanyName,
       productId,
-      price,
-      priceWithCo,
-      insuranceCompanyId: await getInsuranceCompanyId(insuranceCompanyName),
-      priceType,
-    },
-  });
+      clinicId: clinicId ?? null,
+    });
+    return null;
+  }
+};
+
+// Helper function to find clinic-specific insurance price
+const findClinicInsurancePrice = (
+  insurancePrices: IExistingProduct["insurancePrices"],
+  companyName: string,
+  clinicId: number
+) => {
+  return insurancePrices.find(
+    (ip) =>
+      ip.insuranceCompany.companyName === companyName &&
+      ip.clinicId === clinicId
+  );
+};
+
+// Helper function to find global insurance price
+const findGlobalInsurancePrice = (
+  insurancePrices: IExistingProduct["insurancePrices"],
+  companyName: string
+) => {
+  return insurancePrices.find(
+    (ip) =>
+      ip.insuranceCompany.companyName === companyName && ip.clinicId === null
+  );
 };
 
 // Helper functions to reduce complexity
@@ -284,29 +438,71 @@ const updateInsurancePrice = async ({
   companies,
   priceType,
   field,
+  clinicId,
 }: {
   existingProduct: IExistingProduct;
   price: number;
   companies: string[];
   priceType: PriceType;
   field: "price" | "priceWithCo";
+  clinicId: number;
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 }) => {
   for (const companyName of companies) {
-    const existingPrice = existingProduct.insurancePrices.find(
-      (ip) => ip.insuranceCompany.companyName === companyName
+    // Try to find clinic-specific insurance price first
+    const existingPrice = findClinicInsurancePrice(
+      existingProduct.insurancePrices,
+      companyName,
+      clinicId
     );
+
     if (existingPrice) {
+      // Update existing clinic-specific price
       await db.insurancePrice.update({
         where: { id: existingPrice.id },
         data: { [field]: price },
       });
+      continue;
+    }
+
+    // Check if there's a global price (clinicId = null) we should use as base
+    const globalPrice = findGlobalInsurancePrice(
+      existingProduct.insurancePrices,
+      companyName
+    );
+
+    if (globalPrice) {
+      // Create clinic-specific version from global
+      let finalPrice: number;
+      let finalPriceWithCo: number | undefined;
+
+      if (field === "price") {
+        finalPrice = price;
+        finalPriceWithCo = globalPrice.priceWithCo
+          ? Number(globalPrice.priceWithCo)
+          : undefined;
+      } else {
+        finalPrice = Number(globalPrice.price);
+        finalPriceWithCo = price;
+      }
+
+      await createNewInsurancePrice({
+        productId: existingProduct.id,
+        price: finalPrice,
+        insuranceCompanyName: companyName,
+        priceType,
+        priceWithCo: finalPriceWithCo,
+        clinicId,
+      });
     } else {
+      // Create new clinic-specific price
       await createNewInsurancePrice({
         productId: existingProduct.id,
         price: field === "price" ? price : 0,
         insuranceCompanyName: companyName,
         priceType,
         priceWithCo: field === "priceWithCo" ? price : undefined,
+        clinicId,
       });
     }
   }
@@ -315,20 +511,44 @@ const updateInsurancePrice = async ({
 const updateProductPricing = async (
   productId: number,
   newPrivateTariff: number,
-  newForeignersTariff: number
+  newForeignersTariff: number,
+  clinicId: number
 ) => {
-  if (!Number.isNaN(newPrivateTariff)) {
-    await db.product.update({
-      where: { id: productId },
-      data: { basePrice: newPrivateTariff },
-    });
+  const updateData: {
+    basePrice?: number | null;
+    foreignersPrice?: number | null;
+  } = {};
+  const createData: {
+    clinicId: number;
+    productId: number;
+    basePrice: number | null;
+    foreignersPrice: number | null;
+  } = {
+    clinicId,
+    productId,
+    basePrice: null,
+    foreignersPrice: null,
+  };
+
+  if (Number.isFinite(newPrivateTariff)) {
+    updateData.basePrice = newPrivateTariff;
+    createData.basePrice = newPrivateTariff;
   }
-  if (!Number.isNaN(newForeignersTariff)) {
-    await db.product.update({
-      where: { id: productId },
-      data: { foreignersPrice: newForeignersTariff },
-    });
+  if (Number.isFinite(newForeignersTariff)) {
+    updateData.foreignersPrice = newForeignersTariff;
+    createData.foreignersPrice = newForeignersTariff;
   }
+
+  await db.clinicProductPrice.upsert({
+    where: {
+      clinicId_productId: {
+        clinicId,
+        productId,
+      },
+    },
+    update: updateData,
+    create: createData,
+  });
 };
 
 // Connect product to clinic if missing
@@ -352,35 +572,43 @@ async function connectProductToClinic(
 // Apply insurance updates in one place to reduce complexity at call site
 async function applyInsuranceUpdates(
   existingProduct: IExistingProduct,
-  newTariff: number,
-  newGovTariff: number,
-  newTariffWithCo: number
+  tariffs: {
+    newTariff: number;
+    newGovTariff: number;
+    newTariffWithCo: number;
+  },
+  clinicId: number
 ) {
-  if (!Number.isNaN(newTariff)) {
+  const { newTariff, newGovTariff, newTariffWithCo } = tariffs;
+
+  if (Number.isFinite(newTariff)) {
     await updateInsurancePrice({
       existingProduct,
       price: newTariff,
       companies: Object.values(InsuranceCompanies),
       priceType: PriceType.PRIVATE,
       field: "price",
+      clinicId,
     });
   }
-  if (!Number.isNaN(newGovTariff)) {
+  if (Number.isFinite(newGovTariff)) {
     await updateInsurancePrice({
       existingProduct,
       price: newGovTariff,
       companies: Object.values(SpecialInsurers),
       priceType: PriceType.GOV,
       field: "price",
+      clinicId,
     });
   }
-  if (!Number.isNaN(newTariffWithCo)) {
+  if (Number.isFinite(newTariffWithCo)) {
     await updateInsurancePrice({
       existingProduct,
       price: newTariffWithCo,
       companies: Object.values(InsuranceCompanies),
       priceType: PriceType.PRIVATE,
       field: "priceWithCo",
+      clinicId,
     });
   }
 }
@@ -552,16 +780,20 @@ export async function handleExistingProduct(
   // Handle insurance prices
   await applyInsuranceUpdates(
     existingProduct,
-    newTariff,
-    newGovTariff,
-    newTariffWithCo
+    {
+      newTariff,
+      newGovTariff,
+      newTariffWithCo,
+    },
+    clinicId
   );
 
-  // Update product pricing
+  // Update clinic-specific product pricing
   await updateProductPricing(
     existingProduct.id,
     newPrivateTariff,
-    newForeignersTariff
+    newForeignersTariff,
+    clinicId
   );
 
   // Handle lab test specific logic
@@ -729,6 +961,7 @@ async function handleParentOrStandaloneAfterCreation({
 }
 
 // Helper function to create new product
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex product creation logic with multiple conditional paths
 export async function createNewProduct(
   record: ProductCSVRow,
   clinicId: number
@@ -792,6 +1025,7 @@ export async function createNewProduct(
           create: { name: department },
         })),
       },
+      // Keep basePrice/foreignersPrice on Product as fallback, but create ClinicProductPrice for clinic-specific pricing
       basePrice: record.PRIVATE_TARIFF
         ? Number.parseFloat(record.PRIVATE_TARIFF)
         : undefined,
@@ -804,6 +1038,22 @@ export async function createNewProduct(
     },
     select: { id: true, name: true },
   });
+
+  // Create clinic-specific pricing
+  if (record.PRIVATE_TARIFF || record.FOREIGNERS_TARIFF) {
+    await db.clinicProductPrice.create({
+      data: {
+        clinicId,
+        productId: createdProduct.id,
+        basePrice: record.PRIVATE_TARIFF
+          ? Number.parseFloat(record.PRIVATE_TARIFF)
+          : null,
+        foreignersPrice: record.FOREIGNERS_TARIFF
+          ? Number.parseFloat(record.FOREIGNERS_TARIFF)
+          : null,
+      },
+    });
+  }
 
   await handleParentOrStandaloneAfterCreation({
     createdProduct,
@@ -829,16 +1079,35 @@ export const createPaymentForProducts = async (
     details,
     product: insuranceProduct,
     visit: insuranceVisit,
+    targetClinicId,
   }: {
     details: PaymentDetail[];
     product: SimpleProductForPayment;
     visit: SimpleVisitForPayment;
+    targetClinicId: number;
   }) => {
-    const insurancePrice = insuranceProduct.insurancePrices.find(
+    const insuranceCompanyName =
+      insuranceVisit.patientInsurance?.insuranceCompany?.companyName;
+    if (!insuranceCompanyName) {
+      throw new Error("Insurance company not found in visit");
+    }
+
+    // Try to find clinic-specific insurance price first
+    let insurancePrice = insuranceProduct.insurancePrices.find(
       (ip) =>
-        ip.insuranceCompany.companyName ===
-        insuranceVisit.patientInsurance?.insuranceCompany?.companyName
+        ip.insuranceCompany.companyName === insuranceCompanyName &&
+        ip.clinicId === targetClinicId
     );
+
+    // Fallback to global insurance price (clinicId is null or undefined)
+    if (!insurancePrice) {
+      insurancePrice = insuranceProduct.insurancePrices.find(
+        (ip) =>
+          ip.insuranceCompany.companyName === insuranceCompanyName &&
+          (ip.clinicId === null || ip.clinicId === undefined)
+      );
+    }
+
     if (!insurancePrice) {
       throw new Error(
         `Insurance price not defined for product: ${insuranceProduct.name}`
@@ -867,21 +1136,30 @@ export const createPaymentForProducts = async (
     };
   };
 
-  const addCashPaymentDetailInner = ({
+  const addCashPaymentDetailInner = async ({
     details,
     product: cashProduct,
     visit: cashVisit,
+    targetClinicId,
   }: {
     details: PaymentDetail[];
     product: SimpleProductForPayment;
     visit: SimpleVisitForPayment;
+    targetClinicId: number;
   }) => {
     const isRwandan =
       cashVisit.patient.nationality === "Rwanda" &&
       !cashVisit.patient.isAForeigner;
+
+    // Get clinic-specific prices with fallback
+    const clinicPrices = await getClinicProductPrice(
+      cashProduct.id,
+      targetClinicId
+    );
+
     const basePrice = isRwandan
-      ? Number(cashProduct.basePrice)
-      : Number(cashProduct.foreignersPrice);
+      ? Number(clinicPrices.basePrice ?? cashProduct.basePrice)
+      : Number(clinicPrices.foreignersPrice ?? cashProduct.foreignersPrice);
 
     details.push({
       productName: cashProduct.name,
@@ -898,6 +1176,22 @@ export const createPaymentForProducts = async (
       insuranceAmount: 0,
     };
   };
+  // First get the visit to know the clinicId
+  const visitForClinic = await db.visit.findUnique({
+    where: {
+      id: visitId,
+    },
+    select: {
+      clinicId: true,
+    },
+  });
+
+  if (!visitForClinic) {
+    throw new Error("Visit not found");
+  }
+
+  const clinicId = visitForClinic.clinicId;
+
   const products = await db.product.findMany({
     where: {
       id: {
@@ -910,8 +1204,12 @@ export const createPaymentForProducts = async (
       basePrice: true,
       foreignersPrice: true,
       insurancePrices: {
+        where: {
+          OR: [{ clinicId }, { clinicId: null }],
+        },
         select: {
           price: true,
+          clinicId: true,
           insuranceCompany: {
             select: {
               id: true,
@@ -963,25 +1261,35 @@ export const createPaymentForProducts = async (
 
   for (const productItem of products as SimpleProductForPayment[]) {
     if (visit.paymentMode === PaymentMode.INSURANCE) {
-      const d = addInsurancePaymentDetailInner({
+      const d = await addInsurancePaymentDetailInner({
         details: paymentDetails,
         product: productItem,
         visit: visit as SimpleVisitForPayment,
+        targetClinicId: clinicId,
       });
       amount += d.amount;
       insuranceAmount += d.insuranceAmount;
       patientAmount += d.patientAmount;
       continue;
     }
-    if (!productItem.basePrice) {
+
+    // Get clinic-specific prices for cash payments
+    const clinicPrices = await getClinicProductPrice(productItem.id, clinicId);
+    const effectiveBasePrice = clinicPrices.basePrice ?? productItem.basePrice;
+    const effectiveForeignersPrice =
+      clinicPrices.foreignersPrice ?? productItem.foreignersPrice;
+
+    if (effectiveBasePrice === null && effectiveForeignersPrice === null) {
       throw new Error(
         `Base price not defined for product: ${productItem.name}`
       );
     }
-    const d = addCashPaymentDetailInner({
+
+    const d = await addCashPaymentDetailInner({
       details: paymentDetails,
       product: productItem,
       visit: visit as SimpleVisitForPayment,
+      targetClinicId: clinicId,
     });
     amount += d.amount;
     patientAmount += d.patientAmount;

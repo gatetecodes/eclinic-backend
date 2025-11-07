@@ -9,6 +9,7 @@ import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { getScope } from "../../../lib/request-scope";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
@@ -18,9 +19,13 @@ export const getInsuranceClaims = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<InsuranceClaim>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<InsuranceClaim>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
-    const cacheKey = `insurance-claims:${user.clinicId ?? user.clinic.id}:${user.branchId ?? user.branch.id}:${JSON.stringify(params || {})}`;
+    const cacheKey = `insurance-claims:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
 
     const insuranceClaimsData = await getCachedData(
       cacheKey,
@@ -28,8 +33,6 @@ export const getInsuranceClaims = async (c: Context) => {
         const claims = await db.insuranceClaim.findMany({
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.InsuranceClaimWhereInput,
           orderBy: orderBy as Prisma.InsuranceClaimOrderByWithRelationInput,
           ...restOptions,
@@ -79,8 +82,6 @@ export const getInsuranceClaims = async (c: Context) => {
         const totalCount = await db.insuranceClaim.count({
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.InsuranceClaimWhereInput,
         });
 
@@ -88,8 +89,6 @@ export const getInsuranceClaims = async (c: Context) => {
           by: ["claimStatus"],
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.InsuranceClaimWhereInput,
           _sum: {
             totalAmount: true,
@@ -100,8 +99,6 @@ export const getInsuranceClaims = async (c: Context) => {
         const companiesWithClaims = await db.insuranceClaim.findMany({
           where: {
             ...where,
-            clinicId: user.clinicId ?? user.clinic.id,
-            branchId: user.branchId ?? user.branch.id,
           } as Prisma.InsuranceClaimWhereInput,
           select: {
             visit: {

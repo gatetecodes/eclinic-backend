@@ -55,6 +55,10 @@ model Clinic {
     entitlementOverrides EntitlementOverride[]
     entitlementUsages    EntitlementUsage[]
 
+    // Pricing
+    clinicProductPrices ClinicProductPrice[]
+    insurancePrices     InsurancePrice[]
+
     convertedAt DateTime?
 
     @@index([convertedAt])

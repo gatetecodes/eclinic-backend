@@ -290,40 +290,48 @@ export async function fetchDoctor(doctorId: number): Promise<IDoctor | null> {
 
 export async function findConsultationProduct(
   doctor: IDoctor,
-  department: { id: number; name: string }
+  department: { id: number; name: string },
+  clinicId: number
 ) {
   if (doctor.role === Role.DOCTOR) {
-    return await findDoctorConsultationProduct(department);
+    return await findDoctorConsultationProduct(department, clinicId);
   }
   if (doctor.role === Role.NURSE) {
     return findNurseConsultationProduct(
-      doctor.highestEducation as EducationLevel
+      doctor.highestEducation as EducationLevel,
+      clinicId
     );
   }
 }
 
-async function findDoctorConsultationProduct(department: {
-  id: number;
-  name: string;
-}) {
+async function findDoctorConsultationProduct(
+  department: {
+    id: number;
+    name: string;
+  },
+  clinicId: number
+) {
   const productName =
     department.name !== DefaultDepartments.MEDECINE_GENERAL
       ? Consultations.CONSULTATION_PAR_UN_SPECIALISTE
       : Consultations.CONSULTATION_PAR_UN_GENERALISTE_CHIRURGIEN_DENTISTE;
 
-  return await findProductByName(productName);
+  return await findProductByName(productName, clinicId);
 }
 
-async function findNurseConsultationProduct(educationLevel: EducationLevel) {
+async function findNurseConsultationProduct(
+  educationLevel: EducationLevel,
+  clinicId: number
+) {
   const productName =
     educationLevel === EducationLevel.A1
       ? Consultations.CONSULTATION_PAR_INFIRMIER_A1_DANS_UN_DISPENSAIRE
       : Consultations.CONSULTATION_PAR_INFIRMIER_A2_DANS_UN_DISPENSAIRE;
 
-  return await findProductByName(productName);
+  return await findProductByName(productName, clinicId);
 }
 
-async function findProductByName(name: string) {
+async function findProductByName(name: string, clinicId: number) {
   const searchTerms = name.split(" ").filter((term) => term.length > 2);
 
   const product = await db.product.findFirst({
@@ -338,7 +346,17 @@ async function findProductByName(name: string) {
     select: {
       id: true,
       name: true,
-      insurancePrices: { select: { id: true, price: true, priceWithCo: true } },
+      insurancePrices: {
+        where: {
+          OR: [{ clinicId }, { clinicId: null }],
+        },
+        select: {
+          id: true,
+          price: true,
+          priceWithCo: true,
+          clinicId: true,
+        },
+      },
       basePrice: true,
       unit: true,
       normalRange: true,
@@ -363,7 +381,8 @@ function parseDateString(dateString: string): Date {
 export const computeConsultationFee = async (
   doctorId: number,
   department: { id: number; name: string },
-  paymentMode: PaymentMode
+  paymentMode: PaymentMode,
+  clinicId: number
 ) => {
   try {
     const doctor = await fetchDoctor(doctorId);
@@ -378,15 +397,33 @@ export const computeConsultationFee = async (
 
     // if (!doctor.consultationFee) return { error: 'Consultation fee not set' };
 
-    const product = await findConsultationProduct(doctor, department);
+    const product = await findConsultationProduct(doctor, department, clinicId);
     if (product) {
-      return {
-        product,
-        fee:
-          paymentMode === PaymentMode.INSURANCE
-            ? product.insurancePrices[0].price
-            : product.basePrice,
-      };
+      // Get clinic-specific prices with fallback
+      const { getClinicProductPrice } = await import("./tariff-helpers");
+
+      if (paymentMode === PaymentMode.INSURANCE) {
+        // Find the first insurance price (clinic-specific or global)
+        const insurancePrice =
+          product.insurancePrices.find((ip) => ip.clinicId === clinicId) ||
+          product.insurancePrices.find((ip) => ip.clinicId === null);
+
+        if (insurancePrice) {
+          return {
+            product,
+            fee: Number(insurancePrice.price),
+          };
+        }
+      } else {
+        const clinicPrices = await getClinicProductPrice(product.id, clinicId);
+        const fee = clinicPrices.basePrice ?? product.basePrice;
+        if (fee) {
+          return {
+            product,
+            fee: Number(fee),
+          };
+        }
+      }
     }
     return { product, fee: doctor.consultationFee };
   } catch (error) {
