@@ -178,6 +178,7 @@ export const addHospitalizationProducts = async (c: Context) => {
         hospitalization: true,
         patientInsurance: true,
         paymentMode: true,
+        clinicId: true,
         payments: {
           where: {
             paymentType: PaymentType.HOSPITALIZATION,
@@ -203,24 +204,64 @@ export const addHospitalizationProducts = async (c: Context) => {
       let totalInsuranceAmount = 0;
       const paymentDetails: ProductDetailsT[] = [];
       const addedProducts = await Promise.all(
+        //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
         products.map(async (product) => {
+          const clinicId = visit.clinicId;
           const dbProduct = await db.product.findUnique({
             where: { id: product.productId },
             select: {
               name: true,
-              insurancePrices: true,
               basePrice: true,
+              foreignersPrice: true,
+              insurancePrices: {
+                where: {
+                  OR: [{ clinicId }, { clinicId: null }],
+                },
+                select: {
+                  price: true,
+                  clinicId: true,
+                  insuranceCompanyId: true,
+                },
+              },
+              clinicProductPrices: {
+                where: {
+                  clinicId,
+                },
+                select: {
+                  basePrice: true,
+                  foreignersPrice: true,
+                },
+                take: 1,
+              },
             },
           });
           if (!dbProduct) {
             throw new Error(`Product with id ${product.productId} not found`);
           }
+
+          // Get clinic-specific prices with fallback
+          const clinicPrice = dbProduct.clinicProductPrices?.[0];
+          const effectiveBasePrice =
+            clinicPrice?.basePrice ?? dbProduct.basePrice;
+          const effectiveForeignersPrice =
+            clinicPrice?.foreignersPrice ?? dbProduct.foreignersPrice;
+
           if (visit.paymentMode === PaymentMode.INSURANCE) {
-            const insurancePrice = dbProduct.insurancePrices.find(
-              (pr) =>
-                pr.insuranceCompanyId ===
-                visit.patientInsurance?.insuranceCompanyId
-            );
+            // Try clinic-specific insurance price first, then global
+            const insurancePrice =
+              dbProduct.insurancePrices.find(
+                (pr) =>
+                  pr.insuranceCompanyId ===
+                    visit.patientInsurance?.insuranceCompanyId &&
+                  pr.clinicId === clinicId
+              ) ||
+              dbProduct.insurancePrices.find(
+                (pr) =>
+                  pr.insuranceCompanyId ===
+                    visit.patientInsurance?.insuranceCompanyId &&
+                  pr.clinicId === null
+              );
+
             if (!insurancePrice) {
               throw new Error(
                 `Insurance price not defined for product: ${dbProduct.name}`
@@ -241,18 +282,18 @@ export const addHospitalizationProducts = async (c: Context) => {
               insuranceAmount: insuranceShare,
             });
           } else {
-            if (!dbProduct.basePrice) {
+            if (!(effectiveBasePrice || effectiveForeignersPrice)) {
               throw new Error(
                 `Base price not defined for product: ${dbProduct.name}`
               );
             }
-            totalCost += Number(dbProduct.basePrice) * product.quantity;
-            totalPatientAmount +=
-              Number(dbProduct.basePrice) * product.quantity;
+            const price = effectiveBasePrice ?? effectiveForeignersPrice ?? 0;
+            totalCost += Number(price) * product.quantity;
+            totalPatientAmount += Number(price) * product.quantity;
             paymentDetails.push({
               productName: dbProduct.name,
-              amount: Number(dbProduct.basePrice) * product.quantity,
-              patientAmount: Number(dbProduct.basePrice) * product.quantity,
+              amount: Number(price) * product.quantity,
+              patientAmount: Number(price) * product.quantity,
               insuranceAmount: 0,
             });
           }

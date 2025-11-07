@@ -24,6 +24,7 @@ model Product {
     invoices                Invoice[]
     exams                   Exam[]
     insurancePrices         InsurancePrice[]
+    clinicProductPrices     ClinicProductPrice[]
     hospitalizationProducts HospitalizationProduct[]
     insuranceClaimItems     InsuranceClaimItem[]
     consultations           Visit[]
@@ -42,9 +43,29 @@ model InsurancePrice {
     priceWithCo        Decimal?
     insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
     insuranceCompanyId Int
+    clinic             Clinic?          @relation(fields: [clinicId], references: [id])
+    clinicId           Int?
     priceType          PriceType?
 
-    @@unique([productId, insuranceCompanyId])
+    @@unique([productId, insuranceCompanyId, clinicId])
+    @@index([clinicId])
+    @@index([productId, clinicId])
+}
+
+model ClinicProductPrice {
+    id              Int      @id @default(autoincrement())
+    clinic          Clinic   @relation(fields: [clinicId], references: [id])
+    clinicId        Int
+    product         Product  @relation(fields: [productId], references: [id])
+    productId       Int
+    basePrice       Decimal? @db.Decimal(10, 2)
+    foreignersPrice Decimal? @db.Decimal(10, 2)
+    createdAt       DateTime @default(now())
+    updatedAt       DateTime @updatedAt
+
+    @@unique([clinicId, productId])
+    @@index([clinicId])
+    @@index([productId])
 }
 
 enum PriceType {

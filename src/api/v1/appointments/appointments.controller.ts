@@ -19,6 +19,7 @@ import type { z } from "zod";
 import { buildQueryOptions } from "@/helpers/query-helper.ts";
 import { searchParamsSchema } from "@/lib/common-validation.ts";
 import { httpCodes } from "@/lib/constants.ts";
+import { getScope } from "@/lib/request-scope.ts";
 import {
   ActivityType,
   type Event,
@@ -418,15 +419,17 @@ export const getAppointments = async (c: Context) => {
     const doctorId = c.req.query("doctorId");
 
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<Event>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<Event>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
 
     const appointments = await db.event.findMany({
       ...restOptions,
       where: {
         ...where,
-        clinicId: user.clinicId,
-        branchId: user.branchId,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
@@ -457,8 +460,6 @@ export const getAppointments = async (c: Context) => {
     const totalCount = await db.event.count({
       where: {
         ...where,
-        clinicId: user.clinicId,
-        branchId: user.branchId,
         type: "APPOINTMENT",
         doctorId: doctorId ? Number(doctorId) : undefined,
       },
