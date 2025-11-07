@@ -15,7 +15,10 @@ function setDeep(
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
     const next = current[key];
-    if (typeof next !== "object" || next === null) {
+
+    if (typeof next === "object" && next !== null) {
+      current[key] = { ...next } as Record<string, unknown>;
+    } else {
       current[key] = {} as Record<string, unknown>;
     }
     current = current[key] as Record<string, unknown>;

@@ -854,27 +854,30 @@ export const updateProductPricing = async (c: Context) => {
       },
     });
 
-    // Delete existing clinic-specific insurance prices for this product and clinic
-    await db.insurancePrice.deleteMany({
-      where: {
-        productId,
-        clinicId,
-      },
-    });
-
-    // Create new clinic-specific insurance prices
-    if (insurancePrices.length > 0) {
-      await db.insurancePrice.createMany({
-        data: insurancePrices.map((ip) => ({
-          price: ip.price,
-          priceWithCo: ip.priceWithCo ?? undefined,
-          priceType: ip.priceType ?? PriceType.PRIVATE,
-          insuranceCompanyId: Number.parseInt(ip.companyId, 10),
+    // Replace delete-then-insert with a single atomic transaction
+    await db.$transaction(async (tx) => {
+      // Delete existing insurance prices within the transaction to prevent races
+      await tx.insurancePrice.deleteMany({
+        where: {
           productId,
           clinicId,
-        })),
+        },
       });
-    }
+
+      // Insert new clinic-specific insurance prices if provided
+      if (insurancePrices.length > 0) {
+        await tx.insurancePrice.createMany({
+          data: insurancePrices.map((ip) => ({
+            price: ip.price,
+            priceWithCo: ip.priceWithCo ?? undefined,
+            priceType: ip.priceType ?? PriceType.PRIVATE,
+            insuranceCompanyId: Number.parseInt(ip.companyId, 10),
+            productId,
+            clinicId,
+          })),
+        });
+      }
+    });
 
     // Fetch updated product with clinic-specific pricing
     const updatedProduct = await db.product.findUnique({

@@ -287,13 +287,15 @@ export const addHospitalizationProducts = async (c: Context) => {
                 `Base price not defined for product: ${dbProduct.name}`
               );
             }
-            const price = effectiveBasePrice ?? effectiveForeignersPrice ?? 0;
-            totalCost += Number(price) * product.quantity;
-            totalPatientAmount += Number(price) * product.quantity;
+            const unitPrice = Number(
+              effectiveBasePrice ?? effectiveForeignersPrice
+            );
+            totalCost += unitPrice * product.quantity;
+            totalPatientAmount += unitPrice * product.quantity;
             paymentDetails.push({
               productName: dbProduct.name,
-              amount: Number(price) * product.quantity,
-              patientAmount: Number(price) * product.quantity,
+              amount: unitPrice * product.quantity,
+              patientAmount: unitPrice * product.quantity,
               insuranceAmount: 0,
             });
           }
