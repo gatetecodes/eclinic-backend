@@ -51,14 +51,18 @@ export const getExams = async (c: Context) => {
     const queryOptions = buildQueryOptions<Exam>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
+    const scopedWhere: Prisma.ExamWhereInput = {
+      ...(where as Prisma.ExamWhereInput),
+      visit: {
+        ...(((where as Prisma.ExamWhereInput).visit ??
+          {}) as Prisma.VisitWhereInput),
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
+    };
+
     const exams = await db.exam.findMany({
-      where: {
-        ...where,
-        visit: {
-          ...(typeof clinicId === "number" ? { clinicId } : {}),
-          ...(typeof branchId === "number" ? { branchId } : {}),
-        },
-      } as Prisma.ExamWhereInput,
+      where: scopedWhere,
       orderBy: orderBy as Prisma.ExamOrderByWithRelationInput,
       ...restOptions,
       include: {
@@ -115,13 +119,7 @@ export const getExams = async (c: Context) => {
     });
 
     const totalCount = await db.exam.count({
-      where: {
-        ...where,
-        visit: {
-          ...(typeof clinicId === "number" ? { clinicId } : {}),
-          ...(typeof branchId === "number" ? { branchId } : {}),
-        },
-      } as Prisma.ExamWhereInput,
+      where: scopedWhere,
     });
 
     const pageCount = restOptions.take
