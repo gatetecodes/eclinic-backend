@@ -4,6 +4,7 @@ import {
   PaymentStatus,
   type PaymentType,
   PriceType,
+  Role,
   Unit,
 } from "../../generated/prisma";
 import { db } from "../database/db";
@@ -1333,3 +1334,16 @@ export const createPaymentForProducts = async (
 
   return payment;
 };
+
+export function getTargetClinicId(
+  user: { role: Role; clinicId: number },
+  clinicIdFromScope: number | undefined
+): number | undefined {
+  if (typeof clinicIdFromScope === "number") {
+    return clinicIdFromScope;
+  }
+  if (user.role !== Role.SUPER_ADMIN) {
+    return user.clinicId;
+  }
+  return;
+}

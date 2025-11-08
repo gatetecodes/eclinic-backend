@@ -3,7 +3,6 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   type Prisma,
-  Role,
   type Visit,
   VisitStatus,
 } from "../../../../../generated/prisma";
@@ -11,11 +10,13 @@ import { db } from "../../../../database/db";
 import { buildQueryOptions } from "../../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../../lib/common-validation";
 import { httpCodes } from "../../../../lib/constants";
+import { getScope } from "../../../../lib/request-scope";
 
 export const getVisitsWithPrescriptions = async (c: Context) => {
   try {
     const params = searchParamsSchema.parse(c.req.query());
     const user = c.get("user");
+    const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Visit>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -23,8 +24,8 @@ export const getVisitsWithPrescriptions = async (c: Context) => {
       ...restOptions,
       where: {
         ...where,
-        clinicId: user.clinic.id,
-        branchId: user.role !== Role.CLINIC_ADMIN ? user.branch.id : undefined,
+        ...(Number.isFinite(clinicId) ? { clinicId } : {}),
+        ...(Number.isFinite(branchId) ? { branchId } : {}),
         status: VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
         prescriptions: { some: { status: "ISSUED" } },
       } as Prisma.VisitWhereInput,
@@ -44,16 +45,19 @@ export const getVisitsWithPrescriptions = async (c: Context) => {
 export const getTodaysVisits = async (c: Context) => {
   try {
     const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
     const start = startOfToday();
     const end = endOfToday();
+    const { clinicId, branchId } = getScope(user, params);
+
     const visits = await db.visit.findMany({
       where: {
         OR: [
           { status: VisitStatus.ADMITTED },
           { createdAt: { gte: start, lte: end } },
         ],
-        clinicId: user.clinic.id,
-        branchId: user.role !== Role.CLINIC_ADMIN ? user.branch.id : undefined,
+        ...(Number.isFinite(clinicId) ? { clinicId } : {}),
+        ...(Number.isFinite(branchId) ? { branchId } : {}),
       },
       select: {
         id: true,
@@ -74,14 +78,15 @@ export const exportVisits = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Visit>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
     const visits = await db.visit.findMany({
       ...restOptions,
       where: {
         ...(where as Prisma.VisitWhereInput),
-        clinicId: user.clinic.id,
-        branchId: user.role !== Role.CLINIC_ADMIN ? user.branch.id : undefined,
+        ...(Number.isFinite(clinicId) ? { clinicId } : {}),
+        ...(Number.isFinite(branchId) ? { branchId } : {}),
       },
       orderBy: orderBy as Prisma.VisitOrderByWithRelationInput,
       select: {

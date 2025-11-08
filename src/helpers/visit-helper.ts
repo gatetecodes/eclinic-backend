@@ -23,6 +23,7 @@ import {
   generatePatientId,
   parseNationalityFromPhoneNumber,
 } from "../lib/utils";
+import { invalidateCache } from "../services/redis.service";
 
 type VisitSchemaType = z.infer<typeof visitSchema>;
 type PaymentModeType = z.infer<typeof addPaymentMethodSchema>;
@@ -150,6 +151,19 @@ export async function getOrCreatePatient(
       branches: branchId ? { connect: { id: branchId } } : undefined,
     },
   });
+
+  // Invalidate patient phone search cache for this clinic to avoid stale 404s
+  if (clinicId) {
+    const phoneNumbersToInvalidate = [
+      patientData.phoneNumber,
+      patientData.guardianPhoneNumber,
+    ].filter(Boolean) as string[];
+    await Promise.all(
+      phoneNumbersToInvalidate.map((pn) =>
+        invalidateCache(`patients:phone:${clinicId}:${pn}`)
+      )
+    );
+  }
 
   return { patientId: newPatient.id, isNewPatient: true };
 }
