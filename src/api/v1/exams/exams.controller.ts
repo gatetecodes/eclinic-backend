@@ -19,6 +19,7 @@ import {
 } from "../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { getScope } from "../../../lib/request-scope";
 import {
   createExamSchema,
   createExamTestSchema,
@@ -46,6 +47,7 @@ export const getExams = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Exam>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -53,8 +55,8 @@ export const getExams = async (c: Context) => {
       where: {
         ...where,
         visit: {
-          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
-          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       } as Prisma.ExamWhereInput,
       orderBy: orderBy as Prisma.ExamOrderByWithRelationInput,
@@ -116,8 +118,8 @@ export const getExams = async (c: Context) => {
       where: {
         ...where,
         visit: {
-          clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
-          branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       } as Prisma.ExamWhereInput,
     });
@@ -832,14 +834,15 @@ export const getExamResults = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<ExamResult>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
     const results = await db.examResult.findMany({
       where: {
         ...where,
-        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
-        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
       } as Prisma.ExamResultWhereInput,
       orderBy: orderBy as Prisma.ExamResultOrderByWithRelationInput,
       ...restOptions,
@@ -876,8 +879,8 @@ export const getExamResults = async (c: Context) => {
     const totalCount = await db.examResult.count({
       where: {
         ...where,
-        clinicId: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
-        branchId: user.role === Role.SUPER_ADMIN ? undefined : user.branchId,
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
       } as Prisma.ExamResultWhereInput,
     });
 
@@ -1151,20 +1154,25 @@ export const getExamTests = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId } = getScope(user, params);
     const queryOptions = buildQueryOptions<ExamTest>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
+    const whereInputFind: Prisma.ExamTestWhereInput = {
+      ...(where as Prisma.ExamTestWhereInput),
+    };
+    if (typeof clinicId === "number") {
+      whereInputFind.product = {
+        clinics: { some: { id: clinicId } },
+      } as Prisma.ExamTestWhereInput["product"];
+    } else if (user.role !== Role.SUPER_ADMIN) {
+      whereInputFind.product = {
+        clinics: { some: { id: user.clinic.id } },
+      } as Prisma.ExamTestWhereInput["product"];
+    }
+
     const tests = await db.examTest.findMany({
-      where: {
-        ...where,
-        product: {
-          clinics: {
-            some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-            },
-          },
-        },
-      } as Prisma.ExamTestWhereInput,
+      where: whereInputFind,
       orderBy: orderBy as Prisma.ExamTestOrderByWithRelationInput,
       ...restOptions,
       include: {
@@ -1185,18 +1193,20 @@ export const getExamTests = async (c: Context) => {
       },
     });
 
-    const totalCount = await db.examTest.count({
-      where: {
-        ...where,
-        product: {
-          clinics: {
-            some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinic.id,
-            },
-          },
-        },
-      } as Prisma.ExamTestWhereInput,
-    });
+    const whereInputCount: Prisma.ExamTestWhereInput = {
+      ...(where as Prisma.ExamTestWhereInput),
+    };
+    if (typeof clinicId === "number") {
+      whereInputCount.product = {
+        clinics: { some: { id: clinicId } },
+      } as Prisma.ExamTestWhereInput["product"];
+    } else if (user.role !== Role.SUPER_ADMIN) {
+      whereInputCount.product = {
+        clinics: { some: { id: user.clinic.id } },
+      } as Prisma.ExamTestWhereInput["product"];
+    }
+
+    const totalCount = await db.examTest.count({ where: whereInputCount });
 
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)

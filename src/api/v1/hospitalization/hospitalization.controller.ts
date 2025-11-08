@@ -19,6 +19,7 @@ import { logActivity } from "../../../helpers/activity-helpers";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { getScope } from "../../../lib/request-scope";
 import { addProductSchema } from "./hospitalization.validation";
 
 type ProductDetailsT = {
@@ -482,13 +483,15 @@ export const getHospitalizations = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<Hospitalization>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<Hospitalization>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
     const hospitalizations = await db.hospitalization.findMany({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.HospitalizationWhereInput,
       orderBy: orderBy as Prisma.HospitalizationOrderByWithRelationInput,
       ...restOptions,
@@ -542,8 +545,6 @@ export const getHospitalizations = async (c: Context) => {
     const totalCount = await db.hospitalization.count({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.HospitalizationWhereInput,
     });
     const pageCount = restOptions.take
@@ -567,13 +568,15 @@ export const getHospitalizationRooms = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<Room>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<Room>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
     const rooms = await db.room.findMany({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomWhereInput,
       orderBy: orderBy as Prisma.RoomOrderByWithRelationInput,
       ...restOptions,
@@ -602,8 +605,6 @@ export const getHospitalizationRooms = async (c: Context) => {
     const totalCount = await db.room.count({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomWhereInput,
     });
     const pageCount = restOptions.take
@@ -627,13 +628,15 @@ export const getHospitalizationRoomPrices = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const queryOptions = buildQueryOptions<RoomPrice>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<RoomPrice>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
     const roomPrices = await db.roomPrice.findMany({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomPriceWhereInput,
 
       orderBy: orderBy as Prisma.RoomPriceOrderByWithRelationInput,
@@ -642,8 +645,6 @@ export const getHospitalizationRoomPrices = async (c: Context) => {
     const totalCount = await db.roomPrice.count({
       where: {
         ...where,
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
       } as Prisma.RoomPriceWhereInput,
     });
     const pageCount = restOptions.take
@@ -742,10 +743,11 @@ export const getRoomsByClass = async (c: Context) => {
   try {
     const user = c.get("user");
     const roomClass = c.req.query("roomClass");
+    const { clinicId, branchId } = getScope(user, c.req.query());
     const rooms = await db.room.findMany({
       where: {
-        clinicId: user.clinicId ?? user.clinic.id,
-        branchId: user.branchId ?? user.branch.id,
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
         class: roomClass as RoomClass,
       },
     });

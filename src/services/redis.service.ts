@@ -74,10 +74,15 @@ export const CACHE_KEYS = {
 
 export type RoleType = keyof typeof CACHE_KEYS.ROLE_STATS;
 
+type GetCachedDataOptions = {
+  cacheEmpty?: boolean;
+};
+
 export async function getCachedData<T>(
   key: string,
   fetchFn: () => Promise<T>,
-  ttl: number = DEFAULT_CACHE_TTL.MEDIUM
+  ttl: number = DEFAULT_CACHE_TTL.MEDIUM,
+  options?: GetCachedDataOptions
 ): Promise<T> {
   const cached = await redis.get(key);
 
@@ -98,7 +103,14 @@ export async function getCachedData<T>(
   cacheStats.keys[baseKey].misses++;
 
   const data = await fetchFn();
-  await redis.setex(key, ttl, JSON.stringify(data));
+  // Optionally avoid caching empty array or null-ish results
+  const shouldSkipCache =
+    options?.cacheEmpty === false &&
+    (Array.isArray(data) ? data.length === 0 : data == null);
+
+  if (!shouldSkipCache) {
+    await redis.setex(key, ttl, JSON.stringify(data));
+  }
   return data;
 }
 

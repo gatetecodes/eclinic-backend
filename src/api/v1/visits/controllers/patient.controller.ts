@@ -8,7 +8,7 @@ export const getPatientsByPhone = async (c: Context) => {
   try {
     const user = c.get("user");
     const phone = c.get("validatedJson") as string;
-    const cacheKey = `patients:phone:${phone}`;
+    const cacheKey = `patients:phone:${user.clinicId}:${phone}`;
     const patients = await getCachedData(
       cacheKey,
       async () =>
@@ -43,7 +43,9 @@ export const getPatientsByPhone = async (c: Context) => {
               },
             },
           },
-        })
+        }),
+      undefined,
+      { cacheEmpty: false }
     );
     if (!patients.length) {
       return c.json(
