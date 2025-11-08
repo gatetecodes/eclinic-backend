@@ -5,6 +5,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
 import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
+import { getScope } from "@/lib/request-scope";
 import {
   type InventoryBatch,
   type InventoryItem,
@@ -74,8 +75,12 @@ export const getInventoryItems = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:${JSON.stringify(params || {})}`;
-    const queryOptions = buildQueryOptions<InventoryItem>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const cacheKey = `inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
+    const queryOptions = buildQueryOptions<InventoryItem>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
 
     const { where, orderBy, ...restOptions } = queryOptions;
     const inventoryItems = await getCachedData(
@@ -84,7 +89,6 @@ export const getInventoryItems = async (c: Context) => {
         return await db.inventoryItem.findMany({
           where: {
             ...where,
-            clinicId: user.clinicId,
           },
           orderBy: orderBy as Prisma.InventoryItemOrderByWithRelationInput,
           ...restOptions,
@@ -96,7 +100,7 @@ export const getInventoryItems = async (c: Context) => {
       DEFAULT_CACHE_TTL.MEDIUM
     );
     const totalCount = await db.inventoryItem.count({
-      where: { ...where, clinicId: user.clinicId },
+      where: { ...where },
     });
 
     const pageCount = restOptions.take
@@ -266,7 +270,8 @@ export const getInventoryBatches = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:${JSON.stringify(params || {})}`;
+    const { clinicId, branchId } = getScope(user, params);
+    const cacheKey = `inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
 
     const queryOptions = buildQueryOptions<InventoryBatch>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
@@ -276,8 +281,8 @@ export const getInventoryBatches = async (c: Context) => {
         where: {
           ...where,
           item: {
-            clinicId: user.clinicId,
-            branchId: user.branchId,
+            ...(typeof clinicId === "number" ? { clinicId } : {}),
+            ...(typeof branchId === "number" ? { branchId } : {}),
           },
         },
         orderBy: orderBy as Prisma.InventoryBatchOrderByWithRelationInput,
@@ -291,8 +296,8 @@ export const getInventoryBatches = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId,
-          branchId: user.branchId,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       },
     });
@@ -604,7 +609,8 @@ export const getStockTransactions = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
-    const cacheKey = `inventory:${user.clinicId}:${user.branchId}:stock-transactions`;
+    const { clinicId, branchId } = getScope(user, params);
+    const cacheKey = `inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:stock-transactions`;
     const queryOptions = buildQueryOptions<Transaction>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -613,8 +619,8 @@ export const getStockTransactions = async (c: Context) => {
         where: {
           ...where,
           item: {
-            clinicId: user.clinicId,
-            branchId: user.branchId,
+            ...(typeof clinicId === "number" ? { clinicId } : {}),
+            ...(typeof branchId === "number" ? { branchId } : {}),
           },
         },
         orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
@@ -629,8 +635,8 @@ export const getStockTransactions = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId,
-          branchId: user.branchId,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       },
     });
@@ -661,14 +667,15 @@ export const getInventoryTransactions = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Transaction>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
     const transactions = await db.transaction.findMany({
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId ?? user.clinic.id,
-          branchId: user.branchId ?? user.branch.id,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       },
       orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
@@ -703,8 +710,8 @@ export const getInventoryTransactions = async (c: Context) => {
       where: {
         ...where,
         item: {
-          clinicId: user.clinicId,
-          branchId: user.branchId,
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
         },
       },
     });

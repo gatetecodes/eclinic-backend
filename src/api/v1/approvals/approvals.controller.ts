@@ -2,6 +2,8 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils.ts";
 import { httpCodes } from "@/lib/constants";
+import { getScope } from "@/lib/request-scope.ts";
+import type { Prisma } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
 import {
   createApprovalSchema,
@@ -115,13 +117,19 @@ export const getApprovalRequests = async (c: Context) => {
     const orderByDirection =
       (query.orderByDirection as "asc" | "desc") || "desc";
 
+    const { clinicId, branchId } = getScope(user, query);
+
+    const where: Prisma.ApprovalWhereInput = {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    };
+
     const [approvalRequests, totalCount] = await Promise.all([
       db.approval.findMany({
         take,
         skip,
         where: {
-          clinicId: Number(user.clinicId ?? user.clinic.id),
-          branchId: Number(user.branchId ?? user.branch.id),
+          ...where,
         },
         orderBy: { [orderByField]: orderByDirection },
         select: {
@@ -137,8 +145,7 @@ export const getApprovalRequests = async (c: Context) => {
       }),
       db.approval.count({
         where: {
-          clinicId: Number(user.clinicId ?? user.clinic.id),
-          branchId: Number(user.branchId ?? user.branch.id),
+          ...where,
         },
       }),
     ]);

@@ -24,6 +24,7 @@ import {
   SpecialInsurers,
 } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
+import { getScope } from "../../../lib/request-scope";
 import {
   createProductSchema,
   importProductsSchema,
@@ -116,8 +117,16 @@ export const getTariff = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Product>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
+
+    let targetClinicId: number | undefined;
+    if (typeof clinicId === "number") {
+      targetClinicId = clinicId;
+    } else if (user.role !== Role.SUPER_ADMIN) {
+      targetClinicId = user.clinicId;
+    }
 
     const products = await db.product.findMany({
       ...restOptions,
@@ -125,7 +134,7 @@ export const getTariff = async (c: Context) => {
         ...where,
         clinics: {
           some: {
-            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+            id: targetClinicId,
           },
         },
       } as Prisma.ProductWhereInput,
@@ -176,7 +185,7 @@ export const getTariff = async (c: Context) => {
         ...where,
         clinics: {
           some: {
-            id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+            id: targetClinicId,
           },
         },
       } as Prisma.ProductWhereInput,
@@ -216,11 +225,18 @@ export const getProductsList = async (c: Context) => {
       ? departmentIds.split(".").map(Number)
       : undefined;
 
+    const { clinicId } = getScope(user, c.req.query());
+    let targetClinicId: number | undefined;
+    if (typeof clinicId === "number") {
+      targetClinicId = clinicId;
+    } else if (user.role !== Role.SUPER_ADMIN) {
+      targetClinicId = user.clinicId;
+    }
     const where = parsedDepartmentIds
       ? {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+              id: targetClinicId,
             },
           },
           departments: {
@@ -234,7 +250,7 @@ export const getProductsList = async (c: Context) => {
       : {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+              id: targetClinicId,
             },
           },
         };
@@ -278,11 +294,18 @@ export const getProductsListWithPricing = async (c: Context) => {
       ? departmentIds.split(".").map(Number)
       : undefined;
 
+    const { clinicId } = getScope(user, c.req.query());
+    let targetClinicId: number | undefined;
+    if (typeof clinicId === "number") {
+      targetClinicId = clinicId;
+    } else if (user.role !== Role.SUPER_ADMIN) {
+      targetClinicId = user.clinicId;
+    }
     const where = parsedDepartmentIds
       ? {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+              id: targetClinicId,
             },
           },
           departments: {
@@ -296,12 +319,12 @@ export const getProductsListWithPricing = async (c: Context) => {
       : {
           clinics: {
             some: {
-              id: user.role === Role.SUPER_ADMIN ? undefined : user.clinicId,
+              id: targetClinicId,
             },
           },
         };
 
-    const clinicId = user.role === Role.SUPER_ADMIN ? undefined : user.clinicId;
+    const scopedClinicId = targetClinicId;
 
     const products = await db.product.findMany({
       where,
@@ -312,10 +335,10 @@ export const getProductsListWithPricing = async (c: Context) => {
         category: true,
         basePrice: true,
         foreignersPrice: true,
-        clinicProductPrices: clinicId
+        clinicProductPrices: scopedClinicId
           ? {
               where: {
-                clinicId,
+                clinicId: scopedClinicId,
               },
               select: {
                 basePrice: true,
@@ -325,9 +348,9 @@ export const getProductsListWithPricing = async (c: Context) => {
             }
           : undefined,
         insurancePrices: {
-          where: clinicId
+          where: scopedClinicId
             ? {
-                OR: [{ clinicId }, { clinicId: null }],
+                OR: [{ clinicId: scopedClinicId }, { clinicId: null }],
               }
             : undefined,
           select: {
@@ -362,10 +385,10 @@ export const getProductsListWithPricing = async (c: Context) => {
         foreignersPrice:
           clinicPrice?.foreignersPrice ?? product.foreignersPrice,
         // Filter insurance prices to prefer clinic-specific, then global
-        insurancePrices: clinicId
+        insurancePrices: scopedClinicId
           ? (() => {
               const clinicSpecific = product.insurancePrices.filter(
-                (ip) => ip.clinicId === clinicId
+                (ip) => ip.clinicId === scopedClinicId
               );
               const global = product.insurancePrices.filter(
                 (ip) => ip.clinicId === null
