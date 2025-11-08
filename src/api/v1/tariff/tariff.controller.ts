@@ -14,6 +14,7 @@ import {
   createNewInsurancePrice,
   createNewProduct,
   findExistingProduct,
+  getTargetClinicId,
   handleExistingProduct,
   type ProductCSVRow,
 } from "../../../helpers/tariff-helpers";
@@ -118,25 +119,26 @@ export const getTariff = async (c: Context) => {
 
     const params = searchParamsSchema.parse(c.req.query());
     const { clinicId } = getScope(user, params);
+    const targetClinicId = getTargetClinicId(user, clinicId);
     const queryOptions = buildQueryOptions<Product>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
-    let targetClinicId: number | undefined;
-    if (typeof clinicId === "number") {
-      targetClinicId = clinicId;
-    } else if (user.role !== Role.SUPER_ADMIN) {
-      targetClinicId = user.clinicId;
+    if (!targetClinicId) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
     }
+
+    const clinicFilter = targetClinicId
+      ? { clinics: { some: { id: targetClinicId } } }
+      : {}; // Explicitly show all products when targetClinicId is undefined
 
     const products = await db.product.findMany({
       ...restOptions,
       where: {
         ...where,
-        clinics: {
-          some: {
-            id: targetClinicId,
-          },
-        },
+        ...clinicFilter,
       } as Prisma.ProductWhereInput,
       orderBy: orderBy as Prisma.ProductOrderByWithRelationInput,
       select: {

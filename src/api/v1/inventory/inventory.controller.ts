@@ -76,7 +76,7 @@ export const getInventoryItems = async (c: Context) => {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
     const { clinicId, branchId } = getScope(user, params);
-    const cacheKey = `inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
+    const cacheKey = `inventory-items:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
     const queryOptions = buildQueryOptions<InventoryItem>(params, {
       ...(typeof clinicId === "number" ? { clinicId } : {}),
       ...(typeof branchId === "number" ? { branchId } : {}),
@@ -271,8 +271,7 @@ export const getInventoryBatches = async (c: Context) => {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
     const { clinicId, branchId } = getScope(user, params);
-    const cacheKey = `inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
-
+    const cacheKey = `inventory-batches:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
     const queryOptions = buildQueryOptions<InventoryBatch>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
