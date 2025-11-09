@@ -3,15 +3,13 @@ import {
   addMonths,
   endOfDay,
   endOfMonth,
+  endOfWeek,
   format,
   isBefore,
   parse,
-  setMilliseconds,
-  setMinutes,
-  setSeconds,
   startOfDay,
   startOfMonth,
-  subDays,
+  startOfWeek,
 } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -25,14 +23,18 @@ import {
   type Event,
   EventType,
   type Prisma,
+  type TimesheetPeriod,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { getOrCreatePatient } from "../../../helpers/visit-helper.ts";
 import { invalidateAppointmentRelatedCaches } from "../../../lib/cache-utils.ts";
+import { getUserAvailability } from "../../../services/availability.service.ts";
 import {
+  CACHE_KEYS,
   DEFAULT_CACHE_TTL,
   getCachedData,
+  invalidateCache,
 } from "../../../services/redis.service.ts";
 import {
   type eventSchema,
@@ -40,7 +42,6 @@ import {
   type scheduleSchema,
 } from "./appointments.validation.ts";
 
-//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getDoctorAvailability = async (c: Context) => {
   try {
     const parsed = getDoctorAvailabilityParamsSchema.safeParse(c.req.query());
@@ -52,20 +53,12 @@ export const getDoctorAvailability = async (c: Context) => {
     }
     // date is a JavaScript Date object, e.g. 2024-06-01T00:00:00.000Z
     const { doctorId, date } = parsed.data;
-
-    const targetDay = date.getDay();
-    const prevDay = subDays(date, 1).getDay();
-
-    const potentialSchedules = await db.doctorAvailability.findMany({
-      where: {
-        doctorId,
-        OR: [{ startDayOfWeek: targetDay }, { startDayOfWeek: prevDay }],
-      },
+    // Compute generic availability from staff timesheets
+    const { availableTimes: rawTimes } = await getUserAvailability({
+      userId: doctorId,
+      date,
+      slotMinutes: 60,
     });
-    if (potentialSchedules.length === 0) {
-      return c.json({ data: { availableTimes: [] } });
-    }
-
     const startOfTargetDay = startOfDay(date);
     const endOfTargetDay = endOfDay(date);
     const existingAppointments = await db.event.findMany({
@@ -80,67 +73,7 @@ export const getDoctorAvailability = async (c: Context) => {
     const bookedTimes = new Set(
       existingAppointments.map((a) => format(a.startTime, "HH:mm"))
     );
-
-    const availableTimesSet = new Set<string>();
-    for (const schedule of potentialSchedules) {
-      if (
-        schedule.startDayOfWeek == null ||
-        schedule.endDayOfWeek == null ||
-        schedule.startTime == null ||
-        schedule.endTime == null
-      ) {
-        continue;
-      }
-      const scheduleStartDate = subDays(
-        date,
-        targetDay - schedule.startDayOfWeek
-      );
-      const scheduleEndDate = subDays(date, targetDay - schedule.endDayOfWeek);
-      const startTime = parse(
-        schedule.startTime as string,
-        "HH:mm",
-        scheduleStartDate
-      );
-      let endTime = parse(schedule.endTime as string, "HH:mm", scheduleEndDate);
-      if (isBefore(endTime, startTime)) {
-        endTime = addMinutes(endTime, 24 * 60);
-      }
-      const effectiveStartTime = new Date(
-        Math.max(startTime.getTime(), startOfTargetDay.getTime())
-      );
-      const effectiveEndTime = new Date(
-        Math.min(endTime.getTime(), endOfTargetDay.getTime())
-      );
-      let currentTime = effectiveStartTime;
-      if (isBefore(currentTime, effectiveEndTime)) {
-        while (isBefore(currentTime, effectiveEndTime)) {
-          if (currentTime.getMinutes() === 0) {
-            const timeSlot = format(currentTime, "HH:mm");
-            if (!bookedTimes.has(timeSlot)) {
-              availableTimesSet.add(timeSlot);
-            }
-          }
-          currentTime = addMinutes(currentTime, 1);
-          if (
-            currentTime.getMinutes() !== 0 &&
-            isBefore(currentTime, effectiveEndTime)
-          ) {
-            currentTime = setMinutes(
-              setSeconds(
-                setMilliseconds(
-                  addMinutes(currentTime, 60 - currentTime.getMinutes()),
-                  0
-                ),
-                0
-              ),
-              0
-            );
-          }
-        }
-      }
-    }
-
-    const availableTimes = Array.from(availableTimesSet).sort();
+    const availableTimes = rawTimes.filter((t) => !bookedTimes.has(t)).sort();
     return c.json({
       status: httpCodes.OK,
       message: "Doctor availability fetched successfully",
@@ -156,42 +89,87 @@ export const getDoctorAvailability = async (c: Context) => {
 
 export const updateDoctorAvailability = async (c: Context) => {
   try {
+    const authUser = c.get("user");
     const doctorId = Number(c.req.param("doctorId"));
     const payload = c.get("validatedJson") as z.infer<typeof scheduleSchema>;
 
-    const scheduleByDay = payload.reduce(
-      (acc, slot) => {
-        if (!acc[slot.dayOfWeek]) {
-          acc[slot.dayOfWeek] = [] as z.infer<typeof scheduleSchema>;
-        }
-        acc[slot.dayOfWeek]?.push(slot);
-        return acc;
-      },
-      {} as Record<number, z.infer<typeof scheduleSchema> | undefined>
-    );
+    const doctor = await db.user.findUnique({
+      where: { id: doctorId },
+      select: { id: true, clinicId: true },
+    });
+    if (!doctor || doctor.clinicId == null) {
+      return c.json(
+        { error: "Doctor not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const doctorClinicId = doctor.clinicId;
+
+    // Calculate current week boundaries (Sunday to Saturday)
+    const now = new Date();
+    const weekStart = startOfWeek(now, { weekStartsOn: 0 }); // Sunday
+    const weekEnd = endOfWeek(now, { weekStartsOn: 0 }); // Saturday
 
     await db.$transaction(async (tx) => {
-      const daysToKeep = Object.keys(scheduleByDay).map((d) => Number(d));
-      await tx.doctorAvailability.deleteMany({
-        where: { doctorId, dayOfWeek: { notIn: daysToKeep } },
+      // Deactivate existing weekly timesheets for this doctor
+      await tx.staffTimesheet.updateMany({
+        where: {
+          userId: doctor.id,
+          periodType: "WEEK" as TimesheetPeriod,
+          isActive: true,
+        },
+        data: { isActive: false },
       });
-      for (const [dayStr, slots] of Object.entries(scheduleByDay)) {
-        const day = Number(dayStr);
-        await tx.doctorAvailability.deleteMany({
-          where: { doctorId, dayOfWeek: day },
-        });
-        for (const slot of slots ?? []) {
-          await tx.doctorAvailability.create({
-            data: {
-              doctorId,
-              dayOfWeek: day,
-              startTime: slot.startTime,
-              endTime: slot.endTime,
-            },
+      const timesheet = await tx.staffTimesheet.create({
+        data: {
+          userId: doctor.id,
+          clinicId: doctorClinicId,
+          periodType: "WEEK" as TimesheetPeriod,
+          startDate: weekStart,
+          endDate: weekEnd,
+          isActive: true,
+        },
+      });
+      // Map schedule payload to shifts with daysOfWeek array
+      // Group shifts by time to combine multiple days with same hours
+      const shiftMap = new Map<
+        string,
+        { startTime: string; endTime: string; daysOfWeek: number[] }
+      >();
+      for (const slot of payload) {
+        const key = `${slot.startTime}-${slot.endTime}`;
+        const existing = shiftMap.get(key);
+        if (existing) {
+          existing.daysOfWeek.push(slot.dayOfWeek);
+        } else {
+          shiftMap.set(key, {
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            daysOfWeek: [slot.dayOfWeek],
           });
         }
       }
+      await tx.staffShift.createMany({
+        data: Array.from(shiftMap.values()).map((shift) => ({
+          timesheetId: timesheet.id,
+          daysOfWeek: shift.daysOfWeek,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          branchId: null,
+        })),
+      });
     });
+
+    if (authUser?.id) {
+      await logActivity({
+        userId: Number(authUser.id),
+        action: `Updated weekly schedule for doctor ${doctorId}`,
+        type: ActivityType.STATUS_UPDATE,
+      });
+    }
+    await invalidateCache(
+      `${CACHE_KEYS.APPOINTMENTS.DOCTOR_AVAILABILITY}:${doctorId}:*`
+    );
 
     return c.json({ success: true, message: "Schedule updated successfully." });
   } catch (_error) {

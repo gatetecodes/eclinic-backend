@@ -4,13 +4,10 @@ import {
   format,
   isBefore,
   parse,
-  setMilliseconds,
-  setMinutes,
-  setSeconds,
   startOfDay,
-  subDays,
 } from "date-fns";
 import { db } from "@/database/db";
+import { getUserAvailability } from "@/services/availability.service";
 
 export const getAvailableDaysByDoctorId = async (doctorId: number) => {
   try {
@@ -137,27 +134,17 @@ export const getAvailableTimeSlotsByDoctorId = async (
   }
 };
 
-//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const getDoctorAvailability = async (doctorId: number, date: Date) => {
   try {
     if (!Number.isInteger(doctorId)) {
       throw new Error("doctorId must be a valid integer");
     }
-    // date is a JavaScript Date object, e.g. 2024-06-01T00:00:00.000Z
-
-    const targetDay = date.getDay();
-    const prevDay = subDays(date, 1).getDay();
-
-    const potentialSchedules = await db.doctorAvailability.findMany({
-      where: {
-        doctorId,
-        OR: [{ startDayOfWeek: targetDay }, { startDayOfWeek: prevDay }],
-      },
+    // Compute availability from unified staff timesheets and filter out booked doctor events
+    const { availableTimes: rawTimes } = await getUserAvailability({
+      userId: doctorId,
+      date,
+      slotMinutes: 60,
     });
-    if (potentialSchedules.length === 0) {
-      return { availableTimes: [] };
-    }
-
     const startOfTargetDay = startOfDay(date);
     const endOfTargetDay = endOfDay(date);
     const existingAppointments = await db.event.findMany({
@@ -172,67 +159,7 @@ export const getDoctorAvailability = async (doctorId: number, date: Date) => {
     const bookedTimes = new Set(
       existingAppointments.map((a) => format(a.startTime, "HH:mm"))
     );
-
-    const availableTimesSet = new Set<string>();
-    for (const schedule of potentialSchedules) {
-      if (
-        schedule.startDayOfWeek == null ||
-        schedule.endDayOfWeek == null ||
-        schedule.startTime == null ||
-        schedule.endTime == null
-      ) {
-        continue;
-      }
-      const scheduleStartDate = subDays(
-        date,
-        targetDay - schedule.startDayOfWeek
-      );
-      const scheduleEndDate = subDays(date, targetDay - schedule.endDayOfWeek);
-      const startTime = parse(
-        schedule.startTime as string,
-        "HH:mm",
-        scheduleStartDate
-      );
-      let endTime = parse(schedule.endTime as string, "HH:mm", scheduleEndDate);
-      if (isBefore(endTime, startTime)) {
-        endTime = addMinutes(endTime, 24 * 60);
-      }
-      const effectiveStartTime = new Date(
-        Math.max(startTime.getTime(), startOfTargetDay.getTime())
-      );
-      const effectiveEndTime = new Date(
-        Math.min(endTime.getTime(), endOfTargetDay.getTime())
-      );
-      let currentTime = effectiveStartTime;
-      if (isBefore(currentTime, effectiveEndTime)) {
-        while (isBefore(currentTime, effectiveEndTime)) {
-          if (currentTime.getMinutes() === 0) {
-            const timeSlot = format(currentTime, "HH:mm");
-            if (!bookedTimes.has(timeSlot)) {
-              availableTimesSet.add(timeSlot);
-            }
-          }
-          currentTime = addMinutes(currentTime, 1);
-          if (
-            currentTime.getMinutes() !== 0 &&
-            isBefore(currentTime, effectiveEndTime)
-          ) {
-            currentTime = setMinutes(
-              setSeconds(
-                setMilliseconds(
-                  addMinutes(currentTime, 60 - currentTime.getMinutes()),
-                  0
-                ),
-                0
-              ),
-              0
-            );
-          }
-        }
-      }
-    }
-
-    const availableTimes = Array.from(availableTimesSet).sort();
+    const availableTimes = rawTimes.filter((t) => !bookedTimes.has(t)).sort();
     return { availableTimes };
   } catch (_error) {
     return { availableTimes: [] };

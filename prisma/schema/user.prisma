@@ -55,6 +55,7 @@ model User {
     accounts                 Account[]
     doctorAvailabilities     DoctorAvailability[] //When the user is a doctor
     doctorEvents             Event[] //When the user is a doctor
+    staffTimesheets          StaffTimesheet[]
     isTwoFactorEnabled       Boolean                 @default(false)
     twoFactorConfirmation    TwoFactorConfirmation?
     activityLogs             ActivityLog[]

@@ -18,11 +18,14 @@ import {
   getClinicUsers,
   getDoctorsByDepartmentId,
   getUserById,
+  getUserTimesheet,
+  upsertUserTimesheet,
 } from "./users.controller.ts";
 import {
   addDoctorAvailabilitySchema,
   assignDepartmentsToDoctorSchema,
   getAvailableDoctorsByDepartmentIdSchema,
+  upsertTimesheetSchema,
 } from "./users.validation.ts";
 
 const router = new Hono<AppEnv>();
@@ -55,6 +58,13 @@ router.put(
   crudAccess("users"),
   validate(assignDepartmentsToDoctorSchema, "json"),
   assignDepartmentsToDoctor
+);
+router.get("/:id/timesheet", crudAccess("users"), getUserTimesheet);
+router.put(
+  "/:id/timesheet",
+  crudAccess("users"),
+  validate(upsertTimesheetSchema, "json"),
+  upsertUserTimesheet
 );
 router.post(
   "/:userId/deactivate",

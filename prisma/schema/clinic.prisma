@@ -59,7 +59,8 @@ model Clinic {
     clinicProductPrices ClinicProductPrice[]
     insurancePrices     InsurancePrice[]
 
-    convertedAt DateTime?
+    convertedAt     DateTime?
+    staffTimesheets StaffTimesheet[]
 
     @@index([convertedAt])
 }
@@ -97,6 +98,7 @@ model Branch {
     clinic                 Clinic                  @relation(fields: [clinicId], references: [id])
     createdAt              DateTime                @default(now())
     updatedAt              DateTime                @updatedAt
+    staffShifts            StaffShift[]
 
     @@index([clinicId])
     @@index([code])
