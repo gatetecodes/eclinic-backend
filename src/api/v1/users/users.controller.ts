@@ -15,22 +15,30 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "@/lib/constants.ts";
 import {
+  ActivityType,
   type EducationLevel,
   type Prisma,
   Role,
+  type TimesheetPeriod,
   type User,
   UserStatus,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
+import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { logger } from "../../../lib/logger";
 import { sendEmail } from "../../../services/email.service";
+import {
+  CACHE_KEYS,
+  invalidateCache,
+} from "../../../services/redis.service.ts";
 // token helpers defined below
 import {
   createDoctorSchema,
   createUserSchema,
   editDoctorSchema,
+  type UpsertTimesheetInput,
   updateUserSchema,
 } from "./users.validation";
 
@@ -108,8 +116,25 @@ export const createVerificationEmail = async (email: string) => {
   return sendVerificationEmailWithRetry(email, token.token);
 };
 
-const formatLicenseExpiration = (value?: string | null) =>
-  value ? new Date(value) : null;
+const LICENSE_DATE_REGEX = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+const formatLicenseExpiration = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  // Handle dd/mm/yyyy format
+  const ddmmyyyyMatch = value.match(LICENSE_DATE_REGEX);
+  if (ddmmyyyyMatch) {
+    const [, day, month, year] = ddmmyyyyMatch;
+    return new Date(
+      Number.parseInt(year, 10),
+      Number.parseInt(month, 10) - 1,
+      Number.parseInt(day, 10)
+    );
+  }
+  // Fallback to standard Date parsing
+  return new Date(value);
+};
 
 const filterValidAvailability = (
   weeklyAvailability?: Array<{
@@ -213,7 +238,20 @@ export const addNewUser = async (c: Context) => {
       );
     }
 
-    const { name, email, role, phone_number, password } = parsed.data;
+    const {
+      name,
+      email,
+      role,
+      phone_number,
+      password,
+      highestEducation,
+      licenseNumber,
+      licenseExpiration,
+      license_document,
+      diploma_document,
+      departments,
+      weeklyAvailability,
+    } = parsed.data;
 
     const existingUser = await db.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -224,19 +262,74 @@ export const addNewUser = async (c: Context) => {
     }
 
     const hashedPassword = await hash(password, 10);
+    const isDoctor = role === "DOCTOR";
 
-    await db.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-        role: role as Role,
-        emailVerified: new Date(),
-        phone_number,
-        clinicId: authUser.clinicId,
-        branchId: authUser.branchId,
-      },
-    });
+    let createdUser: User;
+
+    if (isDoctor) {
+      // Handle doctor creation with departments, availability, and license fields
+      createdUser = await db.$transaction(async (tx) => {
+        const doctor = await tx.user.create({
+          data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: role as Role,
+            emailVerified: new Date(),
+            phone_number,
+            clinicId: authUser.clinicId,
+            branchId: authUser.branchId,
+            highestEducation: highestEducation as EducationLevel | undefined,
+            licenseNumber: licenseNumber || null,
+            licenseExpiration: formatLicenseExpiration(licenseExpiration),
+            license_document: license_document || null,
+            diploma_document: diploma_document || null,
+            clinicalDepartments:
+              departments && departments.length > 0
+                ? {
+                    connect: departments.map((departmentId) => ({
+                      id: departmentId,
+                    })),
+                  }
+                : undefined,
+          },
+        });
+
+        // Create availability if provided
+        if (weeklyAvailability && weeklyAvailability.length > 0) {
+          const availabilityData = filterValidAvailability(
+            weeklyAvailability
+          ).map((slot) => ({
+            doctorId: doctor.id,
+            startDayOfWeek: slot.startDayOfWeek,
+            startTime: slot.startTime,
+            endDayOfWeek: slot.endDayOfWeek,
+            endTime: slot.endTime,
+          }));
+
+          if (availabilityData.length > 0) {
+            await tx.doctorAvailability.createMany({ data: availabilityData });
+          }
+        }
+
+        return doctor;
+      });
+    } else {
+      // Handle regular staff creation
+      createdUser = await db.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: role as Role,
+          emailVerified: new Date(),
+          phone_number,
+          clinicId: authUser.clinicId,
+          branchId: authUser.branchId,
+          highestEducation: highestEducation as EducationLevel | undefined,
+        },
+      });
+    }
 
     const emailResult = await createVerificationEmail(email);
     if (!emailResult.success) {
@@ -247,13 +340,14 @@ export const addNewUser = async (c: Context) => {
       return c.json(
         {
           success: "User created successfully, verification email pending",
+          user: { id: createdUser.id },
         },
         httpCodes.CREATED as ContentfulStatusCode
       );
     }
 
     return c.json(
-      { success: "User created successfully" },
+      { success: "User created successfully", user: { id: createdUser.id } },
       httpCodes.CREATED as ContentfulStatusCode
     );
   } catch (error) {
@@ -1294,6 +1388,195 @@ export const getUserById = async (c: Context) => {
     logger.error("Failed to get user by id", { error });
     return c.json(
       { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getUserTimesheet = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const userId = Number.parseInt(c.req.param("id"), 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clinicId: true },
+    });
+    if (!user || user.clinicId == null) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (authUser.clinicId !== user.clinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const timesheets = await db.staffTimesheet.findMany({
+      where: { userId: user.id, isActive: true },
+      include: { shifts: true, exceptions: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return c.json({ data: timesheets }, httpCodes.OK as ContentfulStatusCode);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const upsertUserTimesheet = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const userId = Number.parseInt(c.req.param("id"), 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const payload = c.get("validatedJson") as UpsertTimesheetInput;
+    const actorRole = authUser.role;
+    if (actorRole !== "CLINIC_ADMIN" && actorRole !== "BRANCH_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clinicId: true },
+    });
+    if (!user || user.clinicId == null) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const userClinicId = user.clinicId;
+    if (authUser.clinicId !== userClinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const branchIds = Array.from(
+      new Set(
+        (payload.shifts ?? [])
+          .map((s) => s.branchId)
+          .filter((b): b is number => typeof b === "number")
+      )
+    );
+    if (branchIds.length > 0) {
+      const validBranches = await db.branch.findMany({
+        where: { id: { in: branchIds }, clinicId: userClinicId },
+        select: { id: true },
+      });
+      if (validBranches.length !== branchIds.length) {
+        return c.json(
+          { error: "Invalid branchId in shifts" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+    }
+
+    // Dates are validated as Date objects by zod - assert types for Prisma
+    const startDate = payload.startDate as Date;
+    const endDate = payload.endDate as Date;
+
+    const created = await db.$transaction(async (tx) => {
+      // Deactivate any overlapping timesheets with same period type
+      await tx.staffTimesheet.updateMany({
+        where: {
+          userId: user.id,
+          periodType: payload.periodType as TimesheetPeriod,
+          isActive: true,
+          OR: [
+            {
+              startDate: { lte: endDate },
+              endDate: { gte: startDate },
+            },
+          ],
+        },
+        data: { isActive: false },
+      });
+      const ts = await tx.staffTimesheet.create({
+        data: {
+          userId: user.id,
+          clinicId: userClinicId,
+          periodType: payload.periodType as TimesheetPeriod,
+          startDate,
+          endDate,
+          isActive: payload.isActive ?? true,
+        },
+      });
+      if (payload.shifts?.length) {
+        await tx.staffShift.createMany({
+          data: payload.shifts.map((s) => ({
+            timesheetId: ts.id,
+            daysOfWeek: (s as { daysOfWeek: number[] }).daysOfWeek,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            branchId: s.branchId ?? null,
+          })),
+        });
+      }
+      if (payload.exceptions?.length) {
+        await tx.staffScheduleException.createMany({
+          data: payload.exceptions.map((e) => ({
+            timesheetId: ts.id,
+            date: e.date,
+            isWorking: e.isWorking ?? false,
+            startTime: e.startTime ?? null,
+            endTime: e.endTime ?? null,
+            branchId: e.branchId ?? null,
+          })),
+        });
+      }
+      return ts;
+    });
+
+    await logActivity({
+      userId: Number(authUser.id),
+      action: `Updated timesheet for user ${user.id}`,
+      type: ActivityType.STATUS_UPDATE,
+    });
+    // Invalidate any cached availability for this user
+    await invalidateCache(
+      `${CACHE_KEYS.APPOINTMENTS.DOCTOR_AVAILABILITY}:${user.id}:*`
+    );
+
+    return c.json(
+      { success: true, timesheetId: created.id },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

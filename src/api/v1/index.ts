@@ -8,6 +8,7 @@ import adminRouter from "./admin/routes.ts";
 import analyticsRouter from "./analytics/routes.ts";
 import appointmentsRouter from "./appointments/appointments.routes.ts";
 import approvalsRouter from "./approvals/routes.ts";
+import availabilityRouter from "./availability/availability.routes.ts";
 import clinicsRouter from "./clinics/clinics.routes.ts";
 import demoRequestsRouter from "./demo-requests/demo-requests.routes.ts";
 import departmentsRouter from "./departments/departments.routes.ts";
@@ -55,6 +56,7 @@ v1.use("*", entitlementsContext);
 // Mount resources
 v1.route("/upload", fileUploadRouter);
 v1.route("/users", usersRouter);
+v1.route("/availability", availabilityRouter);
 v1.route("/patients", patientsRouter);
 v1.route("/clinics", clinicsRouter);
 v1.route("/departments", departmentsRouter);
