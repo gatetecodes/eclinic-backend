@@ -1,9 +1,9 @@
 import {
   addMinutes,
   addMonths,
+  addYears,
   endOfDay,
   endOfMonth,
-  endOfWeek,
   format,
   isBefore,
   parse,
@@ -108,7 +108,7 @@ export const updateDoctorAvailability = async (c: Context) => {
     // Calculate current week boundaries (Sunday to Saturday)
     const now = new Date();
     const weekStart = startOfWeek(now, { weekStartsOn: 0 }); // Sunday
-    const weekEnd = endOfWeek(now, { weekStartsOn: 0 }); // Saturday
+    const weekEnd = addYears(weekStart, 1); // keep the schedule active for future bookings
 
     await db.$transaction(async (tx) => {
       // Deactivate existing weekly timesheets for this doctor

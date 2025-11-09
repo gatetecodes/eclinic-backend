@@ -47,9 +47,7 @@ describe("getUserAvailability", () => {
           {
             id: 100,
             timesheetId: 10,
-            startDayOfWeek: prevDay,
-            endDayOfWeek: targetDay,
-            dayOfMonth: null,
+            daysOfWeek: [prevDay, targetDay],
             startTime: "22:00",
             endTime: "02:00",
             branchId: null,
@@ -85,9 +83,7 @@ describe("getUserAvailability", () => {
           {
             id: 100,
             timesheetId: 10,
-            startDayOfWeek: date.getDay(),
-            endDayOfWeek: date.getDay(),
-            dayOfMonth: null,
+            daysOfWeek: [date.getDay()],
             startTime: "09:00",
             endTime: "10:00",
             branchId: 5,
