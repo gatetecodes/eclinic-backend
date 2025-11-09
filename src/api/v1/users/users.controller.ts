@@ -1507,21 +1507,23 @@ export const upsertUserTimesheet = async (c: Context) => {
     const endDate = payload.endDate as Date;
 
     const created = await db.$transaction(async (tx) => {
-      // Deactivate any overlapping timesheets with same period type
-      await tx.staffTimesheet.updateMany({
-        where: {
-          userId: user.id,
-          periodType: payload.periodType as TimesheetPeriod,
-          isActive: true,
-          OR: [
-            {
-              startDate: { lte: endDate },
-              endDate: { gte: startDate },
-            },
-          ],
-        },
-        data: { isActive: false },
-      });
+      const newTimesheetIsActive = payload.isActive ?? true;
+      if (newTimesheetIsActive) {
+        await tx.staffTimesheet.updateMany({
+          where: {
+            userId: user.id,
+            periodType: payload.periodType as TimesheetPeriod,
+            isActive: true,
+            OR: [
+              {
+                startDate: { lte: endDate },
+                endDate: { gte: startDate },
+              },
+            ],
+          },
+          data: { isActive: false },
+        });
+      }
       const ts = await tx.staffTimesheet.create({
         data: {
           userId: user.id,
@@ -1529,7 +1531,7 @@ export const upsertUserTimesheet = async (c: Context) => {
           periodType: payload.periodType as TimesheetPeriod,
           startDate,
           endDate,
-          isActive: payload.isActive ?? true,
+          isActive: newTimesheetIsActive,
         },
       });
       if (payload.shifts?.length) {

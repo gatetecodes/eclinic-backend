@@ -4,9 +4,6 @@ import {
   format,
   isBefore,
   parse,
-  setMilliseconds,
-  setMinutes,
-  setSeconds,
   startOfDay,
 } from "date-fns";
 import { db } from "@/database/db";
@@ -44,16 +41,6 @@ function* iterateSlots(
       const timeSlot = format(currentTime, "HH:mm");
       yield timeSlot;
       currentTime = addMinutes(currentTime, slotMinutes);
-      if (
-        slotMinutes >= 60 &&
-        currentTime.getMinutes() !== 0 &&
-        isBefore(currentTime, window.end)
-      ) {
-        currentTime = setMinutes(
-          setSeconds(setMilliseconds(currentTime, 0), 0),
-          0
-        );
-      }
     }
   }
 }
@@ -128,17 +115,21 @@ export async function getUserAvailability({
 
         // Build time window for this shift on this date
         const startTime = parse(shift.startTime, "HH:mm", date);
-        let endTime = parse(shift.endTime, "HH:mm", date);
 
-        // Handle cross-midnight shifts (e.g., 22:00-06:00)
-        // If endTime < startTime, it spans to next day
-        // But we only include times within the target day
-        if (isBefore(endTime, startTime)) {
-          // Cross-midnight: clamp end to end of day
-          endTime = endOfTargetDay;
-        }
+        const endTime = parse(shift.endTime, "HH:mm", date);
 
-        const clamped = clampToDay({ start: startTime, end: endTime }, date);
+        const crossesMidnight = isBefore(endTime, startTime);
+
+        const previousDay = (targetDay + 6) % 7;
+
+        const window =
+          crossesMidnight && shift.daysOfWeek.includes(previousDay)
+            ? { start: startOfTargetDay, end: endTime }
+            : {
+                start: startTime,
+                end: crossesMidnight ? endOfTargetDay : endTime,
+              };
+        const clamped = clampToDay(window, date);
         for (const slot of iterateSlots(clamped, slotMinutes)) {
           availableTimesSet.add(slot);
         }

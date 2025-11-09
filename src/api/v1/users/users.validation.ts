@@ -165,8 +165,14 @@ export const staffShiftSchema = z
   })
   .refine(
     (s) => {
-      // End time must be after start time (handles cross-midnight implicitly via daysOfWeek)
-      return s.endTime > s.startTime;
+      const toMinutes = (time: string) => {
+        const [hours, minutes] = time.split(":").map(Number);
+        return hours * 60 + minutes;
+      };
+      const start = toMinutes(s.startTime);
+      const end = toMinutes(s.endTime);
+      const duration = (end - start + 24 * 60) % (24 * 60);
+      return duration > 0;
     },
     {
       message: "End time must be after start time",

@@ -5,25 +5,14 @@ import { getUserAvailability } from "@/services/availability.service.ts";
 
 export const getAvailabilityByUserId = async (c: Context) => {
   try {
-    const { userId } = c.req.param() as { userId: string };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const query = c.req.query();
-    const dateStr = query?.date as string | undefined;
-    if (!dateStr) {
-      return c.json(
-        { error: "Missing date parameter" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
-    const date = new Date(dateStr);
-    const branchId = query?.branchId
-      ? Number.parseInt(String(query.branchId), 10)
-      : undefined;
-    const slotMinutes = query?.slotMinutes
-      ? Number.parseInt(String(query.slotMinutes), 10)
-      : undefined;
+    const { userId } = c.get("validatedParam") as { userId: number };
+    const { date, branchId, slotMinutes } = c.get("validatedQuery") as {
+      date: Date;
+      branchId?: number;
+      slotMinutes?: number;
+    };
     const { availableTimes } = await getUserAvailability({
-      userId: Number.parseInt(userId, 10),
+      userId,
       date,
       branchId,
       slotMinutes,
