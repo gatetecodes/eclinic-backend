@@ -33,6 +33,14 @@ import {
   CACHE_KEYS,
   invalidateCache,
 } from "../../../services/redis.service.ts";
+import {
+  buildNonExpiredTimesheetSet,
+  buildWeeklyTimesheetMapForUsers,
+  filterValidAvailability,
+  formatLicenseExpiration,
+  resolveWeekStartDate,
+  truthyQueryValue,
+} from "../../../services/users.service";
 // token helpers defined below
 import {
   createDoctorSchema,
@@ -116,37 +124,7 @@ export const createVerificationEmail = async (email: string) => {
   return sendVerificationEmailWithRetry(email, token.token);
 };
 
-const LICENSE_DATE_REGEX = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-
-const formatLicenseExpiration = (value?: string | null) => {
-  if (!value) {
-    return null;
-  }
-  // Handle dd/mm/yyyy format
-  const ddmmyyyyMatch = value.match(LICENSE_DATE_REGEX);
-  if (ddmmyyyyMatch) {
-    const [, day, month, year] = ddmmyyyyMatch;
-    return new Date(
-      Number.parseInt(year, 10),
-      Number.parseInt(month, 10) - 1,
-      Number.parseInt(day, 10)
-    );
-  }
-  // Fallback to standard Date parsing
-  return new Date(value);
-};
-
-const filterValidAvailability = (
-  weeklyAvailability?: Array<{
-    startDayOfWeek: number;
-    endDayOfWeek: number;
-    startTime: string;
-    endTime: string;
-  }> | null
-) =>
-  weeklyAvailability?.filter(
-    (slot) => slot.startTime !== "" && slot.endTime !== ""
-  ) ?? [];
+// helper functions moved to services/users.service.ts
 
 export const getClinicUsers = async (c: Context) => {
   try {
@@ -165,6 +143,13 @@ export const getClinicUsers = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const includeWeeklyTimesheet = truthyQueryValue(
+      params.includeWeeklyTimesheet
+    );
+    const weekStartDate = includeWeeklyTimesheet
+      ? resolveWeekStartDate(params.weekStart)
+      : undefined;
+
     const queryOptions = buildQueryOptions<User>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -196,39 +181,41 @@ export const getClinicUsers = async (c: Context) => {
       },
     });
 
-    // Batch query for non-expired timesheets
     const userIds = users.map((user) => user.id);
-    const usersWithNonExpiredTimesheet = new Set<number>();
+    const usersWithNonExpiredTimesheet =
+      await buildNonExpiredTimesheetSet(userIds);
+    const weeklyTimesheetByUserId = includeWeeklyTimesheet
+      ? await buildWeeklyTimesheetMapForUsers(userIds, weekStartDate)
+      : {};
 
-    if (userIds.length > 0) {
-      const todayStart = startOfDay(new Date());
-      const timesheets = await db.staffTimesheet.findMany({
-        where: {
-          userId: { in: userIds },
-          isActive: true,
-          endDate: { gte: todayStart },
-        },
-        select: { userId: true },
-      });
-
-      // Use Set to get distinct userIds
-      for (const timesheet of timesheets) {
-        usersWithNonExpiredTimesheet.add(timesheet.userId);
+    // Add hasNonExpiredTimesheet field (and weeklyTimesheet if requested) to each user
+    const usersWithTimesheetFlag = users.map((user) => {
+      const base = {
+        ...user,
+        hasNonExpiredTimesheet: usersWithNonExpiredTimesheet.has(user.id),
+      };
+      if (includeWeeklyTimesheet) {
+        return {
+          ...base,
+          weeklyTimesheet: weeklyTimesheetByUserId[user.id] ?? [],
+        };
       }
-    }
-
-    // Add hasNonExpiredTimesheet field to each user
-    const usersWithTimesheetFlag = users.map((user) => ({
-      ...user,
-      hasNonExpiredTimesheet: usersWithNonExpiredTimesheet.has(user.id),
-    }));
+      return base;
+    });
 
     const totalCount = await db.user.count({ where: listWhere });
     const take = restOptions.take ?? 0;
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: usersWithTimesheetFlag, totalCount, pageCount },
+      {
+        data: usersWithTimesheetFlag,
+        totalCount,
+        pageCount,
+        ...(includeWeeklyTimesheet && weekStartDate
+          ? { weekStart: weekStartDate.toISOString() }
+          : {}),
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -590,6 +577,13 @@ export const getClinicDoctors = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const includeWeeklyTimesheet = truthyQueryValue(
+      params.includeWeeklyTimesheet
+    );
+    const weekStartDate = includeWeeklyTimesheet
+      ? resolveWeekStartDate(params.weekStart)
+      : undefined;
+
     const queryOptions = buildQueryOptions<User>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -615,52 +609,44 @@ export const getClinicDoctors = async (c: Context) => {
             doctorVisits: true,
           },
         },
-        doctorAvailabilities: {
-          select: {
-            id: true,
-            dayOfWeek: true,
-            startDayOfWeek: true,
-            endDayOfWeek: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
       },
     });
 
-    // Batch query for non-expired timesheets
     const doctorIds = doctors.map((doctor) => doctor.id);
-    const doctorsWithNonExpiredTimesheet = new Set<number>();
+    const doctorsWithNonExpiredTimesheet =
+      await buildNonExpiredTimesheetSet(doctorIds);
+    const weeklyTimesheetByUserId = includeWeeklyTimesheet
+      ? await buildWeeklyTimesheetMapForUsers(doctorIds, weekStartDate)
+      : {};
 
-    if (doctorIds.length > 0) {
-      const todayStart = startOfDay(new Date());
-      const timesheets = await db.staffTimesheet.findMany({
-        where: {
-          userId: { in: doctorIds },
-          isActive: true,
-          endDate: { gte: todayStart },
-        },
-        select: { userId: true },
-      });
-
-      // Use Set to get distinct userIds
-      for (const timesheet of timesheets) {
-        doctorsWithNonExpiredTimesheet.add(timesheet.userId);
+    // Add hasNonExpiredTimesheet field (and weeklyTimesheet if requested) to each doctor
+    const doctorsWithTimesheetFlag = doctors.map((doctor) => {
+      const base = {
+        ...doctor,
+        hasNonExpiredTimesheet: doctorsWithNonExpiredTimesheet.has(doctor.id),
+      };
+      if (includeWeeklyTimesheet) {
+        return {
+          ...base,
+          weeklyTimesheet: weeklyTimesheetByUserId[doctor.id] ?? [],
+        };
       }
-    }
-
-    // Add hasNonExpiredTimesheet field to each doctor
-    const doctorsWithTimesheetFlag = doctors.map((doctor) => ({
-      ...doctor,
-      hasNonExpiredTimesheet: doctorsWithNonExpiredTimesheet.has(doctor.id),
-    }));
+      return base;
+    });
 
     const totalCount = await db.user.count({ where: doctorWhere });
     const take = restOptions.take ?? 0;
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: doctorsWithTimesheetFlag, totalCount, pageCount },
+      {
+        data: doctorsWithTimesheetFlag,
+        totalCount,
+        pageCount,
+        ...(includeWeeklyTimesheet && weekStartDate
+          ? { weekStart: weekStartDate.toISOString() }
+          : {}),
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {

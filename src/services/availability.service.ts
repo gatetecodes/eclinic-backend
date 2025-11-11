@@ -1,4 +1,5 @@
 import {
+  addDays,
   addMinutes,
   endOfDay,
   format,
@@ -7,6 +8,18 @@ import {
   startOfDay,
 } from "date-fns";
 import { db } from "@/database/db";
+
+const TIMESHEETS_GOLIVE_ISO = process.env.TIMESHEETS_GOLIVE_ISO;
+const TIMESHEETS_GOLIVE =
+  TIMESHEETS_GOLIVE_ISO && !Number.isNaN(Date.parse(TIMESHEETS_GOLIVE_ISO))
+    ? new Date(TIMESHEETS_GOLIVE_ISO)
+    : undefined;
+
+import type {
+  StaffScheduleException,
+  StaffShift,
+  StaffTimesheet,
+} from "../../generated/prisma";
 
 type GetUserAvailabilityParams = {
   userId: number;
@@ -64,6 +77,7 @@ export async function getUserAvailability({
         isActive: true,
         startDate: { lte: endOfTargetDay },
         endDate: { gte: startOfTargetDay },
+        ...(TIMESHEETS_GOLIVE ? { createdAt: { gte: TIMESHEETS_GOLIVE } } : {}),
       },
       include: { shifts: true, exceptions: true },
     });
@@ -103,6 +117,9 @@ export async function getUserAvailability({
 
       // No exception, evaluate shifts that apply to this day
       for (const shift of ts.shifts) {
+        if (!Array.isArray(shift.daysOfWeek) || shift.daysOfWeek.length === 0) {
+          continue;
+        }
         // Branch filter
         if (branchId && shift.branchId && shift.branchId !== branchId) {
           continue;
@@ -141,4 +158,140 @@ export async function getUserAvailability({
   } catch (_error) {
     return { availableTimes: [] };
   }
+}
+
+export type WeeklyWindow = {
+  start: string;
+  end: string;
+  crossesMidnight: boolean;
+  branchId: number | null;
+  sourceTimesheetId: number;
+  isExceptionOverride: boolean;
+};
+
+export type WeeklyDay = {
+  dayOfWeek: number;
+  windows: WeeklyWindow[];
+};
+
+type TimesheetWithRelations = StaffTimesheet & {
+  shifts: StaffShift[];
+  exceptions: StaffScheduleException[];
+};
+
+export async function buildEffectiveWeeklyTimesheet(
+  userId: number,
+  weekStart: Date,
+  preloadedTimesheets?: TimesheetWithRelations[]
+): Promise<WeeklyDay[]> {
+  const start = startOfDay(weekStart);
+  const end = endOfDay(addDays(start, 6));
+
+  const timesheets =
+    preloadedTimesheets ??
+    (await db.staffTimesheet.findMany({
+      where: {
+        userId,
+        isActive: true,
+        startDate: { lte: end },
+        endDate: { gte: start },
+        ...(TIMESHEETS_GOLIVE ? { createdAt: { gte: TIMESHEETS_GOLIVE } } : {}),
+      },
+      include: { shifts: true, exceptions: true },
+    }));
+
+  if (timesheets.length === 0) {
+    return Array.from({ length: 7 }, (_, offset) => {
+      const dayDate = addDays(start, offset);
+      return {
+        dayOfWeek: dayDate.getDay(),
+        windows: [],
+      };
+    });
+  }
+
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
+  return Array.from({ length: 7 }, (_, offset) => {
+    const dayDate = addDays(start, offset);
+    const targetDay = dayDate.getDay();
+
+    const windowsMap = new Map<string, WeeklyWindow>();
+
+    for (const sheet of timesheets) {
+      const exception = sheet.exceptions.find((ex) => {
+        const exceptionDate = startOfDay(new Date(ex.date));
+        return exceptionDate.getTime() === startOfDay(dayDate).getTime();
+      });
+
+      if (exception) {
+        if (!exception.isWorking) {
+          continue;
+        }
+        if (exception.startTime && exception.endTime) {
+          const startTime = exception.startTime;
+          const endTime = exception.endTime;
+          const parsedStart = parse(startTime, "HH:mm", dayDate);
+          let parsedEnd = parse(endTime, "HH:mm", dayDate);
+          let crossesMidnight = false;
+
+          if (isBefore(parsedEnd, parsedStart)) {
+            parsedEnd = addDays(parsedEnd, 1);
+            crossesMidnight = true;
+          }
+
+          const key = `${startTime}-${endTime}-${sheet.id}-exception`;
+          if (!windowsMap.has(key)) {
+            windowsMap.set(key, {
+              start: startTime,
+              end: endTime,
+              crossesMidnight,
+              branchId: exception.branchId ?? null,
+              sourceTimesheetId: sheet.id,
+              isExceptionOverride: true,
+            });
+          }
+          continue;
+        }
+      }
+
+      for (const shift of sheet.shifts) {
+        if (!Array.isArray(shift.daysOfWeek) || shift.daysOfWeek.length === 0) {
+          continue;
+        }
+        if (!shift.daysOfWeek.includes(targetDay)) {
+          continue;
+        }
+
+        const startTime = shift.startTime;
+        const endTime = shift.endTime;
+        const parsedStart = parse(startTime, "HH:mm", dayDate);
+        let parsedEnd = parse(endTime, "HH:mm", dayDate);
+        let crossesMidnight = false;
+
+        if (isBefore(parsedEnd, parsedStart)) {
+          parsedEnd = addDays(parsedEnd, 1);
+          crossesMidnight = true;
+        }
+
+        const key = `${startTime}-${endTime}-${sheet.id}-${shift.id}`;
+        if (!windowsMap.has(key)) {
+          windowsMap.set(key, {
+            start: startTime,
+            end: endTime,
+            crossesMidnight,
+            branchId: shift.branchId ?? null,
+            sourceTimesheetId: sheet.id,
+            isExceptionOverride: false,
+          });
+        }
+      }
+    }
+
+    return {
+      dayOfWeek: targetDay,
+      windows: Array.from(windowsMap.values()).sort((a, b) =>
+        a.start.localeCompare(b.start)
+      ),
+    };
+  });
 }
