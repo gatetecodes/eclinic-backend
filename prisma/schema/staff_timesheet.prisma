@@ -1,0 +1,58 @@
+enum TimesheetPeriod {
+    WEEK
+    MONTH
+    CUSTOM
+}
+
+model StaffTimesheet {
+    id         Int                      @id @default(autoincrement())
+    user       User                     @relation(fields: [userId], references: [id])
+    userId     Int
+    clinic     Clinic                   @relation(fields: [clinicId], references: [id])
+    clinicId   Int
+    periodType TimesheetPeriod // WEEK, MONTH, or CUSTOM - defines date range constraints
+    startDate  DateTime // Required - when timesheet becomes active (must align with periodType)
+    endDate    DateTime // Required - when timesheet expires (must align with periodType)
+    isActive   Boolean                  @default(true)
+    createdAt  DateTime                 @default(now())
+    updatedAt  DateTime                 @updatedAt
+    shifts     StaffShift[]
+    exceptions StaffScheduleException[]
+
+    @@index([userId])
+    @@index([userId, isActive, startDate, endDate])
+    @@index([clinicId, periodType, isActive])
+}
+
+model StaffShift {
+    id          Int            @id @default(autoincrement())
+    timesheet   StaffTimesheet @relation(fields: [timesheetId], references: [id])
+    timesheetId Int
+    daysOfWeek  Int[] // Array of day numbers (0=Sun, 1=Mon, ..., 6=Sat) this shift applies to
+    startTime   String // Format: "HH:mm"
+    endTime     String // Format: "HH:mm"
+    branch      Branch?        @relation(fields: [branchId], references: [id])
+    branchId    Int?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([timesheetId])
+    @@index([branchId])
+}
+
+model StaffScheduleException {
+    id          Int            @id @default(autoincrement())
+    timesheet   StaffTimesheet @relation(fields: [timesheetId], references: [id])
+    timesheetId Int
+    date        DateTime
+    isWorking   Boolean        @default(false)
+    startTime   String?
+    endTime     String?
+    branchId    Int?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([timesheetId, date])
+}

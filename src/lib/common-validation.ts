@@ -24,6 +24,8 @@ export const searchParamsSchema = z.object({
   branchId: z.string().optional(),
   insuranceCompany: z.string().optional(),
   processedById: z.string().optional(),
+  includeWeeklyTimesheet: z.string().optional(),
+  weekStart: z.string().optional(),
 });
 
 export const validateIdParamsSchema = z.object({

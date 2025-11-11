@@ -15,22 +15,38 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "@/lib/constants.ts";
 import {
+  ActivityType,
   type EducationLevel,
   type Prisma,
   Role,
+  type TimesheetPeriod,
   type User,
   UserStatus,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
+import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { logger } from "../../../lib/logger";
 import { sendEmail } from "../../../services/email.service";
+import {
+  CACHE_KEYS,
+  invalidateCache,
+} from "../../../services/redis.service.ts";
+import {
+  buildNonExpiredTimesheetSet,
+  buildWeeklyTimesheetMapForUsers,
+  filterValidAvailability,
+  formatLicenseExpiration,
+  resolveWeekStartDate,
+  truthyQueryValue,
+} from "../../../services/users.service";
 // token helpers defined below
 import {
   createDoctorSchema,
   createUserSchema,
   editDoctorSchema,
+  type UpsertTimesheetInput,
   updateUserSchema,
 } from "./users.validation";
 
@@ -108,20 +124,7 @@ export const createVerificationEmail = async (email: string) => {
   return sendVerificationEmailWithRetry(email, token.token);
 };
 
-const formatLicenseExpiration = (value?: string | null) =>
-  value ? new Date(value) : null;
-
-const filterValidAvailability = (
-  weeklyAvailability?: Array<{
-    startDayOfWeek: number;
-    endDayOfWeek: number;
-    startTime: string;
-    endTime: string;
-  }> | null
-) =>
-  weeklyAvailability?.filter(
-    (slot) => slot.startTime !== "" && slot.endTime !== ""
-  ) ?? [];
+// helper functions moved to services/users.service.ts
 
 export const getClinicUsers = async (c: Context) => {
   try {
@@ -140,6 +143,13 @@ export const getClinicUsers = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const includeWeeklyTimesheet = truthyQueryValue(
+      params.includeWeeklyTimesheet
+    );
+    const weekStartDate = includeWeeklyTimesheet
+      ? resolveWeekStartDate(params.weekStart)
+      : undefined;
+
     const queryOptions = buildQueryOptions<User>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -171,12 +181,41 @@ export const getClinicUsers = async (c: Context) => {
       },
     });
 
+    const userIds = users.map((user) => user.id);
+    const usersWithNonExpiredTimesheet =
+      await buildNonExpiredTimesheetSet(userIds);
+    const weeklyTimesheetByUserId = includeWeeklyTimesheet
+      ? await buildWeeklyTimesheetMapForUsers(userIds, weekStartDate)
+      : {};
+
+    // Add hasNonExpiredTimesheet field (and weeklyTimesheet if requested) to each user
+    const usersWithTimesheetFlag = users.map((user) => {
+      const base = {
+        ...user,
+        hasNonExpiredTimesheet: usersWithNonExpiredTimesheet.has(user.id),
+      };
+      if (includeWeeklyTimesheet) {
+        return {
+          ...base,
+          weeklyTimesheet: weeklyTimesheetByUserId[user.id] ?? [],
+        };
+      }
+      return base;
+    });
+
     const totalCount = await db.user.count({ where: listWhere });
     const take = restOptions.take ?? 0;
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: users, totalCount, pageCount },
+      {
+        data: usersWithTimesheetFlag,
+        totalCount,
+        pageCount,
+        ...(includeWeeklyTimesheet && weekStartDate
+          ? { weekStart: weekStartDate.toISOString() }
+          : {}),
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -213,7 +252,20 @@ export const addNewUser = async (c: Context) => {
       );
     }
 
-    const { name, email, role, phone_number, password } = parsed.data;
+    const {
+      name,
+      email,
+      role,
+      phone_number,
+      password,
+      highestEducation,
+      licenseNumber,
+      licenseExpiration,
+      license_document,
+      diploma_document,
+      departments,
+      weeklyAvailability,
+    } = parsed.data;
 
     const existingUser = await db.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -224,19 +276,74 @@ export const addNewUser = async (c: Context) => {
     }
 
     const hashedPassword = await hash(password, 10);
+    const isDoctor = role === "DOCTOR";
 
-    await db.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-        role: role as Role,
-        emailVerified: new Date(),
-        phone_number,
-        clinicId: authUser.clinicId,
-        branchId: authUser.branchId,
-      },
-    });
+    let createdUser: User;
+
+    if (isDoctor) {
+      // Handle doctor creation with departments, availability, and license fields
+      createdUser = await db.$transaction(async (tx) => {
+        const doctor = await tx.user.create({
+          data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: role as Role,
+            emailVerified: new Date(),
+            phone_number,
+            clinicId: authUser.clinicId,
+            branchId: authUser.branchId,
+            highestEducation: highestEducation as EducationLevel | undefined,
+            licenseNumber: licenseNumber || null,
+            licenseExpiration: formatLicenseExpiration(licenseExpiration),
+            license_document: license_document || null,
+            diploma_document: diploma_document || null,
+            clinicalDepartments:
+              departments && departments.length > 0
+                ? {
+                    connect: departments.map((departmentId) => ({
+                      id: departmentId,
+                    })),
+                  }
+                : undefined,
+          },
+        });
+
+        // Create availability if provided
+        if (weeklyAvailability && weeklyAvailability.length > 0) {
+          const availabilityData = filterValidAvailability(
+            weeklyAvailability
+          ).map((slot) => ({
+            doctorId: doctor.id,
+            startDayOfWeek: slot.startDayOfWeek,
+            startTime: slot.startTime,
+            endDayOfWeek: slot.endDayOfWeek,
+            endTime: slot.endTime,
+          }));
+
+          if (availabilityData.length > 0) {
+            await tx.doctorAvailability.createMany({ data: availabilityData });
+          }
+        }
+
+        return doctor;
+      });
+    } else {
+      // Handle regular staff creation
+      createdUser = await db.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: role as Role,
+          emailVerified: new Date(),
+          phone_number,
+          clinicId: authUser.clinicId,
+          branchId: authUser.branchId,
+          highestEducation: highestEducation as EducationLevel | undefined,
+        },
+      });
+    }
 
     const emailResult = await createVerificationEmail(email);
     if (!emailResult.success) {
@@ -247,13 +354,14 @@ export const addNewUser = async (c: Context) => {
       return c.json(
         {
           success: "User created successfully, verification email pending",
+          user: { id: createdUser.id },
         },
         httpCodes.CREATED as ContentfulStatusCode
       );
     }
 
     return c.json(
-      { success: "User created successfully" },
+      { success: "User created successfully", user: { id: createdUser.id } },
       httpCodes.CREATED as ContentfulStatusCode
     );
   } catch (error) {
@@ -469,6 +577,13 @@ export const getClinicDoctors = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
+    const includeWeeklyTimesheet = truthyQueryValue(
+      params.includeWeeklyTimesheet
+    );
+    const weekStartDate = includeWeeklyTimesheet
+      ? resolveWeekStartDate(params.weekStart)
+      : undefined;
+
     const queryOptions = buildQueryOptions<User>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
@@ -494,17 +609,29 @@ export const getClinicDoctors = async (c: Context) => {
             doctorVisits: true,
           },
         },
-        doctorAvailabilities: {
-          select: {
-            id: true,
-            dayOfWeek: true,
-            startDayOfWeek: true,
-            endDayOfWeek: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
       },
+    });
+
+    const doctorIds = doctors.map((doctor) => doctor.id);
+    const doctorsWithNonExpiredTimesheet =
+      await buildNonExpiredTimesheetSet(doctorIds);
+    const weeklyTimesheetByUserId = includeWeeklyTimesheet
+      ? await buildWeeklyTimesheetMapForUsers(doctorIds, weekStartDate)
+      : {};
+
+    // Add hasNonExpiredTimesheet field (and weeklyTimesheet if requested) to each doctor
+    const doctorsWithTimesheetFlag = doctors.map((doctor) => {
+      const base = {
+        ...doctor,
+        hasNonExpiredTimesheet: doctorsWithNonExpiredTimesheet.has(doctor.id),
+      };
+      if (includeWeeklyTimesheet) {
+        return {
+          ...base,
+          weeklyTimesheet: weeklyTimesheetByUserId[doctor.id] ?? [],
+        };
+      }
+      return base;
     });
 
     const totalCount = await db.user.count({ where: doctorWhere });
@@ -512,7 +639,14 @@ export const getClinicDoctors = async (c: Context) => {
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: doctors, totalCount, pageCount },
+      {
+        data: doctorsWithTimesheetFlag,
+        totalCount,
+        pageCount,
+        ...(includeWeeklyTimesheet && weekStartDate
+          ? { weekStart: weekStartDate.toISOString() }
+          : {}),
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -1294,6 +1428,197 @@ export const getUserById = async (c: Context) => {
     logger.error("Failed to get user by id", { error });
     return c.json(
       { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getUserTimesheet = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const userId = Number.parseInt(c.req.param("id"), 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clinicId: true },
+    });
+    if (!user || user.clinicId == null) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    if (authUser.clinicId !== user.clinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+    const timesheets = await db.staffTimesheet.findMany({
+      where: { userId: user.id, isActive: true },
+      include: { shifts: true, exceptions: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return c.json({ data: timesheets }, httpCodes.OK as ContentfulStatusCode);
+  } catch (_error) {
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const upsertUserTimesheet = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+    const userId = Number.parseInt(c.req.param("id"), 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return c.json(
+        { error: "Invalid userId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const payload = c.get("validatedJson") as UpsertTimesheetInput;
+    const actorRole = authUser.role;
+    if (actorRole !== "CLINIC_ADMIN" && actorRole !== "BRANCH_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clinicId: true },
+    });
+    if (!user || user.clinicId == null) {
+      return c.json(
+        { error: "User not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+    const userClinicId = user.clinicId;
+    if (authUser.clinicId !== userClinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const branchIds = Array.from(
+      new Set(
+        (payload.shifts ?? [])
+          .map((s) => s.branchId)
+          .filter((b): b is number => typeof b === "number")
+      )
+    );
+    if (branchIds.length > 0) {
+      const validBranches = await db.branch.findMany({
+        where: { id: { in: branchIds }, clinicId: userClinicId },
+        select: { id: true },
+      });
+      if (validBranches.length !== branchIds.length) {
+        return c.json(
+          { error: "Invalid branchId in shifts" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+    }
+
+    // Dates are validated as Date objects by zod - assert types for Prisma
+    const startDate = payload.startDate as Date;
+    const endDate = payload.endDate as Date;
+
+    const created = await db.$transaction(async (tx) => {
+      const newTimesheetIsActive = payload.isActive ?? true;
+      if (newTimesheetIsActive) {
+        await tx.staffTimesheet.updateMany({
+          where: {
+            userId: user.id,
+            periodType: payload.periodType as TimesheetPeriod,
+            isActive: true,
+            OR: [
+              {
+                startDate: { lte: endDate },
+                endDate: { gte: startDate },
+              },
+            ],
+          },
+          data: { isActive: false },
+        });
+      }
+      const ts = await tx.staffTimesheet.create({
+        data: {
+          userId: user.id,
+          clinicId: userClinicId,
+          periodType: payload.periodType as TimesheetPeriod,
+          startDate,
+          endDate,
+          isActive: newTimesheetIsActive,
+        },
+      });
+      if (payload.shifts?.length) {
+        await tx.staffShift.createMany({
+          data: payload.shifts.map((s) => ({
+            timesheetId: ts.id,
+            daysOfWeek: (s as { daysOfWeek: number[] }).daysOfWeek,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            branchId: s.branchId ?? null,
+          })),
+        });
+      }
+      if (payload.exceptions?.length) {
+        await tx.staffScheduleException.createMany({
+          data: payload.exceptions.map((e) => ({
+            timesheetId: ts.id,
+            date: e.date,
+            isWorking: e.isWorking ?? false,
+            startTime: e.startTime ?? null,
+            endTime: e.endTime ?? null,
+            branchId: e.branchId ?? null,
+          })),
+        });
+      }
+      return ts;
+    });
+
+    await logActivity({
+      userId: Number(authUser.id),
+      action: `Updated timesheet for user ${user.id}`,
+      type: ActivityType.STATUS_UPDATE,
+    });
+    // Invalidate any cached availability for this user
+    await invalidateCache(
+      `${CACHE_KEYS.APPOINTMENTS.DOCTOR_AVAILABILITY}:${user.id}:*`
+    );
+
+    return c.json(
+      { success: true, timesheetId: created.id },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
