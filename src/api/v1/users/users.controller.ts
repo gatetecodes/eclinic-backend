@@ -196,12 +196,39 @@ export const getClinicUsers = async (c: Context) => {
       },
     });
 
+    // Batch query for non-expired timesheets
+    const userIds = users.map((user) => user.id);
+    const usersWithNonExpiredTimesheet = new Set<number>();
+
+    if (userIds.length > 0) {
+      const todayStart = startOfDay(new Date());
+      const timesheets = await db.staffTimesheet.findMany({
+        where: {
+          userId: { in: userIds },
+          isActive: true,
+          endDate: { gte: todayStart },
+        },
+        select: { userId: true },
+      });
+
+      // Use Set to get distinct userIds
+      for (const timesheet of timesheets) {
+        usersWithNonExpiredTimesheet.add(timesheet.userId);
+      }
+    }
+
+    // Add hasNonExpiredTimesheet field to each user
+    const usersWithTimesheetFlag = users.map((user) => ({
+      ...user,
+      hasNonExpiredTimesheet: usersWithNonExpiredTimesheet.has(user.id),
+    }));
+
     const totalCount = await db.user.count({ where: listWhere });
     const take = restOptions.take ?? 0;
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: users, totalCount, pageCount },
+      { data: usersWithTimesheetFlag, totalCount, pageCount },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
@@ -601,12 +628,39 @@ export const getClinicDoctors = async (c: Context) => {
       },
     });
 
+    // Batch query for non-expired timesheets
+    const doctorIds = doctors.map((doctor) => doctor.id);
+    const doctorsWithNonExpiredTimesheet = new Set<number>();
+
+    if (doctorIds.length > 0) {
+      const todayStart = startOfDay(new Date());
+      const timesheets = await db.staffTimesheet.findMany({
+        where: {
+          userId: { in: doctorIds },
+          isActive: true,
+          endDate: { gte: todayStart },
+        },
+        select: { userId: true },
+      });
+
+      // Use Set to get distinct userIds
+      for (const timesheet of timesheets) {
+        doctorsWithNonExpiredTimesheet.add(timesheet.userId);
+      }
+    }
+
+    // Add hasNonExpiredTimesheet field to each doctor
+    const doctorsWithTimesheetFlag = doctors.map((doctor) => ({
+      ...doctor,
+      hasNonExpiredTimesheet: doctorsWithNonExpiredTimesheet.has(doctor.id),
+    }));
+
     const totalCount = await db.user.count({ where: doctorWhere });
     const take = restOptions.take ?? 0;
     const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
-      { data: doctors, totalCount, pageCount },
+      { data: doctorsWithTimesheetFlag, totalCount, pageCount },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
