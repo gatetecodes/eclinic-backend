@@ -1676,10 +1676,57 @@ const buildDateRangeFilter = (
   return filter;
 };
 
+const buildStatusWhereConditions = (
+  statusArray: string[],
+  todayStart: Date,
+  twoDaysFromNow: Date
+): Prisma.StaffTimesheetWhereInput[] => {
+  const hasExpired = statusArray.includes("EXPIRED");
+  const hasExpiringSoon = statusArray.includes("EXPIRING_SOON");
+  const hasActive = statusArray.includes("ACTIVE");
+
+  const selectedCount =
+    Number(hasExpired) + Number(hasExpiringSoon) + Number(hasActive);
+  const allStatusesSelected = selectedCount === 3;
+  const noStatusesSelected = selectedCount === 0;
+
+  // If all statuses are requested or none specified, return empty array (no filter)
+  if (allStatusesSelected || noStatusesSelected) {
+    return [];
+  }
+
+  const conditions: Prisma.StaffTimesheetWhereInput[] = [];
+
+  if (hasExpired) {
+    conditions.push({ endDate: { lt: todayStart } });
+  }
+
+  if (hasExpiringSoon) {
+    conditions.push({
+      endDate: {
+        gte: todayStart,
+        lte: twoDaysFromNow,
+      },
+    });
+  }
+
+  if (hasActive) {
+    conditions.push({ endDate: { gt: twoDaysFromNow } });
+  }
+
+  return conditions;
+};
+
+type TimesheetFilterContext = {
+  todayStart: Date;
+  twoDaysFromNow: Date;
+};
+
 const buildTimesheetWhereConditions = (
   params: ReturnType<typeof searchParamsSchema.parse>,
   clinicId: number,
-  baseWhere: Record<string, unknown>
+  baseWhere: Record<string, unknown>,
+  context: TimesheetFilterContext
 ): Prisma.StaffTimesheetWhereInput => {
   const timesheetWhere: Prisma.StaffTimesheetWhereInput = {
     clinicId,
@@ -1700,6 +1747,29 @@ const buildTimesheetWhereConditions = (
     };
   }
 
+  // Handle status filtering by translating to date ranges
+  if (params.status) {
+    const statusArray = params.status.split(".");
+    const statusConditions = buildStatusWhereConditions(
+      statusArray,
+      context.todayStart,
+      context.twoDaysFromNow
+    );
+
+    if (statusConditions.length > 0) {
+      // If we have status conditions, use OR to combine them
+      if (statusConditions.length === 1) {
+        Object.assign(timesheetWhere, statusConditions[0]);
+      } else {
+        // Multiple status conditions need OR
+        // Prisma will AND root conditions (clinicId, isActive) with OR conditions
+        timesheetWhere.OR = statusConditions;
+      }
+    }
+  }
+
+  // Handle explicit date range filtering (from/to params)
+  // This takes precedence if both status and date range are provided
   const dateRangeFilter = buildDateRangeFilter(params.from, params.to);
   if (dateRangeFilter !== null) {
     timesheetWhere.endDate = dateRangeFilter;
@@ -1793,7 +1863,8 @@ export const getClinicTimesheets = async (c: Context) => {
     const timesheetWhere = buildTimesheetWhereConditions(
       params,
       authUser.clinicId,
-      where
+      where,
+      { todayStart, twoDaysFromNow }
     );
 
     const [timesheets, totalCount] = await Promise.all([
@@ -1816,6 +1887,7 @@ export const getClinicTimesheets = async (c: Context) => {
       db.staffTimesheet.count({ where: timesheetWhere }),
     ]);
 
+    // Calculate status for display (all records already match the status filter)
     const timesheetsWithStatus = timesheets.map((ts) => {
       const { status, daysUntilExpiry } = calculateTimesheetStatus(
         ts.endDate,
@@ -1829,22 +1901,13 @@ export const getClinicTimesheets = async (c: Context) => {
       };
     });
 
-    let filteredTimesheets = timesheetsWithStatus;
-    if (params.status) {
-      const statusArray = params.status.split(".");
-      filteredTimesheets = timesheetsWithStatus.filter((ts) =>
-        statusArray.includes(ts.status)
-      );
-    }
-
     const take = restOptions.take ?? 0;
-    const finalCount = params.status ? filteredTimesheets.length : totalCount;
-    const pageCount = take > 0 ? Math.ceil(finalCount / take) : 0;
+    const pageCount = take > 0 ? Math.ceil(totalCount / take) : 0;
 
     return c.json(
       {
-        data: filteredTimesheets,
-        totalCount: finalCount,
+        data: timesheetsWithStatus,
+        totalCount,
         pageCount,
       },
       httpCodes.OK as ContentfulStatusCode
