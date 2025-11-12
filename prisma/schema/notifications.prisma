@@ -25,4 +25,5 @@ enum NotificationType {
     LAB_EXAM_RESULTS
     LAB_EXAM_REQUEST
     HANDOFF_REQUEST
+    TIMESHEET_EXPIRING
 }
