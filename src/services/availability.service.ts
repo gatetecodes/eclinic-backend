@@ -8,18 +8,12 @@ import {
   startOfDay,
 } from "date-fns";
 import { db } from "@/database/db";
-
-const TIMESHEETS_GOLIVE_ISO = process.env.TIMESHEETS_GOLIVE_ISO;
-const TIMESHEETS_GOLIVE =
-  TIMESHEETS_GOLIVE_ISO && !Number.isNaN(Date.parse(TIMESHEETS_GOLIVE_ISO))
-    ? new Date(TIMESHEETS_GOLIVE_ISO)
-    : undefined;
-
 import type {
   StaffScheduleException,
   StaffShift,
   StaffTimesheet,
 } from "../../generated/prisma";
+import { TIMESHEETS_GOLIVE } from "../lib/timesheets-config";
 
 type GetUserAvailabilityParams = {
   userId: number;
