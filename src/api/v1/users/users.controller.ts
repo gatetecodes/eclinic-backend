@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hash } from "bcryptjs";
 import {
+  addDays,
   addHours,
   addMinutes,
   endOfDay,
@@ -8,6 +9,7 @@ import {
   getDay,
   isBefore,
   parse,
+  parseISO,
   startOfDay,
   subDays,
 } from "date-fns";
@@ -19,6 +21,7 @@ import {
   type EducationLevel,
   type Prisma,
   Role,
+  type StaffTimesheet,
   type TimesheetPeriod,
   type User,
   UserStatus,
@@ -1612,6 +1615,238 @@ export const upsertUserTimesheet = async (c: Context) => {
 
     return c.json(
       { success: true, timesheetId: created.id },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+const calculateTimesheetStatus = (
+  endDate: Date,
+  todayStart: Date,
+  twoDaysFromNow: Date
+): {
+  status: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED";
+  daysUntilExpiry: number;
+} => {
+  const endDateStart = startOfDay(endDate);
+  const daysUntilExpiry = Math.floor(
+    (endDateStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  let status: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED";
+  if (endDateStart.getTime() < todayStart.getTime()) {
+    status = "EXPIRED";
+  } else if (
+    endDateStart.getTime() <= twoDaysFromNow.getTime() &&
+    endDateStart.getTime() >= todayStart.getTime()
+  ) {
+    status = "EXPIRING_SOON";
+  } else {
+    status = "ACTIVE";
+  }
+
+  return { status, daysUntilExpiry };
+};
+
+const buildDateRangeFilter = (
+  from?: string,
+  to?: string
+): Prisma.DateTimeFilter | null => {
+  const fromDate = from ? parseISO(from) : null;
+  const toDate = to ? parseISO(to) : null;
+
+  if (fromDate === null && toDate === null) {
+    return null;
+  }
+
+  const filter: Prisma.DateTimeFilter = {};
+  if (fromDate) {
+    filter.gte = startOfDay(fromDate);
+  }
+  if (toDate) {
+    filter.lte = endOfDay(toDate);
+  }
+  return filter;
+};
+
+const buildTimesheetWhereConditions = (
+  params: ReturnType<typeof searchParamsSchema.parse>,
+  clinicId: number,
+  baseWhere: Record<string, unknown>
+): Prisma.StaffTimesheetWhereInput => {
+  const timesheetWhere: Prisma.StaffTimesheetWhereInput = {
+    clinicId,
+    isActive: true,
+    ...(baseWhere as Prisma.StaffTimesheetWhereInput),
+  };
+
+  if (params.name) {
+    timesheetWhere.user = {
+      name: { contains: params.name, mode: "insensitive" },
+    };
+  }
+
+  if (params.type) {
+    const periodTypes = params.type.split(".");
+    timesheetWhere.periodType = {
+      in: periodTypes as TimesheetPeriod[],
+    };
+  }
+
+  const dateRangeFilter = buildDateRangeFilter(params.from, params.to);
+  if (dateRangeFilter !== null) {
+    timesheetWhere.endDate = dateRangeFilter;
+  }
+
+  return timesheetWhere;
+};
+
+export const getExpiringTimesheetsCount = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const actorRole = authUser.role;
+    if (actorRole !== "CLINIC_ADMIN" && actorRole !== "BRANCH_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    if (!authUser.clinicId) {
+      return c.json(
+        { error: "Clinic ID required" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const todayStart = startOfDay(new Date());
+    const twoDaysFromNow = startOfDay(addDays(todayStart, 2));
+
+    const count = await db.staffTimesheet.count({
+      where: {
+        clinicId: authUser.clinicId,
+        isActive: true,
+        endDate: {
+          gte: todayStart,
+          lte: twoDaysFromNow,
+        },
+      },
+    });
+
+    return c.json({ count }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getClinicTimesheets = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const actorRole = authUser.role;
+    if (actorRole !== "CLINIC_ADMIN" && actorRole !== "BRANCH_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    if (!authUser.clinicId) {
+      return c.json(
+        { error: "Clinic ID required" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const params = searchParamsSchema.parse(c.req.query());
+    const queryOptions = buildQueryOptions<StaffTimesheet>(params);
+    const { where, orderBy, ...restOptions } = queryOptions;
+
+    const todayStart = startOfDay(new Date());
+    const twoDaysFromNow = startOfDay(addDays(todayStart, 2));
+
+    const timesheetWhere = buildTimesheetWhereConditions(
+      params,
+      authUser.clinicId,
+      where
+    );
+
+    const [timesheets, totalCount] = await Promise.all([
+      db.staffTimesheet.findMany({
+        ...restOptions,
+        where: timesheetWhere,
+        orderBy: orderBy as Prisma.StaffTimesheetOrderByWithRelationInput,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              role: true,
+            },
+          },
+          shifts: true,
+          exceptions: true,
+        },
+      }),
+      db.staffTimesheet.count({ where: timesheetWhere }),
+    ]);
+
+    const timesheetsWithStatus = timesheets.map((ts) => {
+      const { status, daysUntilExpiry } = calculateTimesheetStatus(
+        ts.endDate,
+        todayStart,
+        twoDaysFromNow
+      );
+      return {
+        ...ts,
+        status,
+        daysUntilExpiry,
+      };
+    });
+
+    let filteredTimesheets = timesheetsWithStatus;
+    if (params.status) {
+      const statusArray = params.status.split(".");
+      filteredTimesheets = timesheetsWithStatus.filter((ts) =>
+        statusArray.includes(ts.status)
+      );
+    }
+
+    const take = restOptions.take ?? 0;
+    const finalCount = params.status ? filteredTimesheets.length : totalCount;
+    const pageCount = take > 0 ? Math.ceil(finalCount / take) : 0;
+
+    return c.json(
+      {
+        data: filteredTimesheets,
+        totalCount: finalCount,
+        pageCount,
+      },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
