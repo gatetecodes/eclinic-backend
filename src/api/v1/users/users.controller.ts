@@ -1828,6 +1828,81 @@ export const getExpiringTimesheetsCount = async (c: Context) => {
   }
 };
 
+export const getStaffWithoutTimesheets = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const actorRole = authUser.role;
+    if (actorRole !== "CLINIC_ADMIN" && actorRole !== "BRANCH_ADMIN") {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    if (!authUser.clinicId) {
+      return c.json(
+        { error: "Clinic ID required" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    // Get all staff (excluding admins)
+    const allStaff = await db.user.findMany({
+      where: {
+        clinicId: authUser.clinicId,
+        role: {
+          notIn: [Role.SUPER_ADMIN, Role.CLINIC_ADMIN],
+        },
+        status: UserStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+      },
+    });
+
+    // Get all active timesheets to find which staff already have them
+    const timesheets = await db.staffTimesheet.findMany({
+      where: {
+        clinicId: authUser.clinicId,
+        isActive: true,
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    // Create a set of user IDs that have timesheets
+    const staffWithTimesheets = new Set(
+      timesheets.map((timesheet) => timesheet.userId)
+    );
+
+    // Filter out staff who already have timesheets
+    const staffWithoutTimesheets = allStaff.filter(
+      (staff) => !staffWithTimesheets.has(staff.id)
+    );
+
+    return c.json(
+      { data: staffWithoutTimesheets },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to fetch staff without timesheets", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
 export const getClinicTimesheets = async (c: Context) => {
   try {
     const authUser = c.get("user") as AuthenticatedUser | undefined;
