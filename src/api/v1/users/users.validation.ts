@@ -178,7 +178,23 @@ export const staffShiftSchema = z
       message: "End time must be after start time",
       path: ["endTime"],
     }
-  );
+  )
+  .transform((s) => {
+    // Auto-expand daysOfWeek for cross-day shifts
+    const crossesMidnight = s.startTime > s.endTime;
+    if (crossesMidnight) {
+      const expandedDays = new Set(s.daysOfWeek);
+      for (const day of s.daysOfWeek) {
+        const nextDay = (day + 1) % 7;
+        expandedDays.add(nextDay);
+      }
+      return {
+        ...s,
+        daysOfWeek: Array.from(expandedDays).sort((a, b) => a - b),
+      };
+    }
+    return s;
+  });
 
 export const scheduleExceptionSchema = z
   .object({
@@ -204,6 +220,26 @@ export const scheduleExceptionSchema = z
       return Boolean(e.startTime && e.endTime);
     },
     { message: "Working exceptions must include start and end times" }
+  )
+  .refine(
+    (e) => {
+      if (!(e.isWorking && e.startTime && e.endTime)) {
+        return true;
+      }
+      const toMinutes = (time: string) => {
+        const [hours, minutes] = time.split(":").map(Number);
+        return hours * 60 + minutes;
+      };
+      const start = toMinutes(e.startTime);
+      const end = toMinutes(e.endTime);
+      const duration = (end - start + 24 * 60) % (24 * 60);
+      return duration > 0;
+    },
+    {
+      message:
+        "End time must be after start time (cross-day shifts are supported)",
+      path: ["endTime"],
+    }
   );
 
 const timesheetPeriodSchema = z.enum(["WEEK", "MONTH", "CUSTOM"]);
