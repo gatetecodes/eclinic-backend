@@ -1581,7 +1581,7 @@ export const upsertUserTimesheet = async (c: Context) => {
         await tx.staffShift.createMany({
           data: payload.shifts.map((s) => ({
             timesheetId: ts.id,
-            daysOfWeek: (s as { daysOfWeek: number[] }).daysOfWeek,
+            daysOfWeek: s.daysOfWeek,
             startTime: s.startTime,
             endTime: s.endTime,
             branchId: s.branchId ?? null,
@@ -1857,6 +1857,9 @@ export const getStaffWithoutTimesheets = async (c: Context) => {
     const allStaff = await db.user.findMany({
       where: {
         clinicId: authUser.clinicId,
+        ...(actorRole === "BRANCH_ADMIN"
+          ? { branchId: authUser.branchId }
+          : {}),
         role: {
           notIn: [Role.SUPER_ADMIN, Role.CLINIC_ADMIN],
         },
@@ -1873,6 +1876,9 @@ export const getStaffWithoutTimesheets = async (c: Context) => {
     const timesheets = await db.staffTimesheet.findMany({
       where: {
         clinicId: authUser.clinicId,
+        ...(actorRole === "BRANCH_ADMIN"
+          ? { branchId: authUser.branchId }
+          : {}),
         isActive: true,
       },
       select: {
