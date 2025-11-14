@@ -204,6 +204,26 @@ export const scheduleExceptionSchema = z
       return Boolean(e.startTime && e.endTime);
     },
     { message: "Working exceptions must include start and end times" }
+  )
+  .refine(
+    (e) => {
+      if (!(e.isWorking && e.startTime && e.endTime)) {
+        return true;
+      }
+      const toMinutes = (time: string) => {
+        const [hours, minutes] = time.split(":").map(Number);
+        return hours * 60 + minutes;
+      };
+      const start = toMinutes(e.startTime);
+      const end = toMinutes(e.endTime);
+      const duration = (end - start + 24 * 60) % (24 * 60);
+      return duration > 0;
+    },
+    {
+      message:
+        "End time must be after start time (cross-day shifts are supported)",
+      path: ["endTime"],
+    }
   );
 
 const timesheetPeriodSchema = z.enum(["WEEK", "MONTH", "CUSTOM"]);
@@ -250,6 +270,44 @@ export const upsertTimesheetSchema = z
     message:
       "Date range must align with period type: WEEK (7-day multiples), MONTH (approximately 28-35 days), or CUSTOM (any range)",
     path: ["endDate"],
+  })
+  .transform((t) => {
+    // Split shifts that cross midnight into two separate shifts
+    const expandedShifts: typeof t.shifts = [];
+
+    for (const shift of t.shifts) {
+      const crossesMidnight = shift.startTime > shift.endTime;
+      if (crossesMidnight) {
+        // Split into two shifts:
+        // 1. Original days: startTime to 23:59 (end of day)
+        // 2. Next days: 00:00 to endTime
+        const nextDays = shift.daysOfWeek.map((day) => (day + 1) % 7);
+
+        // Shift 1: Original days with startTime to 23:59
+        expandedShifts.push({
+          ...shift,
+          daysOfWeek: [...shift.daysOfWeek],
+          startTime: shift.startTime,
+          endTime: "23:59",
+        });
+
+        // Shift 2: Next days with 00:00 to endTime
+        expandedShifts.push({
+          ...shift,
+          daysOfWeek: nextDays,
+          startTime: "00:00",
+          endTime: shift.endTime,
+        });
+      } else {
+        // Keep non-cross-day shifts as-is
+        expandedShifts.push(shift);
+      }
+    }
+
+    return {
+      ...t,
+      shifts: expandedShifts,
+    };
   });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;

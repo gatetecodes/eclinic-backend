@@ -15,8 +15,11 @@ import {
   getCashiers,
   getClinicDoctors,
   getClinicNurses,
+  getClinicTimesheets,
   getClinicUsers,
   getDoctorsByDepartmentId,
+  getExpiringTimesheetsCount,
+  getStaffWithoutTimesheets,
   getUserById,
   getUserTimesheet,
   upsertUserTimesheet,
@@ -32,6 +35,17 @@ const router = new Hono<AppEnv>();
 
 router.get("/clinic", crudAccess("users"), getClinicUsers);
 router.get("/clinic/doctors", crudAccess("users"), getClinicDoctors);
+router.get("/clinic/timesheets", crudAccess("users"), getClinicTimesheets);
+router.get(
+  "/clinic/timesheets/expiring-count",
+  crudAccess("users"),
+  getExpiringTimesheetsCount
+);
+router.get(
+  "/clinic/staff/without-timesheets",
+  crudAccess("users"),
+  getStaffWithoutTimesheets
+);
 router.get("/branch/doctors", crudAccess("users"), getAllBranchDoctors);
 router.get("/doctors", crudAccess("users"), getAllClinicDoctors);
 router.get("/clinic/nurses", crudAccess("users"), getClinicNurses);
