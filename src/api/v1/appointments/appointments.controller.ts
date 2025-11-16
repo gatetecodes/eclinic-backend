@@ -425,6 +425,7 @@ export const getAppointments = async (c: Context) => {
             id: true,
             firstName: true,
             lastName: true,
+            gender: true,
           },
         },
         doctor: {
