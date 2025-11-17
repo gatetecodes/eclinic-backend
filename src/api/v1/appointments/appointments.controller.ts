@@ -446,6 +446,7 @@ export const getAppointments = async (c: Context) => {
     const pageCount = queryOptions.take
       ? Math.ceil(totalCount / queryOptions.take)
       : 0;
+
     return c.json(
       {
         status: httpCodes.OK,
