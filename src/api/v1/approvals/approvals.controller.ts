@@ -156,6 +156,7 @@ export const getApprovalRequests = async (c: Context) => {
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
+    
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal Server Error",

@@ -398,10 +398,14 @@ export const getAppointments = async (c: Context) => {
 
     const params = searchParamsSchema.parse(c.req.query());
     const { clinicId, branchId } = getScope(user, params);
-    const queryOptions = buildQueryOptions<Event>(params, {
-      ...(typeof clinicId === "number" ? { clinicId } : {}),
-      ...(typeof branchId === "number" ? { branchId } : {}),
-    });
+    const queryOptions = buildQueryOptions<Event>(
+      params,
+      {
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
+      { includeHandoffs: false }
+    );
     const { where, orderBy, ...restOptions } = queryOptions;
 
     const appointments = await db.event.findMany({
