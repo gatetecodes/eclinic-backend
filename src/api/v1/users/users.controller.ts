@@ -1858,7 +1858,7 @@ export const getStaffWithoutTimesheets = async (c: Context) => {
       where: {
         clinicId: authUser.clinicId,
         ...(actorRole === "BRANCH_ADMIN"
-          ? { branchId: authUser.branchId }
+          ? { user: { branchId: authUser.branchId } }
           : {}),
         role: {
           notIn: [Role.SUPER_ADMIN, Role.CLINIC_ADMIN],
