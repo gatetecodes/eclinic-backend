@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
 import type { Prisma } from "../../../../generated/prisma";
 import {
+  ClaimStatus,
   PaymentStatus,
   Role,
   UserStatus,
@@ -93,6 +94,56 @@ export const getPerformanceOverview = async (c: Context) => {
             role: { in: [Role.DOCTOR, Role.NURSE, Role.LAB_TECHNICIAN] },
           },
         }),
+
+        // Insurance owed (unpaid claims)
+        db.insuranceClaim.aggregate({
+          _sum: { totalAmount: true },
+          where: {
+            clinicId: user.clinicId,
+            createdAt: { gte: startDate, lte: endDate },
+            claimStatus: {
+              notIn: [ClaimStatus.PAID, ClaimStatus.REJECTED],
+            },
+            ...(filters?.doctorId || filters?.departmentId
+              ? {
+                  visit: {
+                    ...(filters?.doctorId && {
+                      doctorId: Number(filters.doctorId),
+                    }),
+                    ...(filters?.departmentId && {
+                      departmentId: Number(filters.departmentId),
+                    }),
+                  },
+                }
+              : {}),
+          },
+        }),
+        //Total discounts
+        db.discount.aggregate({
+          _sum: { amount: true },
+          where: {
+            clinicId: user.clinicId,
+            createdAt: { gte: startDate, lte: endDate },
+            ...(filters?.doctorId || filters?.departmentId
+              ? {
+                  payment: {
+                    ...(filters?.doctorId || filters?.departmentId
+                      ? {
+                          visit: {
+                            ...(filters?.doctorId && {
+                              doctorId: Number(filters.doctorId),
+                            }),
+                            ...(filters?.departmentId && {
+                              departmentId: Number(filters.departmentId),
+                            }),
+                          },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+        }),
       ]),
       db.$transaction([
         // Previous period visits
@@ -151,6 +202,56 @@ export const getPerformanceOverview = async (c: Context) => {
             role: { in: [Role.DOCTOR, Role.NURSE, Role.LAB_TECHNICIAN] },
           },
         }),
+
+        // Previous period insurance owed (unpaid claims)
+        db.insuranceClaim.aggregate({
+          _sum: { totalAmount: true },
+          where: {
+            clinicId: user.clinicId,
+            createdAt: { gte: prevStartDate, lte: prevEndDate },
+            claimStatus: {
+              notIn: [ClaimStatus.PAID, ClaimStatus.REJECTED],
+            },
+            ...(filters?.doctorId || filters?.departmentId
+              ? {
+                  visit: {
+                    ...(filters?.doctorId && {
+                      doctorId: Number(filters.doctorId),
+                    }),
+                    ...(filters?.departmentId && {
+                      departmentId: Number(filters.departmentId),
+                    }),
+                  },
+                }
+              : {}),
+          },
+        }),
+        // Previous period total discounts
+        db.discount.aggregate({
+          _sum: { amount: true },
+          where: {
+            clinicId: user.clinicId,
+            createdAt: { gte: prevStartDate, lte: prevEndDate },
+            ...(filters?.doctorId || filters?.departmentId
+              ? {
+                  payment: {
+                    ...(filters?.doctorId || filters?.departmentId
+                      ? {
+                          visit: {
+                            ...(filters?.doctorId && {
+                              doctorId: Number(filters.doctorId),
+                            }),
+                            ...(filters?.departmentId && {
+                              departmentId: Number(filters.departmentId),
+                            }),
+                          },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+        }),
       ]),
     ]);
     return c.json(
@@ -192,6 +293,30 @@ export const getPerformanceOverview = async (c: Context) => {
             count: currentPeriod[3],
             trend: 0, // Staff count doesn't change frequently
             trendText: "Active staff members",
+          },
+          insuranceOwed: {
+            count: Number(currentPeriod[4]._sum.totalAmount || 0),
+            trend: calculateTrend(
+              Number(currentPeriod[4]._sum.totalAmount || 0),
+              Number(previousPeriod[4]._sum.totalAmount || 0)
+            ),
+            trendText: getContextualTrendText(
+              Number(currentPeriod[4]._sum.totalAmount || 0),
+              Number(previousPeriod[4]._sum.totalAmount || 0),
+              dateRange
+            ),
+          },
+          totalDiscounts: {
+            count: Number(currentPeriod[5]._sum.amount || 0),
+            trend: calculateTrend(
+              Number(currentPeriod[5]._sum.amount || 0),
+              Number(previousPeriod[5]._sum.amount || 0)
+            ),
+            trendText: getContextualTrendText(
+              Number(currentPeriod[5]._sum.amount || 0),
+              Number(previousPeriod[5]._sum.amount || 0),
+              dateRange
+            ),
           },
         },
       },

@@ -18,6 +18,9 @@ model InsuranceClaim {
     clinicId           Int?
     branch             Branch?                  @relation(fields: [branchId], references: [id])
     branchId           Int?
+    payments           Payment[]
+    paidAt             DateTime?
+    paymentMethod      PaymentMethod?
 }
 
 model InsuranceClaimItem {
@@ -47,6 +50,7 @@ enum ClaimStatus {
     SUBMITTED
     IN_REVIEW
     APPROVED
+    PAID
     PARTIALLY_APPROVED
     REJECTED
     RESUBMITTED
