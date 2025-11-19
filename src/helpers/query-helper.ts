@@ -8,9 +8,14 @@ type SortableEntity = {
   [key: string]: unknown;
 };
 
+type BuildQueryOptionsConfig = {
+  includeHandoffs?: boolean;
+};
+
 export function buildQueryOptions<T extends SortableEntity>(
   params: ParamsSchema,
-  additionalWhere: Record<string, unknown> = {}
+  additionalWhere: Record<string, unknown> = {},
+  config: BuildQueryOptionsConfig = {}
 ): {
   skip?: number;
   take?: number;
@@ -21,7 +26,12 @@ export function buildQueryOptions<T extends SortableEntity>(
 
   const paginationOptions = getPaginationOptions(page, per_page);
   const orderByOptions = getSortOptions<T>(sort);
-  const whereConditions = getWhereConditions(filterParams, from, to);
+  const whereConditions = getWhereConditions(
+    filterParams,
+    from,
+    to,
+    config.includeHandoffs ?? true
+  );
 
   return {
     ...paginationOptions,
@@ -68,8 +78,9 @@ function getWhereConditions(
     insuranceCompany,
     processedById,
   }: Partial<ParamsSchema>,
-  from?: string,
-  to?: string
+  from: string | undefined,
+  to: string | undefined,
+  includeHandoffs: boolean
 ): Record<string, unknown> {
   const whereConditions = {
     ...getNameCondition(name),
@@ -78,7 +89,7 @@ function getWhereConditions(
     ...getStatusCondition(status),
     ...getRoleCondition(role),
     ...getGenderCondition(gender),
-    ...getDoctorIdCondition(doctorId),
+    ...getDoctorIdCondition(doctorId, includeHandoffs),
     ...getClinicIdCondition(clinicId),
     ...getBranchIdCondition(branchId),
     ...getItemNameCondition(itemName),
@@ -196,15 +207,22 @@ function getGenderCondition(gender?: string) {
   return gender ? { patient: { gender: gender as Gender } } : {};
 }
 
-function getDoctorIdCondition(doctorId?: string) {
-  return doctorId
-    ? {
-        OR: [
-          { doctorId: +doctorId },
-          { handoffs: { some: { toDoctorId: +doctorId } } },
-        ],
-      }
-    : {};
+function getDoctorIdCondition(
+  doctorId: string | undefined,
+  includeHandoffs = true
+) {
+  if (!doctorId) {
+    return {};
+  }
+  if (!includeHandoffs) {
+    return { doctorId: +doctorId };
+  }
+  return {
+    OR: [
+      { doctorId: +doctorId },
+      { handoffs: { some: { toDoctorId: +doctorId } } },
+    ],
+  };
 }
 
 function getClinicIdCondition(clinicId?: string) {

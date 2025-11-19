@@ -8,6 +8,8 @@ model Payment {
     visitId         Int?
     appointment     Event?        @relation(fields: [appointmentId], references: [id])
     appointmentId   Int?
+    insuranceClaim  InsuranceClaim? @relation(fields: [insuranceClaimId], references: [id])
+    insuranceClaimId Int?
     amount          Decimal       @db.Decimal(10, 2)
     paidAmount      Decimal       @default(0) @db.Decimal(10, 2)
     insuranceAmount Decimal?      @db.Decimal(10, 2)
@@ -29,6 +31,7 @@ model Payment {
     @@index([clinicId])
     @@index([visitId])
     @@index([appointmentId])
+    @@index([insuranceClaimId])
 }
 
 enum PaymentType {
