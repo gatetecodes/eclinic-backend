@@ -127,18 +127,14 @@ export const getPerformanceOverview = async (c: Context) => {
             ...(filters?.doctorId || filters?.departmentId
               ? {
                   payment: {
-                    ...(filters?.doctorId || filters?.departmentId
-                      ? {
-                          visit: {
-                            ...(filters?.doctorId && {
-                              doctorId: Number(filters.doctorId),
-                            }),
-                            ...(filters?.departmentId && {
-                              departmentId: Number(filters.departmentId),
-                            }),
-                          },
-                        }
-                      : {}),
+                    visit: {
+                      ...(filters?.doctorId && {
+                        doctorId: Number(filters.doctorId),
+                      }),
+                      ...(filters?.departmentId && {
+                        departmentId: Number(filters.departmentId),
+                      }),
+                    },
                   },
                 }
               : {}),
@@ -235,18 +231,14 @@ export const getPerformanceOverview = async (c: Context) => {
             ...(filters?.doctorId || filters?.departmentId
               ? {
                   payment: {
-                    ...(filters?.doctorId || filters?.departmentId
-                      ? {
-                          visit: {
-                            ...(filters?.doctorId && {
-                              doctorId: Number(filters.doctorId),
-                            }),
-                            ...(filters?.departmentId && {
-                              departmentId: Number(filters.departmentId),
-                            }),
-                          },
-                        }
-                      : {}),
+                    visit: {
+                      ...(filters?.doctorId && {
+                        doctorId: Number(filters.doctorId),
+                      }),
+                      ...(filters?.departmentId && {
+                        departmentId: Number(filters.departmentId),
+                      }),
+                    },
                   },
                 }
               : {}),
