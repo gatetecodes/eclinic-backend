@@ -16,11 +16,13 @@ model InventoryItem {
     updatedAt        DateTime        @updatedAt
 
     // Relations
-    batches      InventoryBatch[]
-    transactions Transaction[]
-    currentStock InventoryStock? // One-to-one relation with current stock
-    branch       Branch?          @relation(fields: [branchId], references: [id])
-    branchId     Int?
+    batches            InventoryBatch[]
+    transactions       Transaction[]
+    currentStock       InventoryStock? // One-to-one relation with current stock
+    branch             Branch?             @relation(fields: [branchId], references: [id])
+    branchId           Int?
+    purchaseOrderLines PurchaseOrderLine[]
+    goodsReceiptLines  GoodsReceiptLine[]
 
     @@unique([clinicId, itemName])
 }
@@ -30,8 +32,12 @@ model InventoryStock {
     id        Int           @id @default(autoincrement())
     item      InventoryItem @relation(fields: [itemId], references: [id])
     itemId    Int           @unique // One-to-one relation
+    branch    Branch?       @relation(fields: [branchId], references: [id])
+    branchId  Int?
     quantity  Int
     updatedAt DateTime      @updatedAt
+
+    @@unique([itemId, branchId])
 }
 
 // Batch tracking
@@ -45,6 +51,8 @@ model InventoryBatch {
     currentQuantity Int // Current quantity remaining
     unitPrice       Decimal?      @db.Decimal(10, 2)
     location        String?
+    branch          Branch?       @relation(fields: [branchId], references: [id])
+    branchId        Int?
     createdAt       DateTime      @default(now())
     updatedAt       DateTime      @updatedAt
 
@@ -52,6 +60,7 @@ model InventoryBatch {
     transactions Transaction[]
 
     @@unique([itemId, batchNumber])
+    @@index([itemId, branchId, expiryDate])
 }
 
 // Transaction history

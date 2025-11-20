@@ -20,11 +20,20 @@ import { db } from "../../../database/db";
 import { processInventoryItemRecord } from "../../../helpers/inventory-helpers";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
-import {
+import redis, {
   DEFAULT_CACHE_TTL,
   getCachedData,
 } from "../../../services/redis.service";
 import type { ConsumableCSVRow } from "../../../types/inventory-types";
+import type { StockOutAllocationsInput } from "./inventory.validation";
+import {
+  disposalSchema,
+  goodsReceiptSchema,
+  returnSchema,
+  stockOutAllocationsSchema,
+  stocktakeSchema,
+  transferSchema,
+} from "./inventory.validation";
 
 export const createInventoryItem = async (c: Context) => {
   try {
@@ -206,12 +215,20 @@ export const deleteInventoryItem = async (c: Context) => {
 
 export const getAvailableBatches = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { itemId } = c.req.param();
+    const includeNullExpiry =
+      (c.req.query("includeNullExpiry") || "false").toLowerCase() === "true";
     const batches = await db.inventoryBatch.findMany({
       where: {
         itemId: Number(itemId),
         currentQuantity: { gt: 0 },
-        expiryDate: { gt: new Date() },
+        ...(includeNullExpiry
+          ? {
+              OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+            }
+          : { expiryDate: { gt: new Date() } }),
+        ...(user?.branchId ? { branchId: user.branchId } : {}),
       },
       orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
       select: {
@@ -407,6 +424,18 @@ export const getInventoryItemsList = async (c: Context) => {
 export const addStock = async (c: Context) => {
   try {
     const user = c.get("user");
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:add:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
     const { data } = c.get("validatedJson");
     const {
       itemId,
@@ -420,6 +449,14 @@ export const addStock = async (c: Context) => {
 
     //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
+      // Prevent duplicate batch numbers per item
+      const existing = await tx.inventoryBatch.findFirst({
+        where: { itemId, batchNumber },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new Error("Batch number already exists for this item");
+      }
       const batch = await tx.inventoryBatch.create({
         data: {
           itemId,
@@ -457,7 +494,7 @@ export const addStock = async (c: Context) => {
         include: { currentStock: true },
       });
       if (item) {
-        const currentQuantity = item.currentStock?.quantity + quantity;
+        const currentQuantity = item.currentStock?.quantity ?? 0;
         let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
         if (currentQuantity === 0) {
           newStatus = InventoryStatus.OUT_OF_STOCK;
@@ -500,7 +537,19 @@ export const createSaleTransaction = async (c: Context) => {
   try {
     const user = c.get("user");
     const { data } = c.get("validatedJson");
-    const { itemId, quantity, batchId, visitId, notes } = data;
+    const { itemId, quantity, batchId, visitId, notes, type } = data;
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:sale:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
 
     const batch = await db.inventoryBatch.findUnique({
       where: { id: batchId },
@@ -524,6 +573,13 @@ export const createSaleTransaction = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+    // Require visitId only for SALE transactions
+    if (type === TransactionType.SALE && !visitId) {
+      return c.json(
+        { error: "visitId is required for SALE transactions" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
 
     //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
@@ -532,7 +588,7 @@ export const createSaleTransaction = async (c: Context) => {
         data: {
           itemId,
           batchId,
-          type: TransactionType.SALE,
+          type,
           quantity: -Number(quantity),
           unitPrice: unitPrice ? new Decimal(unitPrice) : null,
           totalAmount: unitPrice
@@ -563,7 +619,7 @@ export const createSaleTransaction = async (c: Context) => {
         include: { currentStock: true },
       });
       if (item?.currentStock) {
-        const currentQuantity = item.currentStock?.quantity - Number(quantity);
+        const currentQuantity = item.currentStock?.quantity ?? 0;
 
         let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
         if (currentQuantity === 0) {
@@ -727,6 +783,927 @@ export const getInventoryTransactions = async (c: Context) => {
       },
       httpCodes.OK as ContentfulStatusCode
     );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+// FEFO/FIFO allocation helper
+async function allocateBatchesForItem(
+  itemId: number,
+  requiredQuantity: number
+): Promise<Array<{ batchId: number; quantity: number }>> {
+  const batches = await db.inventoryBatch.findMany({
+    where: {
+      itemId,
+      currentQuantity: { gt: 0 },
+      OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+    },
+    orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      currentQuantity: true,
+      unitPrice: true,
+    },
+  });
+  let remaining = requiredQuantity;
+  const allocations: Array<{ batchId: number; quantity: number }> = [];
+  for (const b of batches) {
+    if (remaining <= 0) {
+      break;
+    }
+    const take = Math.min(b.currentQuantity, remaining);
+    if (take > 0) {
+      allocations.push({ batchId: b.id, quantity: take });
+      remaining -= take;
+    }
+  }
+  if (remaining > 0) {
+    throw new Error("Insufficient stock across available batches");
+  }
+  return allocations;
+}
+
+async function validateAllocations(
+  tx: Prisma.TransactionClient | typeof db,
+  itemId: number,
+  allocations: Array<{ batchId: number; quantity: number }>
+) {
+  const batchIds = allocations.map((a) => a.batchId);
+  const batches = await tx.inventoryBatch.findMany({
+    where: { id: { in: batchIds } },
+    select: { id: true, itemId: true, currentQuantity: true, unitPrice: true },
+  });
+  const batchById = new Map(batches.map((b) => [b.id, b]));
+
+  for (const a of allocations) {
+    const b = batchById.get(a.batchId);
+    if (!b) {
+      throw new Error(`Batch not found: ${a.batchId}`);
+    }
+    if (b.itemId !== itemId) {
+      throw new Error(`Batch ${a.batchId} does not belong to item ${itemId}`);
+    }
+    if (b.currentQuantity < a.quantity) {
+      throw new Error(`Insufficient quantity in batch ${a.batchId}`);
+    }
+  }
+  return batchById;
+}
+
+type BatchLookup = Map<
+  number,
+  {
+    id: number;
+    itemId: number;
+    currentQuantity: number;
+    unitPrice: Decimal | string | number | null;
+  }
+>;
+
+async function applyAllocations(
+  tx: Prisma.TransactionClient | typeof db,
+  input: {
+    userId: number;
+    payload: {
+      itemId: number;
+      visitId?: number;
+      type: TransactionType;
+      notes?: string | null;
+    };
+    allocations: Array<{ batchId: number; quantity: number }>;
+    batchById: BatchLookup;
+  }
+) {
+  for (const a of input.allocations) {
+    const b = input.batchById.get(a.batchId);
+    if (!b) {
+      throw new Error(`Batch not found: ${a.batchId}`);
+    }
+    await tx.transaction.create({
+      data: {
+        itemId: input.payload.itemId,
+        batchId: a.batchId,
+        type: input.payload.type,
+        quantity: -Number(a.quantity),
+        unitPrice: b.unitPrice ? new Decimal(b.unitPrice) : null,
+        totalAmount: b.unitPrice
+          ? new Decimal(b.unitPrice).mul(Number(a.quantity))
+          : null,
+        sourceType: SourceType.VISIT,
+        visitId: input.payload.visitId,
+        notes: input.payload.notes || null,
+        userId: input.userId,
+        status: TransactionStatus.COMPLETED,
+      },
+    });
+    await tx.inventoryBatch.update({
+      where: { id: a.batchId },
+      data: { currentQuantity: { decrement: Number(a.quantity) } },
+    });
+  }
+}
+
+async function createPositiveAdjustment(
+  tx: Prisma.TransactionClient | typeof db,
+  input: {
+    userId: number;
+    itemId: number;
+    diff: number;
+    reason: string;
+    notes?: string | null;
+  }
+) {
+  const batch = await tx.inventoryBatch.create({
+    data: {
+      itemId: input.itemId,
+      batchNumber: generateAdjustmentBatchNumber(input.itemId),
+      initialQuantity: input.diff,
+      currentQuantity: input.diff,
+      unitPrice: null,
+      location: "STOCKTAKE",
+    },
+    select: { id: true },
+  });
+  await tx.transaction.create({
+    data: {
+      itemId: input.itemId,
+      batchId: batch.id,
+      type: TransactionType.ADJUSTMENT,
+      quantity: input.diff,
+      unitPrice: null,
+      totalAmount: null,
+      sourceType: SourceType.STOCKTAKE,
+      notes: input.notes ? `${input.reason} — ${input.notes}` : input.reason,
+      userId: input.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+}
+
+async function applyNegativeAdjustment(
+  tx: Prisma.TransactionClient | typeof db,
+  input: {
+    userId: number;
+    itemId: number;
+    quantity: number;
+    reason: string;
+    notes?: string | null;
+  }
+) {
+  const allocations = await allocateBatchesForItem(
+    input.itemId,
+    input.quantity
+  );
+  const batchIds = allocations.map((a) => a.batchId);
+  const batches = await tx.inventoryBatch.findMany({
+    where: { id: { in: batchIds } },
+    select: { id: true, unitPrice: true },
+  });
+  const byId = new Map(batches.map((b) => [b.id, b]));
+  for (const a of allocations) {
+    const b = byId.get(a.batchId);
+    await tx.transaction.create({
+      data: {
+        itemId: input.itemId,
+        batchId: a.batchId,
+        type: TransactionType.ADJUSTMENT,
+        quantity: -a.quantity,
+        unitPrice: b?.unitPrice ? new Decimal(b.unitPrice) : null,
+        totalAmount: b?.unitPrice
+          ? new Decimal(b.unitPrice).mul(a.quantity)
+          : null,
+        sourceType: SourceType.STOCKTAKE,
+        notes: input.notes ? `${input.reason} — ${input.notes}` : input.reason,
+        userId: input.userId,
+        status: TransactionStatus.COMPLETED,
+      },
+    });
+    await tx.inventoryBatch.update({
+      where: { id: a.batchId },
+      data: { currentQuantity: { decrement: a.quantity } },
+    });
+  }
+}
+export const stockOutMultiBatch = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const body = await c.req.json<StockOutAllocationsInput>();
+    const payload = stockOutAllocationsSchema.parse(body);
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:stockout:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+
+    // If allocations are not provided, attempt FEFO/FIFO allocation using requiredQuantity
+    let allocations = (
+      payload.allocations && payload.allocations.length > 0
+        ? payload.allocations
+        : []
+    ) as Array<{ batchId: number; quantity: number }>;
+    if (allocations.length === 0) {
+      if (!payload.requiredQuantity || payload.requiredQuantity <= 0) {
+        return c.json(
+          { error: "Either allocations or requiredQuantity must be provided" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      allocations = await allocateBatchesForItem(
+        payload.itemId,
+        payload.requiredQuantity
+      );
+    }
+    const providedQty = allocations.reduce((sum, a) => sum + a.quantity, 0);
+
+    const result = await db.$transaction(async (tx) => {
+      const batchById = await validateAllocations(
+        tx,
+        payload.itemId,
+        allocations
+      );
+      await applyAllocations(tx, {
+        userId: Number(user.id),
+        payload: {
+          itemId: payload.itemId,
+          visitId: payload.visitId,
+          type: payload.type,
+          notes: payload.notes,
+        },
+        allocations,
+        batchById,
+      });
+      await tx.inventoryStock.update({
+        where: { itemId: payload.itemId },
+        data: { quantity: { decrement: Number(providedQty) } },
+      });
+
+      // Update item status
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: payload.itemId },
+        include: { currentStock: true },
+      });
+      if (item?.currentStock) {
+        const currentQuantity = item.currentStock.quantity ?? 0;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (currentQuantity === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (currentQuantity <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: payload.itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
+      return { totalQuantity: providedQty };
+    });
+
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      {
+        success: true,
+        message: "Stock-out processed successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+function generateAdjustmentBatchNumber(itemId: number): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
+  return `ADJ-${itemId}-${yyyy}${mm}${dd}-${rand}`;
+}
+
+export const stocktake = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { itemId, countedQuantity, reason, notes } = stocktakeSchema.parse(
+      await c.req.json()
+    );
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:stocktake:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      const stock = await tx.inventoryStock.findUnique({
+        where: { itemId },
+        select: { quantity: true },
+      });
+      const currentQty = stock?.quantity ?? 0;
+      const diff = countedQuantity - currentQty;
+      if (diff === 0) {
+        return { adjustedBy: 0 };
+      }
+      if (diff > 0) {
+        await createPositiveAdjustment(tx, {
+          userId: Number(user.id),
+          itemId,
+          diff,
+          reason,
+          notes,
+        });
+      } else {
+        await applyNegativeAdjustment(tx, {
+          userId: Number(user.id),
+          itemId,
+          quantity: Math.abs(diff),
+          reason,
+          notes,
+        });
+      }
+
+      // Update stock to countedQuantity
+      await tx.inventoryStock.upsert({
+        where: { itemId },
+        create: { itemId, quantity: countedQuantity },
+        update: { quantity: countedQuantity },
+      });
+
+      // Update item status
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: itemId },
+        include: { currentStock: true },
+      });
+      if (item?.currentStock) {
+        const qty = item.currentStock.quantity ?? 0;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (qty === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (qty <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
+      return { adjustedBy: diff };
+    });
+
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      {
+        success: true,
+        message: "Stocktake recorded successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+type TransferBatchInfo = {
+  id: number;
+  itemId: number;
+  currentQuantity: number;
+  unitPrice: Decimal | string | number | null;
+  batchNumber: string;
+  expiryDate: Date | null;
+  location: string | null;
+};
+
+async function validateTransfer(
+  tx: Prisma.TransactionClient | typeof db,
+  itemId: number,
+  allocations: Array<{ batchId: number; quantity: number }>
+): Promise<Map<number, TransferBatchInfo>> {
+  const batchIds = allocations.map((a) => a.batchId);
+  const sourceBatches = await tx.inventoryBatch.findMany({
+    where: { id: { in: batchIds } },
+    select: {
+      id: true,
+      itemId: true,
+      currentQuantity: true,
+      unitPrice: true,
+      batchNumber: true,
+      expiryDate: true,
+      location: true,
+    },
+  });
+  const byId = new Map<number, TransferBatchInfo>(
+    sourceBatches.map((b) => [b.id, b as unknown as TransferBatchInfo])
+  );
+  for (const a of allocations) {
+    const b = byId.get(a.batchId);
+    if (!b || b.itemId !== itemId || b.currentQuantity < a.quantity) {
+      throw new Error(`Invalid or insufficient batch: ${a.batchId}`);
+    }
+  }
+  return byId;
+}
+
+async function applyTransferForAllocation(
+  tx: Prisma.TransactionClient | typeof db,
+  input: {
+    userId: number;
+    itemId: number;
+    toBranchId: number;
+    allocation: { batchId: number; quantity: number };
+    source: TransferBatchInfo;
+    notes?: string | null;
+  }
+) {
+  await tx.transaction.create({
+    data: {
+      itemId: input.itemId,
+      batchId: input.allocation.batchId,
+      type: TransactionType.TRANSFER,
+      quantity: -input.allocation.quantity,
+      unitPrice: input.source.unitPrice
+        ? new Decimal(input.source.unitPrice)
+        : null,
+      totalAmount: input.source.unitPrice
+        ? new Decimal(input.source.unitPrice).mul(input.allocation.quantity)
+        : null,
+      sourceType: SourceType.TRANSFER,
+      notes: input.notes,
+      userId: input.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+  await tx.inventoryBatch.update({
+    where: { id: input.allocation.batchId },
+    data: { currentQuantity: { decrement: input.allocation.quantity } },
+  });
+  const destBatch = await tx.inventoryBatch.create({
+    data: {
+      itemId: input.itemId,
+      batchNumber: `${input.source.batchNumber}-XFER-${input.toBranchId}`,
+      expiryDate: input.source.expiryDate,
+      initialQuantity: input.allocation.quantity,
+      currentQuantity: input.allocation.quantity,
+      unitPrice: input.source.unitPrice
+        ? new Decimal(input.source.unitPrice)
+        : null,
+      location: input.source.location ?? "TRANSFER",
+    },
+    select: { id: true },
+  });
+  await tx.transaction.create({
+    data: {
+      itemId: input.itemId,
+      batchId: destBatch.id,
+      type: TransactionType.TRANSFER,
+      quantity: input.allocation.quantity,
+      unitPrice: input.source.unitPrice
+        ? new Decimal(input.source.unitPrice)
+        : null,
+      totalAmount: input.source.unitPrice
+        ? new Decimal(input.source.unitPrice).mul(input.allocation.quantity)
+        : null,
+      sourceType: SourceType.TRANSFER,
+      notes: input.notes,
+      userId: input.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+}
+
+export const transferInventory = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { itemId, toBranchId, allocations, notes } = transferSchema.parse(
+      await c.req.json()
+    );
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:transfer:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+    const totalQty = allocations.reduce((sum, a) => sum + a.quantity, 0);
+    if (totalQty <= 0) {
+      return c.json(
+        { error: "Total quantity must be greater than zero" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const result = await db.$transaction(async (tx) => {
+      const byId = await validateTransfer(tx, itemId, allocations);
+      for (const a of allocations) {
+        const b = byId.get(a.batchId);
+        if (!b) {
+          throw new Error(`Batch not found: ${a.batchId}`);
+        }
+        await applyTransferForAllocation(tx, {
+          userId: Number(user.id),
+          itemId,
+          toBranchId,
+          allocation: a,
+          source: b,
+          notes,
+        });
+      }
+      return { transferred: totalQty };
+    });
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      {
+        success: true,
+        message: "Transfer completed successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const disposeInventory = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { itemId, reason, allocations, notes, attachmentUrl } =
+      disposalSchema.parse(await c.req.json());
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:disposal:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+    const total = allocations.reduce((s, a) => s + a.quantity, 0);
+    const result = await db.$transaction(async (tx) => {
+      const byId = await validateAllocations(tx, itemId, allocations);
+      for (const a of allocations) {
+        const b = byId.get(a.batchId);
+        if (!b) {
+          throw new Error(`Batch not found: ${a.batchId}`);
+        }
+        await tx.transaction.create({
+          data: {
+            itemId,
+            batchId: a.batchId,
+            type: TransactionType.DISPOSAL,
+            quantity: -a.quantity,
+            unitPrice: b.unitPrice ? new Decimal(b.unitPrice) : null,
+            totalAmount: b.unitPrice
+              ? new Decimal(b.unitPrice).mul(a.quantity)
+              : null,
+            sourceType: SourceType.DISPOSAL,
+            notes: [reason, notes, attachmentUrl].filter(Boolean).join(" — "),
+            userId: Number(user.id),
+            status: TransactionStatus.COMPLETED,
+          },
+        });
+        await tx.inventoryBatch.update({
+          where: { id: a.batchId },
+          data: { currentQuantity: { decrement: a.quantity } },
+        });
+      }
+      await tx.inventoryStock.update({
+        where: { itemId },
+        data: { quantity: { decrement: total } },
+      });
+      return { disposed: total };
+    });
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      {
+        success: true,
+        message: "Disposal recorded successfully",
+        data: result,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const returnToStock = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { itemId, quantity, notes } = returnSchema.parse(await c.req.json());
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:return:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+    const result = await db.$transaction(async (tx) => {
+      const batch = await tx.inventoryBatch.create({
+        data: {
+          itemId,
+          batchNumber: generateAdjustmentBatchNumber(itemId).replace(
+            "ADJ",
+            "RET"
+          ),
+          initialQuantity: quantity,
+          currentQuantity: quantity,
+          unitPrice: null,
+          location: "RETURN",
+        },
+        select: { id: true },
+      });
+      await tx.transaction.create({
+        data: {
+          itemId,
+          batchId: batch.id,
+          type: TransactionType.RETURN,
+          quantity,
+          unitPrice: null,
+          totalAmount: null,
+          sourceType: SourceType.RETURN,
+          notes,
+          userId: Number(user.id),
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+      await tx.inventoryStock.upsert({
+        where: { itemId },
+        create: { itemId, quantity },
+        update: { quantity: { increment: quantity } },
+      });
+      return { returned: quantity };
+    });
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      { success: true, message: "Return recorded successfully", data: result },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const receiveGoods = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { notes, items } = goodsReceiptSchema.parse(await c.req.json());
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:receive:${idemKey}`;
+      const exists = await redis.get(key);
+      if (exists) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+      await redis.setex(key, 60 * 5, "1");
+    }
+    const result = await db.$transaction(async (tx) => {
+      let totalQty = 0;
+      for (const line of items) {
+        const batch = await tx.inventoryBatch.create({
+          data: {
+            itemId: line.itemId,
+            batchNumber:
+              line.batchNumber ??
+              generateAdjustmentBatchNumber(line.itemId).replace("ADJ", "GRN"),
+            expiryDate: line.expiryDate ?? null,
+            initialQuantity: line.quantity,
+            currentQuantity: line.quantity,
+            unitPrice:
+              line.unitPrice != null ? new Decimal(line.unitPrice) : null,
+            location: line.location ?? "RECEIVING",
+          },
+          select: { id: true },
+        });
+        await tx.transaction.create({
+          data: {
+            itemId: line.itemId,
+            batchId: batch.id,
+            type: TransactionType.PURCHASE,
+            quantity: line.quantity,
+            unitPrice:
+              line.unitPrice != null ? new Decimal(line.unitPrice) : null,
+            totalAmount:
+              line.unitPrice != null
+                ? new Decimal(line.unitPrice).mul(line.quantity)
+                : null,
+            sourceType: SourceType.PURCHASE_ORDER,
+            notes,
+            userId: Number(user.id),
+            status: TransactionStatus.COMPLETED,
+          },
+        });
+        await tx.inventoryStock.upsert({
+          where: { itemId: line.itemId },
+          create: { itemId: line.itemId, quantity: line.quantity },
+          update: { quantity: { increment: line.quantity } },
+        });
+        totalQty += line.quantity;
+      }
+      return { received: items.length, totalQuantity: totalQty };
+    });
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      { success: true, message: "Goods received successfully", data: result },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getInventoryValuation = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
+    const batches = await db.inventoryBatch.findMany({
+      where: {
+        item: {
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
+        },
+      },
+      select: {
+        itemId: true,
+        currentQuantity: true,
+        unitPrice: true,
+        item: { select: { id: true, itemName: true } },
+      },
+    });
+    const map = new Map<
+      number,
+      { itemId: number; itemName: string; quantity: number; valuation: number }
+    >();
+    for (const b of batches) {
+      const unit = b.unitPrice ? Number(b.unitPrice) : 0;
+      const amount = unit * b.currentQuantity;
+      const entry = map.get(b.itemId) ?? {
+        itemId: b.item.id,
+        itemName: b.item.itemName,
+        quantity: 0,
+        valuation: 0,
+      };
+      entry.quantity += b.currentQuantity;
+      entry.valuation += amount;
+      map.set(b.itemId, entry);
+    }
+    const data = Array.from(map.values());
+    return c.json({ data }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getLowStockItems = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
+    const items = await db.inventoryItem.findMany({
+      where: {
+        status: {
+          in: [InventoryStatus.LOW_STOCK, InventoryStatus.OUT_OF_STOCK],
+        },
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
+      select: {
+        id: true,
+        itemName: true,
+        status: true,
+        reorderLevel: true,
+        currentStock: true,
+      },
+    });
+    return c.json({ data: items }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getNearExpiryBatches = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
+    const threshold = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const batches = await db.inventoryBatch.findMany({
+      where: {
+        currentQuantity: { gt: 0 },
+        expiryDate: { gte: new Date(), lte: threshold },
+        item: {
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
+        },
+      },
+      select: {
+        id: true,
+        batchNumber: true,
+        expiryDate: true,
+        currentQuantity: true,
+        unitPrice: true,
+        item: { select: { id: true, itemName: true } },
+      },
+      orderBy: [{ expiryDate: "asc" }],
+    });
+    return c.json({ data: batches }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     return c.json(
       {

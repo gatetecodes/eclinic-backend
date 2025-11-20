@@ -5,27 +5,50 @@ import { validate } from "../../../middlewares/validation.middleware.ts";
 
 import {
   addStock,
+  createInventoryItem,
   createSaleTransaction,
   deleteInventoryItem,
+  disposeInventory,
   getAvailableBatches,
   getInventoryBatches,
   getInventoryItems,
   getInventoryItemsList,
   getInventoryTransactions,
+  getInventoryValuation,
   getLatestTransactions,
+  getLowStockItems,
+  getNearExpiryBatches,
   getStockTransactions,
   importInventoryItemsFromCSV,
+  receiveGoods,
+  returnToStock,
+  stockOutMultiBatch,
+  stocktake,
+  transferInventory,
   updateInventoryItem,
 } from "./inventory.controller.ts";
 
 import {
+  createInventoryItemSchema,
+  disposalSchema,
+  goodsReceiptSchema,
+  returnSchema,
   saleTransactionSchema,
+  stockOutAllocationsSchema,
   stockTransactionSchema,
+  stocktakeSchema,
+  transferSchema,
 } from "./inventory.validation.ts";
 
 const router = new Hono<AppEnv>();
 router.use("*", crudAccess("inventory"));
 
+// Create item
+router.post(
+  "/",
+  validate(createInventoryItemSchema, "json"),
+  createInventoryItem
+);
 router.get("/", getInventoryItems);
 router.get("/latest-transactions", getLatestTransactions);
 router.post("/add-stock", validate(stockTransactionSchema, "json"), addStock);
@@ -35,6 +58,19 @@ router.post(
   validate(saleTransactionSchema, "json"),
   createSaleTransaction
 );
+router.post(
+  "/stock-out",
+  validate(stockOutAllocationsSchema, "json"),
+  stockOutMultiBatch
+);
+router.post("/stocktake", validate(stocktakeSchema, "json"), stocktake);
+router.post("/transfer", validate(transferSchema, "json"), transferInventory);
+router.post("/disposal", validate(disposalSchema, "json"), disposeInventory);
+router.post("/return", validate(returnSchema, "json"), returnToStock);
+router.post("/receive", validate(goodsReceiptSchema, "json"), receiveGoods);
+router.get("/valuation", getInventoryValuation);
+router.get("/low-stock", getLowStockItems);
+router.get("/near-expiry", getNearExpiryBatches);
 router.get("/stock-transactions", getStockTransactions);
 router.get("/inventory-transactions", getInventoryTransactions);
 router.get("/list", getInventoryItemsList);

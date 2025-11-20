@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { rateLimiter } from "hono-rate-limiter";
+import { ZodError } from "zod";
+import { AppError, fromZodError, tryMapPrismaError } from "@/lib/app-error";
+import { logger as appLogger } from "@/lib/logger";
 import { httpCodes } from "./lib/constants";
 
 // Import main routes (will mount versioned routers)
@@ -60,14 +64,30 @@ app.route("/api", mainRoutes);
 
 // Error handling
 app.onError((err, c) => {
+  // Known AppError
+  if (err instanceof AppError) {
+    return err.toResponse(c);
+  }
+  // Zod validation errors not caught upstream
+  if (err instanceof ZodError) {
+    return fromZodError(err).toResponse(c);
+  }
+  // Try Prisma known errors
+  const mapped = tryMapPrismaError(err);
+  if (mapped) {
+    return mapped.toResponse(c);
+  }
+  const errorId = randomUUID();
+  appLogger.error("unhandled_error", { errorId, error: err });
   return c.json(
     {
-      error: "Internal Server Error",
-      message:
-        process.env.NODE_ENV === "development"
-          ? err.message
-          : "Something went wrong",
+      success: false,
       status: httpCodes.INTERNAL_SERVER_ERROR,
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Something went wrong",
+        errorId,
+      },
     },
     httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
   );
@@ -76,7 +96,11 @@ app.onError((err, c) => {
 // 404 handler
 app.notFound((c) => {
   return c.json(
-    { error: "Not Found", status: httpCodes.NOT_FOUND },
+    {
+      success: false,
+      status: httpCodes.NOT_FOUND,
+      error: { code: "NOT_FOUND", message: "Not Found" },
+    },
     httpCodes.NOT_FOUND as ContentfulStatusCode
   );
 });
