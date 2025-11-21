@@ -3,6 +3,7 @@ import { Decimal } from "generated/prisma/runtime/library";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
+import { AppError } from "@/lib/app-error";
 import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
 import { getScope } from "@/lib/request-scope";
@@ -455,7 +456,14 @@ export const addStock = async (c: Context) => {
         select: { id: true },
       });
       if (existing) {
-        throw new Error("Batch number already exists for this item");
+        return Promise.reject(
+          new AppError({
+            status: httpCodes.CONFLICT,
+            code: "DUPLICATE_BATCH",
+            message: "Batch number already exists for this item",
+            exposeMessage: true,
+          })
+        );
       }
       const batch = await tx.inventoryBatch.create({
         data: {
@@ -824,7 +832,14 @@ async function allocateBatchesForItem(
     }
   }
   if (remaining > 0) {
-    throw new Error("Insufficient stock across available batches");
+    return Promise.reject(
+      new AppError({
+        status: httpCodes.BAD_REQUEST,
+        code: "INSUFFICIENT_STOCK",
+        message: "Insufficient stock across available batches",
+        exposeMessage: true,
+      })
+    );
   }
   return allocations;
 }
@@ -844,13 +859,34 @@ async function validateAllocations(
   for (const a of allocations) {
     const b = batchById.get(a.batchId);
     if (!b) {
-      throw new Error(`Batch not found: ${a.batchId}`);
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.NOT_FOUND,
+          code: "BATCH_NOT_FOUND",
+          message: `Batch not found: ${a.batchId}`,
+          exposeMessage: true,
+        })
+      );
     }
     if (b.itemId !== itemId) {
-      throw new Error(`Batch ${a.batchId} does not belong to item ${itemId}`);
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "BATCH_MISMATCH",
+          message: `Batch ${a.batchId} does not belong to item ${itemId}`,
+          exposeMessage: true,
+        })
+      );
     }
     if (b.currentQuantity < a.quantity) {
-      throw new Error(`Insufficient quantity in batch ${a.batchId}`);
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "INSUFFICIENT_QUANTITY",
+          message: `Insufficient quantity in batch ${a.batchId}`,
+          exposeMessage: true,
+        })
+      );
     }
   }
   return batchById;
@@ -883,7 +919,14 @@ async function applyAllocations(
   for (const a of input.allocations) {
     const b = input.batchById.get(a.batchId);
     if (!b) {
-      throw new Error(`Batch not found: ${a.batchId}`);
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.NOT_FOUND,
+          code: "BATCH_NOT_FOUND",
+          message: `Batch not found: ${a.batchId}`,
+          exposeMessage: true,
+        })
+      );
     }
     await tx.transaction.create({
       data: {
@@ -1237,7 +1280,14 @@ async function validateTransfer(
   for (const a of allocations) {
     const b = byId.get(a.batchId);
     if (!b || b.itemId !== itemId || b.currentQuantity < a.quantity) {
-      throw new Error(`Invalid or insufficient batch: ${a.batchId}`);
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "INVALID_BATCH",
+          message: `Invalid or insufficient batch: ${a.batchId}`,
+          exposeMessage: true,
+        })
+      );
     }
   }
   return byId;
@@ -1340,7 +1390,14 @@ export const transferInventory = async (c: Context) => {
       for (const a of allocations) {
         const b = byId.get(a.batchId);
         if (!b) {
-          throw new Error(`Batch not found: ${a.batchId}`);
+          return Promise.reject(
+            new AppError({
+              status: httpCodes.NOT_FOUND,
+              code: "BATCH_NOT_FOUND",
+              message: `Batch not found: ${a.batchId}`,
+              exposeMessage: true,
+            })
+          );
         }
         await applyTransferForAllocation(tx, {
           userId: Number(user.id),
@@ -1393,12 +1450,21 @@ export const disposeInventory = async (c: Context) => {
       await redis.setex(key, 60 * 5, "1");
     }
     const total = allocations.reduce((s, a) => s + a.quantity, 0);
+
+    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       const byId = await validateAllocations(tx, itemId, allocations);
       for (const a of allocations) {
         const b = byId.get(a.batchId);
         if (!b) {
-          throw new Error(`Batch not found: ${a.batchId}`);
+          return Promise.reject(
+            new AppError({
+              status: httpCodes.NOT_FOUND,
+              code: "BATCH_NOT_FOUND",
+              message: `Batch not found: ${a.batchId}`,
+              exposeMessage: true,
+            })
+          );
         }
         await tx.transaction.create({
           data: {
@@ -1425,6 +1491,27 @@ export const disposeInventory = async (c: Context) => {
         where: { itemId },
         data: { quantity: { decrement: total } },
       });
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: itemId },
+        include: { currentStock: true },
+      });
+
+      //Recomute item status after disposal
+      if (item?.currentStock) {
+        const qty = item.currentStock.quantity ?? 0;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (qty === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (qty <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
       return { disposed: total };
     });
     await invalidateInventoryRelatedCaches({
@@ -1499,6 +1586,25 @@ export const returnToStock = async (c: Context) => {
         create: { itemId, quantity },
         update: { quantity: { increment: quantity } },
       });
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: itemId },
+        include: { currentStock: true },
+      });
+      if (item?.currentStock) {
+        const qty = item.currentStock.quantity ?? 0;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (qty === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (qty <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: itemId },
+            data: { status: newStatus },
+          });
+        }
+      }
       return { returned: quantity };
     });
     await invalidateInventoryRelatedCaches({
@@ -1535,6 +1641,23 @@ export const receiveGoods = async (c: Context) => {
       }
       await redis.setex(key, 60 * 5, "1");
     }
+    // Validate all items exist
+    const itemIds = items.map((item) => item.itemId);
+    const existingItems = await db.inventoryItem.findMany({
+      where: { id: { in: itemIds } },
+      select: { id: true },
+    });
+    if (existingItems.length !== itemIds.length) {
+      const foundIds = new Set(existingItems.map((i) => i.id));
+      const missingIds = itemIds.filter((id) => !foundIds.has(id));
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        code: "ITEMS_NOT_FOUND",
+        message: `Items not found: ${missingIds.join(", ")}`,
+        exposeMessage: true,
+      });
+    }
+    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       let totalQty = 0;
       for (const line of items) {
@@ -1577,6 +1700,27 @@ export const receiveGoods = async (c: Context) => {
           update: { quantity: { increment: line.quantity } },
         });
         totalQty += line.quantity;
+      }
+
+      //Keep status in synch after goods receipt
+      const item = await tx.inventoryItem.findUnique({
+        where: { id: items[0].itemId },
+        include: { currentStock: true },
+      });
+      if (item?.currentStock) {
+        const qty = item.currentStock.quantity ?? 0;
+        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+        if (qty === 0) {
+          newStatus = InventoryStatus.OUT_OF_STOCK;
+        } else if (qty <= item.reorderLevel) {
+          newStatus = InventoryStatus.LOW_STOCK;
+        }
+        if (newStatus !== item.status) {
+          await tx.inventoryItem.update({
+            where: { id: item.id },
+            data: { status: newStatus },
+          });
+        }
       }
       return { received: items.length, totalQuantity: totalQty };
     });

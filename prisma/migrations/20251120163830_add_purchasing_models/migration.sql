@@ -34,9 +34,6 @@ ALTER TABLE "Supplier" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMP(3),
 ALTER COLUMN "updatedAt" DROP DEFAULT,
 ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMP(3);
 
--- CreateIndex
-CREATE UNIQUE INDEX "InventoryStock_itemId_key" ON "InventoryStock"("itemId");
-
 -- AddForeignKey
 ALTER TABLE "PurchaseOrderLine" ADD CONSTRAINT "PurchaseOrderLine_purchaseOrderId_fkey" FOREIGN KEY ("purchaseOrderId") REFERENCES "PurchaseOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
