@@ -24,12 +24,19 @@ export const validate = <T>(
       await next();
     } catch (error) {
       if (error instanceof ZodError) {
+        const issues = error.issues.map((issue) => ({
+          field: issue.path?.length ? String(issue.path.join(".")) : undefined,
+          code: issue.code,
+          message: issue.message,
+        }));
         return c.json(
           {
             success: false,
+            status: 400,
             error: {
               code: "VALIDATION_ERROR",
-              details: error.flatten().fieldErrors,
+              message: "Validation failed",
+              issues,
             },
           },
           400

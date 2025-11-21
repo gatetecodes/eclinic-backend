@@ -432,6 +432,7 @@ export const addTreatment = async (c: Context) => {
 };
 export const addNurseTreatment = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const { treatments, allowPartial } = c.get("validatedJson");
@@ -464,7 +465,7 @@ export const addNurseTreatment = async (c: Context) => {
         })),
         visitId,
         PaymentType.MEDICATION,
-        allowPartial
+        { allowPartial, userId: Number(user.id) }
       );
       return { updatedVisit, payment };
     });
