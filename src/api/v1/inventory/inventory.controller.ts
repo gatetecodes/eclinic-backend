@@ -50,8 +50,8 @@ export const createInventoryItem = async (c: Context) => {
     } = await c.req.json();
     const inventoryItem = await db.inventoryItem.create({
       data: {
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
         itemName,
         itemType,
         unit,
@@ -162,8 +162,8 @@ export const updateInventoryItem = async (c: Context) => {
     });
 
     await invalidateInventoryRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     return c.json(
@@ -190,14 +190,14 @@ export const deleteInventoryItem = async (c: Context) => {
     await db.inventoryItem.delete({
       where: {
         id: Number(id),
-        clinicId: user.clinic.id,
-        branchId: user.branch.id,
+        clinicId: user.clinicId,
+        branchId: user.branchId,
       },
     });
 
     await invalidateInventoryRelatedCaches({
-      clinicId: user.clinic.id,
-      branchId: user.branch.id,
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     return c.json(
@@ -259,8 +259,8 @@ export const getLatestTransactions = async (c: Context) => {
     const transactions = await db.transaction.findMany({
       where: {
         item: {
-          clinicId: user.clinicId ?? user.clinic.id,
-          branchId: user.branchId ?? user.branch.id,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
         },
       },
       include: {
