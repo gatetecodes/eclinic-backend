@@ -1,4 +1,6 @@
 import { Decimal } from "generated/prisma/runtime/library";
+import { AppError } from "@/lib/app-error";
+import { httpCodes } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import type { Prisma } from "../../generated/prisma";
 import {
@@ -101,10 +103,20 @@ async function getValidatedBatch(
     },
   });
   if (!batch || batch.itemId !== itemId) {
-    throw new Error(`Batch not found or mismatched for item: ${batchId}`);
+    throw new AppError({
+      status: httpCodes.NOT_FOUND,
+      code: "BATCH_NOT_FOUND",
+      message: `Batch not found or mismatched for item: ${batchId}`,
+      exposeMessage: true,
+    });
   }
   if (batch.currentQuantity < requiredQty) {
-    throw new Error(`Insufficient stock in batch: ${batchId}`);
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INSUFFICIENT_STOCK",
+      message: `Insufficient stock in batch: ${batchId}`,
+      exposeMessage: true,
+    });
   }
   return batch;
 }
@@ -122,6 +134,14 @@ async function createNegativeStockTransaction(
     userId?: number;
   }
 ) {
+  if (!args.userId) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "USER_ID_REQUIRED",
+      message: "User ID is required to record inventory transactions",
+      exposeMessage: true,
+    });
+  }
   await tx.transaction.create({
     data: {
       itemId: args.itemId,
@@ -134,7 +154,7 @@ async function createNegativeStockTransaction(
         : null,
       sourceType: args.sourceType ?? SourceType.VISIT,
       visitId: args.visitId,
-      userId: args.userId ?? 0,
+      userId: args.userId,
       status: TransactionStatus.COMPLETED,
     },
   });
