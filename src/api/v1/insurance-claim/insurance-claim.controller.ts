@@ -1,19 +1,23 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { AppError } from "@/lib/app-error";
 import {
   ClaimStatus,
   type InsuranceClaim,
   PaymentStatus,
   type Prisma,
 } from "../../../../generated/prisma";
+import { Decimal } from "../../../../generated/prisma/runtime/library";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { logger } from "../../../lib/logger";
 import { getScope } from "../../../lib/request-scope";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
+  invalidateCache,
 } from "../../../services/redis.service";
 
 export const getInsuranceClaims = async (c: Context) => {
@@ -182,9 +186,16 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
     const claimId = c.get("validatedParam");
     const data = c.get("validatedJson");
 
+    // First check if claim exists (outside transaction for early return)
     const insuranceClaim = await db.insuranceClaim.findUnique({
       where: {
         id: claimId,
+      },
+      select: {
+        id: true,
+        clinicId: true,
+        branchId: true,
+        claimStatus: true,
       },
     });
 
@@ -195,17 +206,18 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
       );
     }
 
-    if (insuranceClaim.claimStatus === ClaimStatus.PAID) {
-      return c.json(
-        { error: "Insurance claim already paid" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
-
+    // Perform atomic conditional update inside transaction
+    // This prevents TOCTOU race condition by checking and updating in a single operation
     await db.$transaction(async (tx) => {
-      // Mark claim as paid
-      await tx.insuranceClaim.update({
-        where: { id: insuranceClaim.id },
+      // Atomically update only if claimStatus is not PAID
+      // This ensures only one concurrent request can succeed
+      const updateResult = await tx.insuranceClaim.updateMany({
+        where: {
+          id: claimId,
+          claimStatus: {
+            not: ClaimStatus.PAID,
+          },
+        },
         data: {
           claimStatus: ClaimStatus.PAID,
           paidAt: new Date(),
@@ -213,9 +225,35 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
         },
       });
 
+      // If no rows were updated, the claim was already paid (or changed status)
+      if (updateResult.count === 0) {
+        // Re-fetch to get current status for accurate error message
+        const currentClaim = await tx.insuranceClaim.findUnique({
+          where: { id: claimId },
+          select: { claimStatus: true },
+        });
+
+        if (currentClaim?.claimStatus === ClaimStatus.PAID) {
+          return Promise.reject(
+            new AppError({
+              status: httpCodes.BAD_REQUEST,
+              code: "INSURANCE_CLAIM_ALREADY_PAID",
+              message: "Insurance claim already paid",
+            })
+          );
+        }
+        return Promise.reject(
+          new AppError({
+            status: httpCodes.BAD_REQUEST,
+            code: "INSURANCE_CLAIM_STATUS_CHANGED",
+            message: "Insurance claim status changed",
+          })
+        );
+      }
+
       // Mark all linked payments as FULLY_PAID and update paid amount
       const claimPayments = await tx.payment.findMany({
-        where: { insuranceClaimId: insuranceClaim.id },
+        where: { insuranceClaimId: claimId },
         select: {
           id: true,
           paidAmount: true,
@@ -228,18 +266,66 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
           where: { id: payment.id },
           data: {
             paymentStatus: PaymentStatus.FULLY_PAID,
-            paidAmount:
-              Number(payment.paidAmount) + Number(payment.insuranceAmount),
+            paidAmount: payment.paidAmount.add(
+              payment.insuranceAmount ?? new Decimal(0)
+            ),
           },
         });
       }
+
+      return { success: true };
     });
+
+    // Invalidate cache after transaction commits successfully
+    // Handle cache errors without affecting the DB transaction
+    try {
+      const clinicKey = insuranceClaim.clinicId ?? "ALL";
+      const branchKey = insuranceClaim.branchId ?? "ALL";
+
+      // Invalidate all insurance claim caches for this clinic/branch combination
+      // Pattern matches: insurance-claims:${clinicId}:${branchId}:*
+      await invalidateCache(`insurance-claims:${clinicKey}:${branchKey}:*`);
+
+      // Also invalidate broader patterns to ensure all variants are cleared
+      if (insuranceClaim.clinicId) {
+        await invalidateCache(
+          `insurance-claims:${insuranceClaim.clinicId}:ALL:*`
+        );
+      }
+      if (insuranceClaim.branchId) {
+        await invalidateCache(
+          `insurance-claims:ALL:${insuranceClaim.branchId}:*`
+        );
+      }
+      // Invalidate the most general pattern as fallback
+      await invalidateCache("insurance-claims:ALL:ALL:*");
+    } catch (cacheError) {
+      // Log cache invalidation errors but don't fail the request
+      logger.error("Failed to invalidate insurance claims cache", {
+        error:
+          cacheError instanceof Error ? cacheError.message : String(cacheError),
+        claimId: insuranceClaim.id,
+        clinicId: insuranceClaim.clinicId,
+        branchId: insuranceClaim.branchId,
+      });
+    }
 
     return c.json(
       { success: "Insurance claim marked as paid" },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
+    // Handle "already paid" error with appropriate status code
+    if (
+      error instanceof Error &&
+      error.message === "Insurance claim already paid"
+    ) {
+      return c.json(
+        { error: "Insurance claim already paid" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal server error",
