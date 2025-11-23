@@ -106,16 +106,62 @@ export function invalidatePaymentRelatedCaches({
 
 /**
  * Invalidates cache related to inventory when inventory data changes
- * @param {number} clinicId - The clinic ID
+ * @param {number} clinicId - The clinic ID (optional, can be undefined for SUPER_ADMIN)
+ * @param {number} branchId - The branch ID (optional, can be undefined for SUPER_ADMIN)
  */
 export function invalidateInventoryRelatedCaches({
   clinicId,
   branchId,
 }: {
-  clinicId: number;
-  branchId: number;
+  clinicId?: number | null;
+  branchId?: number | null;
 }) {
-  return invalidateCache(`${CACHE_KEYS.INVENTORY}:${clinicId}:${branchId}:*`);
+  // Cache key formats used:
+  // - inventory-items:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${params}
+  // - inventory-batches:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${params}
+  // - inventory:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:stock-transactions
+  // We need to invalidate all possible combinations to ensure cache is cleared
+
+  const patterns: string[] = [];
+
+  // Normalize to match cache key format (null/undefined becomes "ALL")
+  const clinicKey = clinicId ?? "ALL";
+  const branchKey = branchId ?? "ALL";
+
+  // Invalidate inventory-items cache (for the main inventory list)
+  patterns.push(`inventory-items:${clinicKey}:${branchKey}:*`);
+  if (clinicId) {
+    patterns.push(`inventory-items:${clinicId}:ALL:*`);
+  }
+  if (branchId) {
+    patterns.push(`inventory-items:ALL:${branchKey}:*`);
+  }
+  patterns.push("inventory-items:ALL:ALL:*");
+
+  // Invalidate inventory-batches cache
+  patterns.push(`inventory-batches:${clinicKey}:${branchKey}:*`);
+  if (clinicId) {
+    patterns.push(`inventory-batches:${clinicId}:ALL:*`);
+  }
+  if (branchId) {
+    patterns.push(`inventory-batches:ALL:${branchKey}:*`);
+  }
+  patterns.push("inventory-batches:ALL:ALL:*");
+
+  // Invalidate stock transactions cache
+  patterns.push(`inventory:${clinicKey}:${branchKey}:stock-transactions`);
+  if (clinicId) {
+    patterns.push(`inventory:${clinicId}:ALL:stock-transactions`);
+  }
+  if (branchId) {
+    patterns.push(`inventory:ALL:${branchKey}:stock-transactions`);
+  }
+  patterns.push("inventory:ALL:ALL:stock-transactions");
+
+  // Also invalidate any other inventory-related caches
+  patterns.push(`${CACHE_KEYS.INVENTORY}:*`);
+
+  return Promise.all(patterns.map((pattern) => invalidateCache(pattern)));
 }
 
 /**

@@ -70,6 +70,11 @@ export const createInventoryItem = async (c: Context) => {
       },
     });
 
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+
     return c.json(inventoryItem, httpCodes.CREATED as ContentfulStatusCode);
   } catch (error) {
     return c.json(
@@ -437,7 +442,7 @@ export const addStock = async (c: Context) => {
       }
       await redis.setex(key, 60 * 5, "1");
     }
-    const { data } = c.get("validatedJson");
+    const data = c.get("validatedJson");
     const {
       itemId,
       quantity,
@@ -516,11 +521,12 @@ export const addStock = async (c: Context) => {
           });
         }
       }
-      await invalidateInventoryRelatedCaches({
-        clinicId: user.clinicId,
-        branchId: user.branchId,
-      });
       return { batch, transaction };
+    });
+
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
     });
 
     return c.json(
