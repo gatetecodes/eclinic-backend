@@ -1,9 +1,17 @@
+import { Decimal } from "generated/prisma/runtime/library";
+import { AppError } from "@/lib/app-error";
+import { httpCodes } from "@/lib/constants";
 import { logger } from "@/lib/logger";
+import type { Prisma } from "../../generated/prisma";
 import {
+  InventoryStatus,
   type ItemType,
   PaymentMode,
   PaymentStatus,
   type PaymentType,
+  SourceType,
+  TransactionStatus,
+  TransactionType,
   type Unit,
 } from "../../generated/prisma";
 import { db } from "../database/db";
@@ -79,19 +87,142 @@ export async function createNewInventoryItem(
   });
 }
 
-export const performStockOut = async (
-  selectedBatches: { id: number; quantity: number }[]
-) => {
-  await db.$transaction(async (tx) => {
-    for (const { id, quantity } of selectedBatches) {
-      const res = await tx.inventoryBatch.updateMany({
-        where: { id, currentQuantity: { gte: quantity } },
-        data: { currentQuantity: { decrement: quantity } },
-      });
+async function getValidatedBatch(
+  tx: Prisma.TransactionClient,
+  batchId: number,
+  itemId: number,
+  requiredQty: number
+) {
+  const batch = await tx.inventoryBatch.findUnique({
+    where: { id: batchId },
+    select: {
+      id: true,
+      itemId: true,
+      currentQuantity: true,
+      unitPrice: true,
+    },
+  });
+  if (!batch || batch.itemId !== itemId) {
+    throw new AppError({
+      status: httpCodes.NOT_FOUND,
+      code: "BATCH_NOT_FOUND",
+      message: `Batch not found or mismatched for item: ${batchId}`,
+      exposeMessage: true,
+    });
+  }
+  if (batch.currentQuantity < requiredQty) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INSUFFICIENT_STOCK",
+      message: `Insufficient stock in batch: ${batchId}`,
+      exposeMessage: true,
+    });
+  }
+  return batch;
+}
 
-      if (res.count === 0) {
-        throw new Error(`Insufficient stock or batch not found: ${id}`);
-      }
+async function createNegativeStockTransaction(
+  tx: Prisma.TransactionClient,
+  args: {
+    itemId: number;
+    batchId: number;
+    quantity: number;
+    unitPrice: Decimal | string | number | null;
+    type?: TransactionType;
+    sourceType?: SourceType;
+    visitId?: number;
+    userId?: number;
+  }
+) {
+  if (!args.userId) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "USER_ID_REQUIRED",
+      message: "User ID is required to record inventory transactions",
+      exposeMessage: true,
+    });
+  }
+  await tx.transaction.create({
+    data: {
+      itemId: args.itemId,
+      batchId: args.batchId,
+      type: args.type ?? TransactionType.SALE,
+      quantity: -Number(args.quantity),
+      unitPrice: args.unitPrice ? new Decimal(args.unitPrice) : null,
+      totalAmount: args.unitPrice
+        ? new Decimal(args.unitPrice).mul(Number(args.quantity))
+        : null,
+      sourceType: args.sourceType ?? SourceType.VISIT,
+      visitId: args.visitId,
+      userId: args.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+}
+
+async function decrementBatchAndStock(
+  tx: Prisma.TransactionClient,
+  batchId: number,
+  itemId: number,
+  quantity: number
+) {
+  await tx.inventoryBatch.update({
+    where: { id: batchId },
+    data: { currentQuantity: { decrement: Number(quantity) } },
+  });
+  await tx.inventoryStock.update({
+    where: { itemId },
+    data: { quantity: { decrement: Number(quantity) } },
+  });
+}
+
+async function refreshItemStatus(tx: Prisma.TransactionClient, itemId: number) {
+  const item = await tx.inventoryItem.findUnique({
+    where: { id: itemId },
+    include: { currentStock: true },
+  });
+  if (!item?.currentStock) {
+    return;
+  }
+  const currentQty = item.currentStock.quantity ?? 0;
+  let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+  if (currentQty === 0) {
+    newStatus = InventoryStatus.OUT_OF_STOCK;
+  } else if (currentQty <= item.reorderLevel) {
+    newStatus = InventoryStatus.LOW_STOCK;
+  }
+  if (newStatus !== item.status) {
+    await tx.inventoryItem.update({
+      where: { id: itemId },
+      data: { status: newStatus },
+    });
+  }
+}
+
+export const performStockOut = async (
+  selectedBatches: { id: number; quantity: number; itemId: number }[],
+  options?: {
+    userId?: number;
+    visitId?: number;
+    type?: TransactionType;
+    sourceType?: SourceType;
+  }
+) => {
+  return await db.$transaction(async (tx) => {
+    for (const { id, quantity, itemId } of selectedBatches) {
+      const batch = await getValidatedBatch(tx, id, itemId, quantity);
+      await createNegativeStockTransaction(tx, {
+        itemId,
+        batchId: id,
+        quantity,
+        unitPrice: batch.unitPrice,
+        type: options?.type,
+        sourceType: options?.sourceType,
+        visitId: options?.visitId,
+        userId: options?.userId,
+      });
+      await decrementBatchAndStock(tx, id, itemId, quantity);
+      await refreshItemStatus(tx, itemId);
     }
   });
 };
@@ -148,7 +279,7 @@ export const createPaymentForInventoryItems = async (
   treatments: ITreatment[],
   visitId: number,
   paymentType: PaymentType,
-  allowPartial = false
+  options?: { allowPartial?: boolean; userId?: number }
 ) => {
   // Convert treatment IDs to numbers once
   const treatmentIds = treatments.map((t) => +t.id);
@@ -186,7 +317,8 @@ export const createPaymentForInventoryItems = async (
   let totalPatientAmount = 0;
   let totalInsuranceAmount = 0;
   const paymentDetails: IPaymentDetail[] = [];
-  const selectedBatches: { id: number; quantity: number }[] = [];
+  const selectedBatches: { id: number; quantity: number; itemId: number }[] =
+    [];
 
   for (const treatment of treatments) {
     const item = items.find((i) => i.id === +treatment.id);
@@ -197,7 +329,11 @@ export const createPaymentForInventoryItems = async (
     if (!batch) {
       throw new Error(`No valid batch found for item: ${item.itemName}`);
     }
-    selectedBatches.push({ id: batch.id, quantity: treatment.quantity });
+    selectedBatches.push({
+      id: batch.id,
+      quantity: treatment.quantity,
+      itemId: item.id,
+    });
 
     const unitPrice = batch.unitPrice ?? item.unitPrice;
     if (!unitPrice) {
@@ -231,7 +367,12 @@ export const createPaymentForInventoryItems = async (
     throw new Error("Amount is 0");
   }
 
-  await performStockOut(selectedBatches);
+  await performStockOut(selectedBatches, {
+    userId: options?.userId,
+    visitId,
+    type: TransactionType.SALE,
+    sourceType: SourceType.VISIT,
+  });
 
   return db.payment.create({
     data: {
@@ -244,7 +385,7 @@ export const createPaymentForInventoryItems = async (
       amount: totalAmount,
       patientAmount: totalPatientAmount,
       insuranceAmount: totalInsuranceAmount,
-      allowPartial,
+      allowPartial: options?.allowPartial ?? false,
     },
   });
 };
