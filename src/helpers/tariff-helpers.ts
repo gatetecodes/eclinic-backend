@@ -1071,7 +1071,8 @@ export async function createNewProduct(
 export const createPaymentForProducts = async (
   productIds: number[],
   visitId: number,
-  paymentType: PaymentType
+  paymentType: PaymentType,
+  allowPartial?: boolean
 ) => {
   type SimpleProductForPayment = ProductForPayment;
   type SimpleVisitForPayment = VisitForPayment;
@@ -1329,6 +1330,7 @@ export const createPaymentForProducts = async (
       amount,
       patientAmount,
       insuranceAmount,
+      allowPartial,
     },
   });
 

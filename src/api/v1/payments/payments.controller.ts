@@ -1,20 +1,20 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
-  ActivityType,
   type Payment,
   PaymentStatus,
-  PaymentType,
   type Prisma,
-  VisitStatus,
 } from "../../../../generated/prisma";
 import { db } from "../../../database/db";
-import { logActivity } from "../../../helpers/activity-helpers";
-import { buildQueryOptions } from "../../../helpers/query-helper";
 import {
-  invalidatePaymentRelatedCaches,
-  invalidateVisitRelatedCaches,
-} from "../../../lib/cache-utils";
+  buildPaymentSuccessMessage,
+  calculatePaymentTotals,
+  findPaymentById,
+  handlePostPaymentEffects,
+  recordPaymentTransaction,
+  validatePaymentAmountInput,
+} from "../../../helpers/payments.helper";
+import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { getScope } from "../../../lib/request-scope";
@@ -22,136 +22,6 @@ import {
   DEFAULT_CACHE_TTL,
   getCachedData,
 } from "../../../services/redis.service";
-
-const visitSelection = {
-  select: {
-    id: true,
-    status: true,
-    patient: {
-      select: {
-        firstName: true,
-        lastName: true,
-        phoneNumber: true,
-        dateOfBirth: true,
-      },
-    },
-    doctor: {
-      select: {
-        name: true,
-      },
-    },
-    clinicId: true,
-    branchId: true,
-  },
-} as const;
-
-type PaymentWithVisit = Prisma.PaymentGetPayload<{
-  select: {
-    id: true;
-    paymentStatus: true;
-    paymentType: true;
-    visit: typeof visitSelection;
-  };
-}>;
-
-type UpdatedPaymentWithVisit = Prisma.PaymentGetPayload<{
-  include: {
-    visit: typeof visitSelection;
-  };
-}>;
-
-const findPaymentById = async (paymentId: string) =>
-  db.payment.findUnique({
-    where: { id: Number(paymentId) },
-    select: {
-      id: true,
-      paymentStatus: true,
-      paymentType: true,
-      patientAmount: true,
-      visit: visitSelection,
-    },
-  });
-
-const getNextVisitStatus = (
-  payment: PaymentWithVisit
-): VisitStatus | undefined => {
-  if (
-    payment.visit?.status === VisitStatus.TRIAGE_COMPLETED &&
-    payment.paymentType === PaymentType.CONSULTATION
-  ) {
-    return VisitStatus.IN_CONSULTATION;
-  }
-  if (
-    payment.visit?.status === VisitStatus.IN_CONSULTATION &&
-    payment.paymentType === PaymentType.ADDITIONAL_EXAM
-  ) {
-    return VisitStatus.PENDING_TESTS;
-  }
-  return;
-};
-
-const handlePostPaymentEffects = async ({
-  originalPayment,
-  updatedPayment,
-  userId,
-}: {
-  originalPayment: PaymentWithVisit;
-  updatedPayment: UpdatedPaymentWithVisit;
-  userId: number;
-}) => {
-  const visit = updatedPayment.visit;
-
-  if (updatedPayment.paymentStatus === PaymentStatus.PAID && visit) {
-    await logActivity({
-      userId,
-      visitId: visit.id,
-      action: `${visit.patient.firstName} ${visit.patient.lastName}'s ${updatedPayment.paymentType} payment marked as paid`,
-      type: ActivityType.PAYMENT,
-    });
-
-    const nextVisitStatus = getNextVisitStatus(originalPayment);
-
-    if (nextVisitStatus) {
-      await db.visit.update({
-        where: { id: visit.id },
-        data: { status: nextVisitStatus },
-      });
-
-      if (nextVisitStatus === VisitStatus.IN_CONSULTATION) {
-        await logActivity({
-          userId,
-          visitId: visit.id,
-          action: `${visit.patient.firstName} ${visit.patient.lastName} sent to doctor ${visit.doctor?.name} for consultation`,
-          type: ActivityType.STATUS_UPDATE,
-        });
-      }
-
-      if (nextVisitStatus === VisitStatus.PENDING_TESTS) {
-        await logActivity({
-          userId,
-          visitId: visit.id,
-          action: `${visit.patient.firstName} ${visit.patient.lastName} sent to lab for additional tests`,
-          type: ActivityType.STATUS_UPDATE,
-        });
-      }
-    }
-  }
-
-  const clinicId = visit?.clinicId ?? 0;
-  const branchId = visit?.branchId ?? 0;
-  const visitId = visit?.id ?? 0;
-
-  await invalidatePaymentRelatedCaches({
-    clinicId,
-    branchId,
-    visitId,
-  });
-  await invalidateVisitRelatedCaches({
-    clinicId,
-    branchId,
-    visitId,
-  });
-};
 
 export const getPayments = async (c: Context) => {
   try {
@@ -183,6 +53,8 @@ export const getPayments = async (c: Context) => {
             paymentStatus: true,
             paymentMethod: true,
             paymentMode: true,
+            paidAmount: true,
+            allowPartial: true,
             updatedAt: true,
             visit: {
               select: {
@@ -274,6 +146,7 @@ export const markPaymentAsPaid = async (c: Context) => {
   try {
     const user = c.get("user");
     const paymentId = c.req.param("paymentId");
+    const numericPaymentId = Number.parseInt(paymentId, 10);
     const data = c.get("validatedJson");
 
     const payment = await findPaymentById(paymentId);
@@ -292,29 +165,64 @@ export const markPaymentAsPaid = async (c: Context) => {
       );
     }
 
-    const update = await db.payment.update({
-      where: { id: Number(paymentId) },
-      data: {
-        paymentStatus: PaymentStatus.PAID,
-        paymentMethod: data.paymentMethod,
-        paidAmount: payment.patientAmount,
-        processedBy: {
-          connect: {
-            id: Number(user.id),
-          },
-        },
-      },
-      include: {
-        visit: visitSelection,
-      },
+    const { totalDueAmount, currentPaidAmount, remainingAmount } =
+      calculatePaymentTotals(payment);
+    const paymentAmount = data.amount;
+
+    if (payment.paymentStatus === PaymentStatus.CANCELLED) {
+      return c.json(
+        { error: "Payment is already processed or cancelled" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const validationError = validatePaymentAmountInput({
+      paymentAmount,
+      remainingAmount,
+      allowPartial: payment.allowPartial,
+    });
+
+    if (validationError) {
+      return c.json(
+        { error: validationError },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const newPaidAmount = currentPaidAmount + paymentAmount;
+    const isFullyPaid = newPaidAmount >= totalDueAmount;
+
+    const updatedPayment = await recordPaymentTransaction({
+      paymentId: numericPaymentId,
+      paymentAmount,
+      paymentMethod: data.paymentMethod,
+      userId: Number(user.id),
+      newPaidAmount,
+      isFullyPaid,
+      isSingleUpfrontPayment:
+        payment.allowPartial === false && paymentAmount === remainingAmount,
     });
 
     await handlePostPaymentEffects({
       originalPayment: payment,
-      updatedPayment: update,
+      updatedPayment,
       userId: Number(user.id),
+      paymentAmount,
+      totalDueAmount,
+      newPaidAmount,
     });
-    return c.json({ success: "Payment marked as paid" });
+
+    const successMessage = buildPaymentSuccessMessage({
+      isFullyPaid,
+      paymentAmount,
+      newPaidAmount,
+      totalDueAmount,
+    });
+
+    return c.json(
+      { success: true, message: successMessage },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {

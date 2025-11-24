@@ -2,7 +2,7 @@ import { PaymentMethod } from "generated/prisma";
 import { z } from "zod";
 
 export const markPaymentAsPaidSchema = z.object({
-  amount: z.number().min(1, { message: "Amount is required" }),
+  amount: z.coerce.number().min(1, { message: "Amount is required" }),
   paymentMethod: z.nativeEnum(PaymentMethod),
 });
 
