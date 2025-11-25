@@ -240,6 +240,7 @@ export const addNurseTreatmentSchema = z.object({
 
 export const addPaymentMethodSchema = z.object({
   paymentMode: z.string().min(1, "Payment mode is required"),
+  allowPartial: z.boolean().optional().default(false),
   insurance: z.union([insuranceSchema, z.object({}).strict(), z.undefined()]),
 });
 

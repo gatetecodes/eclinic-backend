@@ -432,9 +432,10 @@ export const addPaymentMethod = async (c: Context) => {
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const data = c.get("validatedJson");
-    const { paymentMode, insurance } = data as {
+    const { paymentMode, insurance, allowPartial } = data as {
       paymentMode: string;
       insurance?: Record<string, unknown>;
+      allowPartial?: boolean;
     };
 
     const visit = await db.visit.findUnique({
@@ -490,7 +491,8 @@ export const addPaymentMethod = async (c: Context) => {
         const consultationPayment = await createPaymentForProducts(
           consultationProductIds,
           updatedVisit.id,
-          PaymentType.CONSULTATION
+          PaymentType.CONSULTATION,
+          allowPartial
         );
         const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
