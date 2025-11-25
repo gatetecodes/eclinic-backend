@@ -1,0 +1,94 @@
+<table
+  role="presentation"
+  width="100%"
+  cellpadding="0"
+  cellspacing="0"
+  style="border-collapse: collapse; font-family: Arial, Helvetica, sans-serif;"
+>
+  <tr>
+    <td style="padding: 0 0 24px; text-align: left;">
+      <img
+        src="https://usecarelogic.com/assets/carelogic_logo.svg"
+        alt="CareLogic Logo"
+        style="max-width: 200px; height: auto; display: block;"
+      />
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 16px 0;">
+      <p style="margin: 0 0 12px; font-size: 14px; color: #444;">Hello,</p>
+      <h2 style="margin: 0 0 8px; font-size: 20px; color: #111;">Inventory
+        batches expiring soon</h2>
+      <p style="margin: 0; font-size: 14px; color: #444;">Clinic:
+        {{clinicName}}</p>
+      <p style="margin: 8px 0 16px; font-size: 14px; color: #444;">
+        The following batches are within one month of their expiration date.
+        Please review and dispose of them when appropriate.
+      </p>
+    </td>
+  </tr>
+</table>
+
+<table
+  width="100%"
+  cellpadding="0"
+  cellspacing="0"
+  style="border-collapse: collapse; font-family: Arial, Helvetica, sans-serif;"
+>
+  <thead>
+    <tr>
+      <th
+        align="left"
+        style="padding: 8px; border-bottom: 1px solid #ddd;"
+      >Item</th>
+      <th
+        align="left"
+        style="padding: 8px; border-bottom: 1px solid #ddd;"
+      >Batch</th>
+      <th
+        align="left"
+        style="padding: 8px; border-bottom: 1px solid #ddd;"
+      >Expiry Date</th>
+      <th align="left" style="padding: 8px; border-bottom: 1px solid #ddd;">Days
+        Remaining</th>
+      <th
+        align="left"
+        style="padding: 8px; border-bottom: 1px solid #ddd;"
+      >Qty</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#each batches}}
+      <tr>
+        <td
+          style="padding: 8px; border-bottom: 1px solid #eee;"
+        >{{itemName}}</td>
+        <td
+          style="padding: 8px; border-bottom: 1px solid #eee;"
+        >{{batchNumber}}</td>
+        <td
+          style="padding: 8px; border-bottom: 1px solid #eee;"
+        >{{expiryDate}}</td>
+        <td
+          style="padding: 8px; border-bottom: 1px solid #eee;"
+        >{{daysUntilExpiry}}</td>
+        <td
+          style="padding: 8px; border-bottom: 1px solid #eee;"
+        >{{quantity}}</td>
+      </tr>
+    {{/each}}
+  </tbody>
+</table>
+
+<p
+  style="font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #666; margin-top: 24px;"
+>
+  This reminder will continue weekly until the batch is disposed of or the
+  expiry date is extended.
+</p>
+<p
+  style="font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #444; margin: 0;"
+>
+  Thanks,<br />
+  The CareLogic Team
+</p>

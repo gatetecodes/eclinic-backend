@@ -1438,6 +1438,12 @@ export const transferInventory = async (c: Context) => {
   }
 };
 
+/**
+ * Disposes of inventory items: Creates a disposal transaction, updates the inventory stock, updates the expiry notifications, and updates the item status.
+ * @param c - The context object
+ * @returns The result of the disposal
+ */
+
 export const disposeInventory = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1491,6 +1497,10 @@ export const disposeInventory = async (c: Context) => {
         await tx.inventoryBatch.update({
           where: { id: a.batchId },
           data: { currentQuantity: { decrement: a.quantity } },
+        });
+        await tx.inventoryExpiryNotification.updateMany({
+          where: { batchId: a.batchId, resolvedAt: null },
+          data: { resolvedAt: new Date(), updatedAt: new Date() },
         });
       }
       await tx.inventoryStock.update({

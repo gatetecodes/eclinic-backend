@@ -7,8 +7,8 @@ import { rateLimiter } from "hono-rate-limiter";
 import { ZodError } from "zod";
 import { AppError, fromZodError, tryMapPrismaError } from "@/lib/app-error";
 import { logger as appLogger } from "@/lib/logger";
+import { startRecurringJobs } from "./jobs";
 import { httpCodes } from "./lib/constants";
-
 // Import main routes (will mount versioned routers)
 import mainRoutes from "./routes";
 
@@ -61,6 +61,10 @@ app.get("/health", (c) => {
 
 // API routes (versioned)
 app.route("/api", mainRoutes);
+
+if (process.env.NODE_ENV !== "test") {
+  startRecurringJobs();
+}
 
 // Error handling
 app.onError((err, c) => {

@@ -64,6 +64,7 @@ model Clinic {
     purchaseOrders         PurchaseOrder[]
     suppliers              Supplier[]
     goodsReceipts          GoodsReceipt[]
+    inventoryExpiryNotifications InventoryExpiryNotification[]
 
     @@index([convertedAt])
 }
