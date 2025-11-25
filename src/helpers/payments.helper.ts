@@ -1,3 +1,5 @@
+import { AppError } from "@/lib/app-error";
+import { httpCodes } from "@/lib/constants";
 import {
   ActivityType,
   ApprovalStatus,
@@ -67,9 +69,18 @@ export type UpdatedPaymentWithVisit = Prisma.PaymentGetPayload<{
   };
 }>;
 
-export const findPaymentById = async (paymentId: string) =>
-  db.payment.findUnique({
-    where: { id: Number(paymentId) },
+export const findPaymentById = async (paymentId: string | number) => {
+  const id = typeof paymentId === "string" ? Number(paymentId) : paymentId;
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INVALID_PAYMENT_ID",
+      message: "Invalid payment id",
+    });
+  }
+  return await db.payment.findUnique({
+    where: { id },
     select: {
       id: true,
       paymentStatus: true,
@@ -90,6 +101,7 @@ export const findPaymentById = async (paymentId: string) =>
       visit: visitSelection,
     },
   });
+};
 
 const getNextVisitStatus = (
   payment: PaymentWithVisit
@@ -235,20 +247,24 @@ export const handlePostPaymentEffects = async ({
     });
   }
 
-  const clinicId = visit?.clinicId ?? 0;
-  const branchId = visit?.branchId ?? 0;
-  const visitId = visit?.id ?? 0;
+  if (!visit) {
+    return;
+  }
 
-  await invalidatePaymentRelatedCaches({
-    clinicId,
-    branchId,
-    visitId,
-  });
-  await invalidateVisitRelatedCaches({
-    clinicId,
-    branchId,
-    visitId,
-  });
+  const { clinicId, branchId, id: visitId } = visit;
+
+  await Promise.all([
+    invalidatePaymentRelatedCaches({
+      clinicId,
+      branchId: branchId ?? undefined,
+      visitId,
+    }),
+    invalidateVisitRelatedCaches({
+      clinicId,
+      branchId: branchId ?? undefined,
+      visitId,
+    }),
+  ]);
 };
 
 const formatCurrency = (value: number) => Number(value).toLocaleString();
@@ -286,7 +302,14 @@ export const validatePaymentAmountInput = ({
   allowPartial: boolean;
 }) => {
   if (!Number.isFinite(paymentAmount)) {
-    return "Payment amount is required";
+    return "Payment amount must be a valid number";
+  }
+  if (remainingAmount <= 0) {
+    //Guard against recording payments when there is no outstanding balance
+    if (paymentAmount !== 0) {
+      return "There is no outstanding balance to pay";
+    }
+    return;
   }
   if (paymentAmount <= 0 && remainingAmount > 0) {
     return "Payment amount must be greater than 0";
