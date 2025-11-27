@@ -225,15 +225,25 @@ export const getAvailableBatches = async (c: Context) => {
     const { itemId } = c.req.param();
     const includeNullExpiry =
       (c.req.query("includeNullExpiry") || "false").toLowerCase() === "true";
+    const includeExpired =
+      (c.req.query("includeExpired") || "false").toLowerCase() === "true";
+
+    let expiryFilter: Record<string, unknown> = {};
+    if (!includeExpired) {
+      if (includeNullExpiry) {
+        expiryFilter = {
+          OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+        };
+      } else {
+        expiryFilter = { expiryDate: { gt: new Date() } };
+      }
+    }
+
     const batches = await db.inventoryBatch.findMany({
       where: {
         itemId: Number(itemId),
         currentQuantity: { gt: 0 },
-        ...(includeNullExpiry
-          ? {
-              OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
-            }
-          : { expiryDate: { gt: new Date() } }),
+        ...expiryFilter,
         ...(user?.branchId ? { branchId: user.branchId } : {}),
       },
       orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
@@ -479,6 +489,7 @@ export const addStock = async (c: Context) => {
           currentQuantity: quantity,
           unitPrice,
           location,
+          branchId: user.branchId,
         },
       });
       const transaction = await tx.transaction.create({
