@@ -977,6 +977,7 @@ async function createPositiveAdjustment(
     diff: number;
     reason: string;
     notes?: string | null;
+    branchId?: number | null;
   }
 ) {
   const batch = await tx.inventoryBatch.create({
@@ -987,6 +988,7 @@ async function createPositiveAdjustment(
       currentQuantity: input.diff,
       unitPrice: null,
       location: "STOCKTAKE",
+      branchId: input.branchId ?? null,
     },
     select: { id: true },
   });
@@ -1200,6 +1202,7 @@ export const stocktake = async (c: Context) => {
           diff,
           reason,
           notes,
+          branchId: user.branchId ?? null,
         });
       } else {
         await applyNegativeAdjustment(tx, {
@@ -1354,6 +1357,7 @@ async function applyTransferForAllocation(
         ? new Decimal(input.source.unitPrice)
         : null,
       location: input.source.location ?? "TRANSFER",
+      branchId: input.toBranchId,
     },
     select: { id: true },
   });
@@ -1591,6 +1595,7 @@ export const returnToStock = async (c: Context) => {
           currentQuantity: quantity,
           unitPrice: null,
           location: "RETURN",
+          branchId: user.branchId ?? null,
         },
         select: { id: true },
       });
@@ -1700,6 +1705,7 @@ export const receiveGoods = async (c: Context) => {
             unitPrice:
               line.unitPrice != null ? new Decimal(line.unitPrice) : null,
             location: line.location ?? "RECEIVING",
+            branchId: user.branchId ?? null,
           },
           select: { id: true },
         });
