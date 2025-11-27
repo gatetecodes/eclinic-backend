@@ -21,7 +21,7 @@ export async function invalidateVisitRelatedCaches({
   doctorId,
 }: {
   clinicId: number;
-  branchId: number;
+  branchId?: number;
   visitId?: number;
   patientId?: number;
   doctorId?: number;
@@ -82,7 +82,7 @@ export function invalidatePaymentRelatedCaches({
   visitId,
 }: {
   clinicId: number;
-  branchId: number;
+  branchId?: number;
   visitId?: number;
 }) {
   const cacheInvalidationPromises = [

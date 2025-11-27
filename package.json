@@ -1,5 +1,5 @@
 {
-  "name": "eclinic-backend",
+  "name": "carelogic-backend",
   "version": "1.0.0",
   "description": "eClinic Backend API - Bun + Hono.js + Better-Auth",
   "main": "src/index.ts",
@@ -23,6 +23,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
@@ -60,6 +61,7 @@
     "hono-rate-limiter": "^0.4.2",
     "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
+    "node-cron": "^4.2.1",
     "prisma": "^6.16.0",
     "rate-limiter-flexible": "^7.3.0",
     "resend": "^6.0.3",

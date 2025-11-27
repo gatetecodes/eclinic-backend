@@ -225,15 +225,25 @@ export const getAvailableBatches = async (c: Context) => {
     const { itemId } = c.req.param();
     const includeNullExpiry =
       (c.req.query("includeNullExpiry") || "false").toLowerCase() === "true";
+    const includeExpired =
+      (c.req.query("includeExpired") || "false").toLowerCase() === "true";
+
+    let expiryFilter: Record<string, unknown> = {};
+    if (!includeExpired) {
+      if (includeNullExpiry) {
+        expiryFilter = {
+          OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+        };
+      } else {
+        expiryFilter = { expiryDate: { gt: new Date() } };
+      }
+    }
+
     const batches = await db.inventoryBatch.findMany({
       where: {
         itemId: Number(itemId),
         currentQuantity: { gt: 0 },
-        ...(includeNullExpiry
-          ? {
-              OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
-            }
-          : { expiryDate: { gt: new Date() } }),
+        ...expiryFilter,
         ...(user?.branchId ? { branchId: user.branchId } : {}),
       },
       orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
@@ -479,6 +489,7 @@ export const addStock = async (c: Context) => {
           currentQuantity: quantity,
           unitPrice,
           location,
+          branchId: user.branchId,
         },
       });
       const transaction = await tx.transaction.create({
@@ -966,6 +977,7 @@ async function createPositiveAdjustment(
     diff: number;
     reason: string;
     notes?: string | null;
+    branchId?: number | null;
   }
 ) {
   const batch = await tx.inventoryBatch.create({
@@ -976,6 +988,7 @@ async function createPositiveAdjustment(
       currentQuantity: input.diff,
       unitPrice: null,
       location: "STOCKTAKE",
+      branchId: input.branchId ?? null,
     },
     select: { id: true },
   });
@@ -1189,6 +1202,7 @@ export const stocktake = async (c: Context) => {
           diff,
           reason,
           notes,
+          branchId: user.branchId ?? null,
         });
       } else {
         await applyNegativeAdjustment(tx, {
@@ -1343,6 +1357,7 @@ async function applyTransferForAllocation(
         ? new Decimal(input.source.unitPrice)
         : null,
       location: input.source.location ?? "TRANSFER",
+      branchId: input.toBranchId,
     },
     select: { id: true },
   });
@@ -1438,6 +1453,12 @@ export const transferInventory = async (c: Context) => {
   }
 };
 
+/**
+ * Disposes of inventory items: Creates a disposal transaction, updates the inventory stock, updates the expiry notifications, and updates the item status.
+ * @param c - The context object
+ * @returns The result of the disposal
+ */
+
 export const disposeInventory = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1491,6 +1512,10 @@ export const disposeInventory = async (c: Context) => {
         await tx.inventoryBatch.update({
           where: { id: a.batchId },
           data: { currentQuantity: { decrement: a.quantity } },
+        });
+        await tx.inventoryExpiryNotification.updateMany({
+          where: { batchId: a.batchId, resolvedAt: null },
+          data: { resolvedAt: new Date(), updatedAt: new Date() },
         });
       }
       await tx.inventoryStock.update({
@@ -1570,6 +1595,7 @@ export const returnToStock = async (c: Context) => {
           currentQuantity: quantity,
           unitPrice: null,
           location: "RETURN",
+          branchId: user.branchId ?? null,
         },
         select: { id: true },
       });
@@ -1679,6 +1705,7 @@ export const receiveGoods = async (c: Context) => {
             unitPrice:
               line.unitPrice != null ? new Decimal(line.unitPrice) : null,
             location: line.location ?? "RECEIVING",
+            branchId: user.branchId ?? null,
           },
           select: { id: true },
         });
