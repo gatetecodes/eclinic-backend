@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "VisitStatus" ADD VALUE 'IN_PRE_CONSULTATION';

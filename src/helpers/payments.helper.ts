@@ -108,6 +108,15 @@ const getNextVisitStatus = (
 ): VisitStatus | undefined => {
   const visitStatus = payment.visit?.status;
 
+  // New flow: When consultation payment is paid and visit is CHECKED_IN, move to IN_PRE_CONSULTATION
+  if (
+    visitStatus === VisitStatus.CHECKED_IN &&
+    payment.paymentType === PaymentType.CONSULTATION
+  ) {
+    return VisitStatus.IN_PRE_CONSULTATION;
+  }
+
+  // Legacy flow: When consultation payment is paid and visit is TRIAGE_COMPLETED, move to IN_CONSULTATION
   if (
     visitStatus === VisitStatus.TRIAGE_COMPLETED &&
     payment.paymentType === PaymentType.CONSULTATION
