@@ -58,29 +58,36 @@ export const createInitialCheckIn = async (c: Context) => {
     }
     const {
       patient,
-      basicTriage,
       departmentId,
       priority,
-      chiefComplaint,
       isLabOnly,
-    } = parsed.data;
+      doctorId,
+      consultationProductIds,
+      requiresConsultation,
+    } = parsed.data as z.infer<typeof initialCheckInSchema>;
 
     const { patientId, isNewPatient } = await getOrCreatePatient(patient, user);
 
     const visit = await db.visit.create({
       data: {
         patient: { connect: { id: patientId } },
-        chiefComplaint,
         department: { connect: { id: Number.parseInt(departmentId, 10) } },
         status: VisitStatus.CHECKED_IN,
         priority,
-        basicTriage: basicTriage as unknown as Prisma.InputJsonValue,
+        doctor: { connect: { id: Number.parseInt(doctorId, 10) } },
+        consultations: consultationProductIds
+          ? {
+              connect: consultationProductIds.map((pid) => ({
+                id: Number.parseInt(pid, 10),
+              })),
+            }
+          : undefined,
         isNewPatient,
         clinic: { connect: { id: user.clinicId } },
         branch: { connect: { id: user.branchId } },
         checkedInBy: { connect: { id: Number(user.id) } },
         isLabOnly,
-        requiresConsultation: !isLabOnly,
+        requiresConsultation: requiresConsultation ?? !isLabOnly,
       },
       include: { patient: true, department: true },
     });
@@ -118,11 +125,12 @@ export const updateInitialCheckIn = async (c: Context) => {
     const data = c.get("validatedJson");
     const {
       patient,
-      basicTriage,
       departmentId,
       priority,
-      chiefComplaint,
       isLabOnly,
+      doctorId,
+      consultationProductIds,
+      requiresConsultation,
     } = data as IUpdateInitialCheckIn;
 
     // Check if visit exists and belongs to the user's clinic
@@ -143,14 +151,9 @@ export const updateInitialCheckIn = async (c: Context) => {
       );
     }
 
-    if (
-      !(
-        [VisitStatus.CHECKED_IN, VisitStatus.TRIAGE_COMPLETED] as VisitStatus[]
-      ).includes(existingVisit.status)
-    ) {
-      // Only allow editing if visit is still in CHECKED_IN status
+    if (existingVisit.status !== VisitStatus.CHECKED_IN) {
       return c.json(
-        { error: "Only checked-in and triage completed visits can be edited" },
+        { error: "Only checked-in visits can be edited" },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -174,14 +177,23 @@ export const updateInitialCheckIn = async (c: Context) => {
     const updatedVisit = await db.visit.update({
       where: { id: visitId },
       data: {
-        chiefComplaint,
         department: departmentId
           ? { connect: { id: +departmentId } }
           : { disconnect: true },
+        doctor: doctorId
+          ? { connect: { id: Number.parseInt(doctorId, 10) } }
+          : undefined,
+        consultations: consultationProductIds
+          ? {
+              set: [],
+              connect: consultationProductIds.map((pid) => ({
+                id: Number.parseInt(pid, 10),
+              })),
+            }
+          : undefined,
         priority,
-        basicTriage,
         isLabOnly: !!isLabOnly,
-        requiresConsultation: !isLabOnly,
+        requiresConsultation: requiresConsultation ?? !isLabOnly,
       },
       include: {
         patient: true,
@@ -229,34 +241,20 @@ export const addPreConsultation = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const {
-      vitals,
-      doctorId,
-      notes,
-      consultationProductIds,
-      requiresConsultation,
-    } = parsed.data;
+    const { vitals, notes, chiefComplaint } = parsed.data as z.infer<
+      typeof preConsultationSchema
+    >;
 
     const result = await db.$transaction(async (tx) => {
       const updatedVisit = await tx.visit.update({
         data: {
-          doctor: { connect: { id: Number.parseInt(doctorId, 10) } },
           notes,
-          status: VisitStatus.TRIAGE_COMPLETED,
-          consultations: consultationProductIds
-            ? {
-                connect: consultationProductIds.map((pid) => ({
-                  id: Number.parseInt(pid, 10),
-                })),
-              }
-            : undefined,
-          requiresConsultation,
+          status: VisitStatus.IN_CONSULTATION,
+          ...(chiefComplaint ? { chiefComplaint } : {}),
         },
         where: { id: visitId },
         select: {
           id: true,
-          doctorId: true,
-          basicTriage: true,
           patientId: true,
         },
       });
@@ -265,7 +263,6 @@ export const addPreConsultation = async (c: Context) => {
         data: {
           medicalInfo: {
             ...(vitals as unknown as Prisma.InputJsonObject),
-            ...(updatedVisit.basicTriage as Prisma.InputJsonObject),
           },
         },
         where: { id: updatedVisit.patientId },
@@ -275,14 +272,12 @@ export const addPreConsultation = async (c: Context) => {
       return { updatedVisit, updatedPatient };
     });
 
-    if (result.updatedVisit.doctorId) {
-      await logActivity({
-        userId: Number(user.id),
-        visitId,
-        type: ActivityType.STATUS_UPDATE,
-        action: `New patient check in for pre-consultation by ${user.name}`,
-      });
-    }
+    await logActivity({
+      userId: Number(user.id),
+      visitId,
+      type: ActivityType.STATUS_UPDATE,
+      action: `Pre-consultation completed by ${user.name}`,
+    });
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
@@ -314,13 +309,9 @@ export const editPreConsultation = async (c: Context) => {
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const data = c.get("validatedJson");
-    const {
-      vitals,
-      doctorId,
-      notes,
-      requiresConsultation,
-      consultationProductIds,
-    } = data as z.infer<typeof preConsultationSchema>;
+    const { vitals, notes, chiefComplaint } = data as z.infer<
+      typeof preConsultationSchema
+    >;
 
     // Check if visit exists and belongs to the user's clinic
     const existingVisit = await db.visit.findFirst({
@@ -366,13 +357,10 @@ export const editPreConsultation = async (c: Context) => {
       // Update visit with new pre-consultation data
       const updatedVisit = await tx.visit.update({
         data: {
-          doctor: { connect: { id: +doctorId } },
           notes,
-          consultations: {
-            set: [], // Clear existing consultations
-            connect: consultationProductIds?.map((pid) => ({ id: +pid })),
-          },
-          requiresConsultation,
+          ...(typeof chiefComplaint === "string" && chiefComplaint
+            ? { chiefComplaint }
+            : {}),
         },
         where: {
           id: visitId,
@@ -384,7 +372,6 @@ export const editPreConsultation = async (c: Context) => {
         data: {
           medicalInfo: {
             ...vitals,
-            ...(updatedVisit.basicTriage as Prisma.InputJsonObject),
           },
         },
         where: {
@@ -584,7 +571,7 @@ export const listVisits = async (c: Context) => {
         } else if (user.role === Role.NURSE) {
           roleStatusFilter = {
             in: [
-              VisitStatus.CHECKED_IN,
+              VisitStatus.IN_PRE_CONSULTATION,
               VisitStatus.TRIAGE_COMPLETED,
               VisitStatus.IN_CONSULTATION,
               VisitStatus.PENDING_TESTS,
