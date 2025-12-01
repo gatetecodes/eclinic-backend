@@ -120,7 +120,13 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     analytics: { read: true },
     tariff: { read: true },
     users: { read: true },
-    visits: { read: true, addPaymentMethod: true, dischargePatient: true },
+    visits: {
+      create: true,
+      read: true,
+      addPaymentMethod: true,
+      dischargePatient: true,
+    },
+    departments: { read: true },
   },
   MARKETING: {
     analytics: { read: true },

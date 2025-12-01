@@ -69,6 +69,7 @@ model Visit {
 enum VisitStatus {
     CHECKED_IN //Recorded by Nurse. Sent to Cachier to pay Consultation Fee.
     TRIAGE_COMPLETED //Doctor can now see the patient.
+    IN_PRE_CONSULTATION //Nurse is preparing the patient for consultation.
     IN_CONSULTATION //Doctor is seeing the patient. Can require exams or not.
     PENDING_TESTS //Patient goes back to cachier to pay for exams.
     RESULTS_READY //Doctor can now see results and write prescription.

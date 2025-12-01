@@ -74,6 +74,9 @@ const phoneSchema = z.string().refine(
 );
 
 export const vitalsSchema = z.object({
+  height: z.string().optional(),
+  weight: z.string().optional(),
+  temperature: z.string().optional(),
   bloodType: z.string().optional(),
   heartRate: z.string().optional(),
   bloodPressure: z.string().optional(),
@@ -96,94 +99,94 @@ export const patientSchema = z.object({
   isChild: z.boolean().optional().default(false),
 });
 
-export const initialCheckInSchema = z.object({
-  patient: z
-    .object({
-      firstName: z.string().min(1, "First name is required"),
-      lastName: z.string().min(1, "Last name is required"),
-      dateOfBirth: z.string().min(1, "Date of birth is required"),
-      gender: z.string().min(1, "Gender is required"),
-      isChild: z.boolean().optional().default(false),
-      phoneNumber: z.string().optional(),
-      guardianPhoneNumber: z.string().optional(),
-      isAForeigner: z.boolean().optional(),
-      address: z.string().optional(),
-    })
-    .superRefine((data, ctx) => {
-      if (data.isChild) {
-        if (!data.guardianPhoneNumber) {
+export const initialCheckInSchema = z
+  .object({
+    patient: z
+      .object({
+        firstName: z.string().min(1, "First name is required"),
+        lastName: z.string().min(1, "Last name is required"),
+        dateOfBirth: z.string().min(1, "Date of birth is required"),
+        gender: z.string().min(1, "Gender is required"),
+        isChild: z.boolean().optional().default(false),
+        phoneNumber: z.string().optional(),
+        guardianPhoneNumber: z.string().optional(),
+        isAForeigner: z.boolean().optional(),
+        address: z.string().optional(),
+      })
+      .superRefine((data, ctx) => {
+        if (data.isChild) {
+          if (!data.guardianPhoneNumber) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Guardian's phone number is required for children",
+              path: ["guardianPhoneNumber"],
+            });
+            return;
+          }
+          const guardianValidation = phoneSchema.safeParse(
+            data.guardianPhoneNumber
+          );
+          if (!guardianValidation.success) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                guardianValidation.error.issues[0]?.message ??
+                "Invalid phone number",
+              path: ["guardianPhoneNumber"],
+            });
+          }
+          return;
+        }
+
+        if (!data.phoneNumber) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Guardian's phone number is required for children",
-            path: ["guardianPhoneNumber"],
+            message: "Patient phone number is required",
+            path: ["phoneNumber"],
           });
           return;
         }
-        const guardianValidation = phoneSchema.safeParse(
-          data.guardianPhoneNumber
-        );
-        if (!guardianValidation.success) {
+        const patientValidation = phoneSchema.safeParse(data.phoneNumber);
+        if (!patientValidation.success) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message:
-              guardianValidation.error.issues[0]?.message ??
+              patientValidation.error.issues[0]?.message ??
               "Invalid phone number",
-            path: ["guardianPhoneNumber"],
+            path: ["phoneNumber"],
           });
         }
-        return;
-      }
-
-      if (!data.phoneNumber) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Patient phone number is required",
-          path: ["phoneNumber"],
-        });
-        return;
-      }
-      const patientValidation = phoneSchema.safeParse(data.phoneNumber);
-      if (!patientValidation.success) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            patientValidation.error.issues[0]?.message ??
-            "Invalid phone number",
-          path: ["phoneNumber"],
-        });
-      }
-    }),
-  basicTriage: z.object({
-    height: z.string().optional(),
-    weight: z.string().optional(),
-    temperature: z.string().optional(),
-  }),
-  chiefComplaint: z.string().optional(),
-  departmentId: z.string().min(1, "Department is required"),
-  priority: z.nativeEnum(Priority),
-  isLabOnly: z.boolean().optional().default(false),
-});
-
-export const updateInitialCheckInSchema = initialCheckInSchema.extend({
-  visitId: z.number(),
-});
-
-export const preConsultationSchema = z
-  .object({
-    vitals: vitalsSchema,
+      }),
+    departmentId: z.string().min(1, "Department is required"),
     doctorId: z.string().min(1, "Doctor is required"),
-    requiresConsultation: z.boolean().default(true),
     consultationProductIds: z.array(z.string()).optional(),
-    notes: z.string().optional(),
+    priority: z.nativeEnum(Priority),
+    isLabOnly: z.boolean().optional().default(false),
+    requiresConsultation: z.boolean().optional().default(true),
   })
   .superRefine((data, ctx) => {
-    if (data.requiresConsultation && !data.consultationProductIds) {
+    // If requires consultation, require at least one consultation product
+    if (
+      data.requiresConsultation &&
+      (!data.consultationProductIds || data.consultationProductIds.length === 0)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Consultation product is required",
+        message: "At least one consultation is required",
+        path: ["consultationProductIds"],
       });
     }
   });
+
+export const updateInitialCheckInSchema = initialCheckInSchema.safeExtend({
+  visitId: z.number(),
+});
+
+export const preConsultationSchema = z.object({
+  vitals: vitalsSchema,
+  notes: z.string().optional(),
+  chiefComplaint: z.string().optional(),
+});
 
 export type PreConsultation = z.infer<typeof preConsultationSchema>;
 
@@ -282,6 +285,7 @@ export const updateVisitStatusSchema = z.object({
   status: z.enum([
     "CHECKED_IN",
     "TRIAGE_COMPLETED",
+    "IN_PRE_CONSULTATION",
     "IN_CONSULTATION",
     "PENDING_TESTS",
     "RESULTS_READY",
@@ -294,10 +298,7 @@ export const updateVisitStatusSchema = z.object({
 });
 
 // Request schemas for controller endpoints
-export const updatePreConsultationRequestSchema =
-  preConsultationSchema.safeExtend({
-    patientId: z.coerce.number(),
-  });
+export const updatePreConsultationRequestSchema = preConsultationSchema;
 
 // Additional endpoint-specific schemas
 export const consultationNoteSchema = z.object({
