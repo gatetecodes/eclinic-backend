@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "../../../lib/constants";
+import { logger } from "../../../lib/logger";
 import { uploadToCloudflareR2 } from "../../../services/cloudflare-r2.service";
 
 export const uploadFiles = async (c: Context) => {
@@ -12,15 +13,17 @@ export const uploadFiles = async (c: Context) => {
       httpCodes.BAD_REQUEST as ContentfulStatusCode
     );
   }
-  const workerUrl = c.env.CLOUDFLARE_WORKER_URL;
-  const authSecret = c.env.CLOUDFLARE_AUTH_SECRET;
+  const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+  const authSecret = process.env.CLOUDFLARE_AUTH_SECRET;
   if (!workerUrl) {
+    logger.error("Cloudflare worker URL not found");
     return c.json(
       { error: "Cloudflare worker URL  not found" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
   if (!authSecret) {
+    logger.error("Cloudflare auth secret not found");
     return c.json(
       { error: "Cloudflare auth secret not found" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
@@ -40,6 +43,9 @@ export const uploadFiles = async (c: Context) => {
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
+    logger.error("Failed to upload files", {
+      error: error instanceof Error ? error.message : "Failed to upload files",
+    });
     return c.json(
       {
         error:
