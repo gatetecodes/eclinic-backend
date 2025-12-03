@@ -54,7 +54,7 @@ v1.use("*", tenantContext);
 v1.use("*", entitlementsContext);
 
 // Mount resources
-v1.route("/upload", fileUploadRouter);
+v1.route("/files", fileUploadRouter);
 v1.route("/users", usersRouter);
 v1.route("/availability", availabilityRouter);
 v1.route("/patients", patientsRouter);

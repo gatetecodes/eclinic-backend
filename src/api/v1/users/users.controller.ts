@@ -3,18 +3,14 @@ import { hash } from "bcryptjs";
 import {
   addDays,
   addHours,
-  addMinutes,
   endOfDay,
-  format,
-  getDay,
-  isBefore,
-  parse,
   parseISO,
   startOfDay,
-  subDays,
+  startOfWeek,
 } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { AppError } from "@/lib/app-error.ts";
 import { httpCodes } from "@/lib/constants.ts";
 import {
   ActivityType,
@@ -29,6 +25,10 @@ import {
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { buildQueryOptions } from "../../../helpers/query-helper";
+import {
+  isWorkingNowForWeekly,
+  resolveTargetDate,
+} from "../../../helpers/user-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { logger } from "../../../lib/logger";
 import { sendEmail } from "../../../services/email.service";
@@ -455,9 +455,19 @@ export const editUser = async (c: Context) => {
     const body = await c.get("validatedJson");
     const parsed = updateUserSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "INVALID_REQUEST",
+          message: "Invalid request",
+          exposeMessage: true,
+          issues: Object.entries(parsed.error.flatten().fieldErrors).map(
+            ([field, errors]) => ({
+              field,
+              message: errors.join(", "),
+            })
+          ),
+        })
       );
     }
 
@@ -1089,9 +1099,19 @@ export const editDoctor = async (c: Context) => {
     const body = await c.get("validatedJson");
     const parsed = editDoctorSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "INVALID_REQUEST",
+          message: "Invalid request",
+          exposeMessage: true,
+          issues: Object.entries(parsed.error.flatten().fieldErrors).map(
+            ([field, errors]) => ({
+              field,
+              message: errors.join(", "),
+            })
+          ),
+        })
       );
     }
 
@@ -1114,15 +1134,6 @@ export const editDoctor = async (c: Context) => {
       );
     }
 
-    const availabilityData = filterValidAvailability(weeklyAvailability).map(
-      (slot) => ({
-        startDayOfWeek: slot.startDayOfWeek,
-        startTime: slot.startTime,
-        endDayOfWeek: slot.endDayOfWeek,
-        endTime: slot.endTime,
-      })
-    );
-
     const updateData: Prisma.UserUpdateInput = {
       name: doctorData.name,
       email: doctorData.email,
@@ -1139,13 +1150,26 @@ export const editDoctor = async (c: Context) => {
       clinicalDepartments: {
         set: departments?.map((departmentId) => ({ id: departmentId })),
       },
-      doctorAvailabilities: {
+    };
+
+    // Only update availability if it's provided
+    if (weeklyAvailability !== undefined) {
+      const availabilityData = filterValidAvailability(weeklyAvailability).map(
+        (slot) => ({
+          startDayOfWeek: slot.startDayOfWeek,
+          startTime: slot.startTime,
+          endDayOfWeek: slot.endDayOfWeek,
+          endTime: slot.endTime,
+        })
+      );
+
+      updateData.doctorAvailabilities = {
         deleteMany: {},
         createMany: {
           data: availabilityData,
         },
-      },
-    };
+      };
+    }
 
     if (password) {
       updateData.password = await hash(password, 10);
@@ -1217,7 +1241,7 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
       );
     }
 
-    // Fetch doctors in department with their schedules
+    // Fetch doctors in department
     const doctors = await db.user.findMany({
       where: {
         role: Role.DOCTOR,
@@ -1228,15 +1252,6 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
       select: {
         id: true,
         name: true,
-        doctorAvailabilities: {
-          select: {
-            id: true,
-            startDayOfWeek: true,
-            endDayOfWeek: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
       },
     });
 
@@ -1244,103 +1259,33 @@ export const getAvailableDoctorsByDepartmentId = async (c: Context) => {
       return c.json({ data: [] }, httpCodes.OK as ContentfulStatusCode);
     }
 
-    const targetDay = getDay(date);
-    const prevDay = getDay(subDays(date, 1));
+    // Resolve the target date/time (fallback to "now" if invalid)
+    const targetDate: Date = resolveTargetDate(date);
 
-    const startOfTargetDay = startOfDay(date);
-    const endOfTargetDay = endOfDay(date);
-
-    // For each doctor, load booked appointment start times for the day
+    // Build effective weekly timesheets for the week containing the target date
+    const weekStart = startOfDay(startOfWeek(targetDate, { weekStartsOn: 1 }));
     const doctorIds = doctors.map((d) => d.id);
-    const eventsByDoctor: Record<number, Set<string>> = {};
-    for (const doctorId of doctorIds) {
-      const existingAppointments = await db.event.findMany({
-        where: {
-          doctorId,
-          startTime: {
-            gte: startOfTargetDay,
-            lte: endOfTargetDay,
-          },
-          type: "APPOINTMENT",
-          status: { not: "CANCELLED" },
-        },
-        select: { startTime: true },
-      });
-      eventsByDoctor[doctorId] = new Set(
-        existingAppointments.map((appointment) =>
-          format(appointment.startTime, "HH:mm")
-        )
-      );
-    }
+    const weeklyTimesheetByUserId = await buildWeeklyTimesheetMapForUsers(
+      doctorIds,
+      weekStart
+    );
 
     const availableDoctors: { id: number; name: string }[] = [];
 
     for (const doc of doctors) {
-      const potentialSchedules = doc.doctorAvailabilities.filter(
-        (s) => s.startDayOfWeek === targetDay || s.startDayOfWeek === prevDay
-      );
+      const weekly = weeklyTimesheetByUserId[doc.id] as
+        | Array<{
+            dayOfWeek: number;
+            windows: Array<{
+              start: string;
+              end: string;
+              crossesMidnight: boolean;
+            }>;
+          }>
+        | undefined;
+      const isWorkingNow = isWorkingNowForWeekly(weekly, targetDate);
 
-      if (potentialSchedules.length === 0) {
-        continue; // No schedule for today
-      }
-
-      const bookedTimes = eventsByDoctor[doc.id] ?? new Set<string>();
-      const hasAnyAvailable = potentialSchedules.some((schedule) => {
-        if (
-          schedule.startDayOfWeek === null ||
-          schedule.endDayOfWeek === null ||
-          schedule.startTime === null ||
-          schedule.endTime === null
-        ) {
-          return false;
-        }
-
-        const startOffset =
-          (targetDay - (schedule.startDayOfWeek as number) + 7) % 7; // Wrap around to Sunday (0)
-        const endOffset =
-          (targetDay - (schedule.endDayOfWeek as number) + 7) % 7; // Wrap around to Sunday (0)
-        const scheduleStartDate = subDays(date, startOffset);
-        const scheduleEndDate = subDays(date, endOffset);
-
-        const startTime = parse(
-          schedule.startTime as string,
-          "HH:mm",
-          scheduleStartDate
-        );
-        let endTime = parse(
-          schedule.endTime as string,
-          "HH:mm",
-          scheduleEndDate
-        );
-
-        if (isBefore(endTime, startTime)) {
-          // Overnight schedule wraps to next day
-          endTime = addMinutes(endTime, 24 * 60);
-        }
-
-        const effectiveStartTime = new Date(
-          Math.max(startTime.getTime(), startOfTargetDay.getTime())
-        );
-        const effectiveEndTime = new Date(
-          Math.min(endTime.getTime(), endOfTargetDay.getTime())
-        );
-
-        // Scan hour slots for any free slot today
-        let currentTime = new Date(effectiveStartTime);
-        // Align to hour
-        currentTime.setMinutes(0, 0, 0);
-        while (isBefore(currentTime, effectiveEndTime)) {
-          const timeSlot = format(currentTime, "HH:mm");
-          if (!bookedTimes.has(timeSlot)) {
-            return true;
-          }
-          currentTime = addMinutes(currentTime, 60);
-        }
-
-        return false;
-      });
-
-      if (hasAnyAvailable) {
+      if (isWorkingNow) {
         availableDoctors.push({ id: doc.id, name: doc.name });
       }
     }
