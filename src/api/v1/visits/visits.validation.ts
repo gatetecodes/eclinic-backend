@@ -99,6 +99,19 @@ export const patientSchema = z.object({
   isChild: z.boolean().optional().default(false),
 });
 
+export const insuranceSchema = z.object({
+  insuranceNumber: z.string().min(1, "Insurance number is required"),
+  insuranceCompany: z.string().min(1, "Insurance company is required"),
+  employer: z.string().optional(),
+  coveragePercentage: z.string().min(1, "Coverage percentage is required"),
+  relationshipType: z
+    .enum(["PRINCIPAL", "SPOUSE", "CHILD", "OTHER"])
+    .optional()
+    .default("PRINCIPAL"),
+  principalName: z.string().optional(),
+  principalPhoneNumber: z.string().optional(),
+});
+
 export const initialCheckInSchema = z
   .object({
     patient: z
@@ -163,6 +176,12 @@ export const initialCheckInSchema = z
     priority: z.nativeEnum(Priority),
     isLabOnly: z.boolean().optional().default(false),
     requiresConsultation: z.boolean().optional().default(true),
+    // Payment fields (optional for backwards-compat; validated conditionally)
+    paymentMode: z.string().optional(),
+    allowPartial: z.boolean().optional().default(false),
+    insurance: z
+      .union([insuranceSchema, z.object({}).strict(), z.undefined()])
+      .optional(),
   })
   .superRefine((data, ctx) => {
     // If requires consultation, require at least one consultation product
@@ -175,6 +194,29 @@ export const initialCheckInSchema = z
         message: "At least one consultation is required",
         path: ["consultationProductIds"],
       });
+    }
+
+    // If consultation is required, payment mode must be provided
+    if (data.requiresConsultation && !data.paymentMode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Payment mode is required when consultation is required",
+        path: ["paymentMode"],
+      });
+    }
+
+    // If payment mode is INSURANCE, basic insurance fields must be provided
+    if (data.paymentMode === "INSURANCE") {
+      const hasInsurance =
+        data.insurance && Object.keys(data.insurance as object).length > 0;
+      if (!hasInsurance) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Insurance information is required for INSURANCE payment mode",
+          path: ["insurance"],
+        });
+      }
     }
   });
 
@@ -189,13 +231,6 @@ export const preConsultationSchema = z.object({
 });
 
 export type PreConsultation = z.infer<typeof preConsultationSchema>;
-
-export const insuranceSchema = z.object({
-  insuranceNumber: z.string().min(1, "Insurance number is required"),
-  insuranceCompany: z.string().min(1, "Insurance company is required"),
-  employer: z.string().optional(),
-  coveragePercentage: z.string().min(1, "Coverage percentage is required"),
-});
 
 export const visitSchema = z.object({
   patient: patientSchema,

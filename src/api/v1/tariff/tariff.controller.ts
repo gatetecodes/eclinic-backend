@@ -1081,6 +1081,61 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
   }
 };
 
+export const getLabProductsWithPricing = async (c: Context) => {
+  try {
+    const user = c.get("user");
+
+    const products = await db.product.findMany({
+      where: {
+        clinics: { some: { id: user.clinicId } },
+        departments: {
+          some: {
+            name: { in: ["LABORATOIRE"] },
+          },
+        },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        category: true,
+        basePrice: true,
+        foreignersPrice: true,
+        insurancePrices: {
+          select: {
+            id: true,
+            price: true,
+            priceWithCo: true,
+            insuranceCompany: {
+              select: {
+                id: true,
+                companyName: true,
+              },
+            },
+          },
+        },
+        departments: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    return c.json({
+      status: httpCodes.OK,
+      message: "Lab products with pricing fetched successfully",
+      data: products,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
 export const importProductsFromCSV = async (c: Context) => {
   try {
     const user = c.get("user");
