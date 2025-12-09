@@ -3,7 +3,9 @@
 
 generator client {
     provider = "prisma-client"
-    output   = "../../generated/prisma/client"
+    // Generate directly into ./generated/prisma so imports like
+    // `../../generated/prisma/client` resolve to a concrete file.
+    output   = "../../generated/prisma"
 }
 
 datasource db {

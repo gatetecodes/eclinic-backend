@@ -19,7 +19,8 @@
     "types": ["node", "pg"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "generated/*": ["./generated/*"]
     },
     "strictNullChecks": true
   },
