@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   SubscriptionPlan,
   SubscriptionStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 
 export const getClinicParamsSchema = z.object({ id: z.string() });
 

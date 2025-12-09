@@ -2,12 +2,12 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { createPaymentForInventoryItems } from "@/helpers/inventory-helpers";
 import { httpCodes } from "@/lib/constants";
-import type { Prisma } from "../../../../../generated/prisma";
+import type { Prisma } from "../../../../../generated/prisma/client";
 import {
   ActivityType,
   PaymentType,
   VisitStatus,
-} from "../../../../../generated/prisma";
+} from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { createPaymentForProducts } from "../../../../helpers/tariff-helpers";

@@ -21,7 +21,7 @@ import {
   type TimesheetPeriod,
   type User,
   UserStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { buildQueryOptions } from "../../../helpers/query-helper";

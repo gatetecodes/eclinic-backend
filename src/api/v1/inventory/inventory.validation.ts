@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ItemType, TransactionType, Unit } from "../../../../generated/prisma";
+import {
+  ItemType,
+  TransactionType,
+  Unit,
+} from "../../../../generated/prisma/client";
 
 export const stockTransactionSchema = z.object({
   itemId: z.number(),

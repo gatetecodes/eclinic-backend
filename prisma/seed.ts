@@ -6,7 +6,7 @@ import {
   SubscriptionPlan,
   SubscriptionStatus,
   UserStatus,
-} from "../generated/prisma";
+} from "../generated/prisma/client";
 
 const InsuranceCompanies = {
   SONARWA: "SONARWA",

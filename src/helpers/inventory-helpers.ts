@@ -1,8 +1,8 @@
-import { Decimal } from "generated/prisma/runtime/library";
+import { Decimal } from "generated/prisma/internal/prismaNamespace";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import { logger } from "@/lib/logger";
-import type { Prisma } from "../../generated/prisma";
+import type { Prisma } from "../../generated/prisma/client";
 import {
   InventoryStatus,
   type ItemType,
@@ -13,7 +13,7 @@ import {
   TransactionStatus,
   TransactionType,
   type Unit,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import type {
   ConsumableCSVRow,

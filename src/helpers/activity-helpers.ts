@@ -1,4 +1,4 @@
-import type { ActivityType } from "../../generated/prisma";
+import type { ActivityType } from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 

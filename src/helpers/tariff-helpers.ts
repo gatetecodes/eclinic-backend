@@ -6,7 +6,7 @@ import {
   PriceType,
   Role,
   Unit,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { InsuranceCompanies, SpecialInsurers } from "../lib/constants";
 import { logger } from "../lib/logger";

@@ -8,7 +8,7 @@ import {
   PaymentType,
   type Prisma,
   VisitStatus,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import {
   invalidatePaymentRelatedCaches,
