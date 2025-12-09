@@ -4,7 +4,7 @@ import {
   type Payment,
   PaymentStatus,
   type Prisma,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import {
   buildPaymentSuccessMessage,
@@ -49,6 +49,7 @@ export const getPayments = async (c: Context) => {
             amount: true,
             insuranceAmount: true,
             patientAmount: true,
+            paymentDetails: true,
             paymentType: true,
             paymentStatus: true,
             paymentMethod: true,

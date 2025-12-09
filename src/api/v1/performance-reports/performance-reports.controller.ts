@@ -2,14 +2,14 @@ import { endOfDay, format, startOfDay } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
-import type { Prisma } from "../../../../generated/prisma";
+import type { Prisma } from "../../../../generated/prisma/client";
 import {
   ClaimStatus,
   PaymentStatus,
   Role,
   UserStatus,
   VisitStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import {
   getClinicDepartmentsForFilter,

@@ -27,7 +27,9 @@ import {
 import {
   addDoctorAvailabilitySchema,
   assignDepartmentsToDoctorSchema,
+  editDoctorSchema,
   getAvailableDoctorsByDepartmentIdSchema,
+  updateUserSchema,
   upsertTimesheetSchema,
 } from "./users.validation.ts";
 
@@ -85,8 +87,18 @@ router.post(
   ...withAccess({ resource: "users", action: "update", feature: "users" }),
   deactivateUser
 );
-router.put("/:userId", crudAccess("users"), editUser);
-router.put("/doctors/:doctorId", crudAccess("users"), editDoctor);
+router.put(
+  "/:userId",
+  crudAccess("users"),
+  validate(updateUserSchema, "json"),
+  editUser
+);
+router.put(
+  "/doctors/:doctorId",
+  crudAccess("users"),
+  validate(editDoctorSchema, "json"),
+  editDoctor
+);
 router.get("/:userId", crudAccess("users"), getUserById);
 
 export default router;

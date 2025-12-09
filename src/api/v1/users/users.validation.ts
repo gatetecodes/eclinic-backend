@@ -108,7 +108,7 @@ export const createDoctorSchema = z
     licenseExpiration: z.string().optional(),
     license_document: z.string().optional(),
     diploma_document: z.string().optional(),
-    weeklyAvailability: weeklyAvailabilitySchema,
+    weeklyAvailability: weeklyAvailabilitySchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.role === "NURSE" && data.highestEducation === undefined) {
@@ -120,17 +120,48 @@ export const createDoctorSchema = z
     }
   });
 
-export const editDoctorSchema = createDoctorSchema.partial().extend({
-  email: z.string().email(),
-});
+export const editDoctorSchema = createDoctorSchema
+  .partial()
+  .extend({
+    email: z.string().email(),
+  })
+  .refine(
+    (data) => {
+      // Password is optional for editing - allow empty string or undefined
+      if (!data.password || data.password === "") {
+        return true;
+      }
+      // If password is provided, it must be at least 8 characters
+      return data.password.length >= 8;
+    },
+    {
+      message: "Password must be at least 8 characters or empty",
+      path: ["password"],
+    }
+  );
 
-export const updateUserSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
-  role: z.enum(staffRoles),
-  phone_number: z.string().min(10),
-  password: z.string().min(8).optional(),
-});
+export const updateUserSchema = z
+  .object({
+    email: z.string().email(),
+    name: z.string().min(1),
+    role: z.enum(staffRoles),
+    phone_number: z.string().min(10),
+    password: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // Password is optional for editing - allow empty string or undefined
+      if (!data.password || data.password === "") {
+        return true;
+      }
+      // If password is provided, it must be at least 8 characters
+      return data.password.length >= 8;
+    },
+    {
+      message: "Password must be at least 8 characters or empty",
+      path: ["password"],
+    }
+  );
 
 export const userIdParamSchema = z.object({
   userId: z.coerce.number().int().positive(),

@@ -1,5 +1,5 @@
 import { parse } from "csv-parse/sync";
-import { Decimal } from "generated/prisma/runtime/library";
+import { Decimal } from "generated/prisma/internal/prismaNamespace";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
@@ -16,7 +16,7 @@ import {
   type Transaction,
   TransactionStatus,
   TransactionType,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { processInventoryItemRecord } from "../../../helpers/inventory-helpers";
 import { httpCodes } from "../../../lib/constants";
@@ -443,14 +443,13 @@ export const addStock = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:add:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
     const data = c.get("validatedJson");
     const {
@@ -566,14 +565,13 @@ export const createSaleTransaction = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:sale:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
 
     const batch = await db.inventoryBatch.findUnique({
@@ -820,10 +818,11 @@ export const getInventoryTransactions = async (c: Context) => {
 
 // FEFO/FIFO allocation helper
 async function allocateBatchesForItem(
+  tx: Prisma.TransactionClient | typeof db,
   itemId: number,
   requiredQuantity: number
 ): Promise<Array<{ batchId: number; quantity: number }>> {
-  const batches = await db.inventoryBatch.findMany({
+  const batches = await tx.inventoryBatch.findMany({
     where: {
       itemId,
       currentQuantity: { gt: 0 },
@@ -1019,6 +1018,7 @@ async function applyNegativeAdjustment(
   }
 ) {
   const allocations = await allocateBatchesForItem(
+    tx,
     input.itemId,
     input.quantity
   );
@@ -1060,37 +1060,42 @@ export const stockOutMultiBatch = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:stockout:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
 
     // If allocations are not provided, attempt FEFO/FIFO allocation using requiredQuantity
-    let allocations = (
-      payload.allocations && payload.allocations.length > 0
-        ? payload.allocations
-        : []
-    ) as Array<{ batchId: number; quantity: number }>;
-    if (allocations.length === 0) {
-      if (!payload.requiredQuantity || payload.requiredQuantity <= 0) {
-        return c.json(
-          { error: "Either allocations or requiredQuantity must be provided" },
-          httpCodes.BAD_REQUEST as ContentfulStatusCode
-        );
-      }
-      allocations = await allocateBatchesForItem(
-        payload.itemId,
-        payload.requiredQuantity
+    const hasAllocations =
+      payload.allocations && payload.allocations.length > 0;
+    let allocations = hasAllocations
+      ? (payload.allocations as Array<{ batchId: number; quantity: number }>)
+      : [];
+    if (
+      !hasAllocations &&
+      (!payload.requiredQuantity || payload.requiredQuantity <= 0)
+    ) {
+      return c.json(
+        { error: "Either allocations or requiredQuantity must be provided" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const providedQty = allocations.reduce((sum, a) => sum + a.quantity, 0);
 
     const result = await db.$transaction(async (tx) => {
+      // Allocate batches inside transaction for proper isolation
+      if (!hasAllocations) {
+        const requiredQty = payload.requiredQuantity ?? 0;
+        allocations = await allocateBatchesForItem(
+          tx,
+          payload.itemId,
+          requiredQty
+        );
+      }
+      const providedQty = allocations.reduce((sum, a) => sum + a.quantity, 0);
       const batchById = await validateAllocations(
         tx,
         payload.itemId,
@@ -1162,8 +1167,8 @@ function generateAdjustmentBatchNumber(itemId: number): string {
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-  return `ADJ-${itemId}-${yyyy}${mm}${dd}-${rand}`;
+  const time = now.getTime().toString(36);
+  return `ADJ-${itemId}-${yyyy}${mm}${dd}-${time}`;
 }
 
 export const stocktake = async (c: Context) => {
@@ -1175,14 +1180,13 @@ export const stocktake = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:stocktake:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -1390,14 +1394,13 @@ export const transferInventory = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:transfer:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
     const totalQty = allocations.reduce((sum, a) => sum + a.quantity, 0);
     if (totalQty <= 0) {
@@ -1467,14 +1470,13 @@ export const disposeInventory = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:disposal:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
     const total = allocations.reduce((s, a) => s + a.quantity, 0);
 
@@ -1574,14 +1576,13 @@ export const returnToStock = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:return:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
     const result = await db.$transaction(async (tx) => {
       const batch = await tx.inventoryBatch.create({
@@ -1664,14 +1665,13 @@ export const receiveGoods = async (c: Context) => {
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:receive:${idemKey}`;
-      const exists = await redis.get(key);
-      if (exists) {
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
         return c.json(
           { error: "Duplicate request" },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-      await redis.setex(key, 60 * 5, "1");
     }
     // Validate all items exist
     const itemIds = items.map((item) => item.itemId);
@@ -1736,23 +1736,31 @@ export const receiveGoods = async (c: Context) => {
       }
 
       //Keep status in synch after goods receipt
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: items[0].itemId },
+      // Get all unique item IDs from the receipt
+      const uniqueItemIds = [...new Set(items.map((item) => item.itemId))];
+
+      // Batch fetch all inventory items with their current stock
+      const inventoryItems = await tx.inventoryItem.findMany({
+        where: { id: { in: uniqueItemIds } },
         include: { currentStock: true },
       });
-      if (item?.currentStock) {
-        const qty = item.currentStock.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (qty === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (qty <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: item.id },
-            data: { status: newStatus },
-          });
+
+      // Update status for each item that has changed
+      for (const item of inventoryItems) {
+        if (item.currentStock) {
+          const qty = item.currentStock.quantity ?? 0;
+          let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
+          if (qty === 0) {
+            newStatus = InventoryStatus.OUT_OF_STOCK;
+          } else if (qty <= item.reorderLevel) {
+            newStatus = InventoryStatus.LOW_STOCK;
+          }
+          if (newStatus !== item.status) {
+            await tx.inventoryItem.update({
+              where: { id: item.id },
+              data: { status: newStatus },
+            });
+          }
         }
       }
       return { received: items.length, totalQuantity: totalQty };

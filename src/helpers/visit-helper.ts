@@ -3,13 +3,14 @@ import type { z } from "zod";
 import {
   EducationLevel,
   type Gender,
+  InsuranceRelationshipType,
   type Payment,
   PaymentMode,
   PaymentStatus,
   Prisma,
   Role,
   VisitStatus,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import type {
   addPaymentMethodSchema,
   visitSchema,
@@ -197,6 +198,20 @@ export async function handleInsurance(
   });
 
   if (existingInsurance) {
+    // Update existing insurance with principal information if provided
+    await db.patientInsurance.update({
+      where: { id: existingInsurance.id },
+      data: {
+        relationshipType:
+          (insuranceData.relationshipType as
+            | "PRINCIPAL"
+            | "SPOUSE"
+            | "CHILD"
+            | "OTHER") || "PRINCIPAL",
+        principalName: insuranceData.principalName || null,
+        principalPhoneNumber: insuranceData.principalPhoneNumber || null,
+      },
+    });
     return existingInsurance.id;
   }
 
@@ -209,6 +224,11 @@ export async function handleInsurance(
       ),
       insuranceCompanyId,
       employerId,
+      relationshipType:
+        (insuranceData.relationshipType as InsuranceRelationshipType) ||
+        InsuranceRelationshipType.PRINCIPAL,
+      principalName: insuranceData.principalName || null,
+      principalPhoneNumber: insuranceData.principalPhoneNumber || null,
     },
   });
 

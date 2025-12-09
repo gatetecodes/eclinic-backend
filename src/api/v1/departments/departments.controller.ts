@@ -9,7 +9,7 @@ import {
   type ClinicalDepartment,
   type Prisma,
   Role,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";

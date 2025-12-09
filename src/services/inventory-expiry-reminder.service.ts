@@ -1,5 +1,9 @@
 import { addDays, differenceInCalendarDays, startOfDay } from "date-fns";
-import { Role, TransactionType, UserStatus } from "../../generated/prisma";
+import {
+  Role,
+  TransactionType,
+  UserStatus,
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 import { sendEmail } from "./email.service";

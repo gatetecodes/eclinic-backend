@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ExamStatus } from "../../../../generated/prisma";
+import { ExamStatus } from "../../../../generated/prisma/client";
 
 export const getExamParamsSchema = z.object({ id: z.string() });
 export const getExamResultParamsSchema = z.object({ id: z.string() });

@@ -6,7 +6,7 @@ import {
   AppointmentType,
   type Event,
   EventType,
-} from "../../../../../generated/prisma";
+} from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { httpCodes } from "../../../../lib/constants";

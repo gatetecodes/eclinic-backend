@@ -24,7 +24,7 @@ import {
   PaymentStatus,
   type Prisma,
   VisitStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 
 const MONTHS_IN_6_MONTHS = 6;
@@ -533,8 +533,16 @@ export const countVisitsByDepartments = async (c: Context) => {
     const data: { departmentName: string; count: number }[] = [];
 
     for (const visit of visits) {
+      if (!visit.departmentId) {
+        data.push({
+          departmentName: "No department",
+          count: visit._count.id,
+        });
+        continue;
+      }
+
       const department = await db.clinicalDepartment.findUnique({
-        where: { id: visit.departmentId ?? undefined },
+        where: { id: visit.departmentId },
         select: { name: true },
       });
       data.push({

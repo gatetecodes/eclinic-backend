@@ -5,6 +5,7 @@ import {
   createProduct,
   getConsultationProducts,
   getConsultationProductsWithPricing,
+  getLabProductsWithPricing,
   getProductById,
   getProductsList,
   getProductsListWithPricing,
@@ -35,6 +36,7 @@ tariffRouter.get(
   "/products/consultations/with-pricing",
   getConsultationProductsWithPricing
 );
+tariffRouter.get("/products/lab/with-pricing", getLabProductsWithPricing);
 tariffRouter.post(
   "/products",
   validate(createProductSchema, "json"),

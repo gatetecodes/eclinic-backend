@@ -1,8 +1,13 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { type Branch, type Clinic, PrismaClient } from "../../generated/prisma";
+import { db } from "@/database/db";
+import type {
+  Branch,
+  Clinic,
+  PrismaClient,
+} from "../../generated/prisma/client";
 
-const prisma = new PrismaClient();
+const prisma = db;
 
 const SESSION_EXPIRES_IN_DAYS = 7;
 const SESSION_EXPIRES_IN = 60 * 60 * 24 * SESSION_EXPIRES_IN_DAYS; // 7 days

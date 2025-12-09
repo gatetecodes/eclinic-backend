@@ -1,5 +1,5 @@
 import z from "zod";
-import { RoomClass } from "../../../../generated/prisma";
+import { RoomClass } from "../../../../generated/prisma/client";
 
 export const addProductSchema = z.object({
   visitId: z.coerce.number(),

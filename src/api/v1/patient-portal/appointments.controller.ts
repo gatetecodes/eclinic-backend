@@ -13,7 +13,7 @@ import {
   Role,
   SubscriptionStatus,
   UserStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 
 export const getAvailableClinics = async (c: Context) => {
   try {

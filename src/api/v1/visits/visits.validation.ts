@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Priority } from "../../../../generated/prisma";
+import { Priority } from "../../../../generated/prisma/client";
 
 const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{9,14}$/;
 const RWANDAN_CORE_PATTERN = /^7[2389][0-9]{7}$/;
@@ -99,6 +99,44 @@ export const patientSchema = z.object({
   isChild: z.boolean().optional().default(false),
 });
 
+export const insuranceSchema = z.object({
+  insuranceNumber: z.string().min(1, "Insurance number is required"),
+  insuranceCompany: z.string().min(1, "Insurance company is required"),
+  employer: z.string().optional(),
+  coveragePercentage: z.string().min(1, "Coverage percentage is required"),
+  relationshipType: z
+    .enum(["PRINCIPAL", "SPOUSE", "CHILD", "OTHER"])
+    .optional()
+    .default("PRINCIPAL"),
+  principalName: z.string().optional(),
+  principalPhoneNumber: z.string().optional(),
+});
+
+const validatePhoneNumber = (
+  value: string | undefined,
+  ctx: z.RefinementCtx,
+  path: ["phoneNumber"] | ["guardianPhoneNumber"],
+  missingMessage: string
+) => {
+  if (!value) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: missingMessage,
+      path,
+    });
+    return;
+  }
+
+  const validation = phoneSchema.safeParse(value);
+  if (!validation.success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: validation.error.issues[0]?.message ?? "Invalid phone number",
+      path,
+    });
+  }
+};
+
 export const initialCheckInSchema = z
   .object({
     patient: z
@@ -114,66 +152,112 @@ export const initialCheckInSchema = z
         address: z.string().optional(),
       })
       .superRefine((data, ctx) => {
-        if (data.isChild) {
-          if (!data.guardianPhoneNumber) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Guardian's phone number is required for children",
-              path: ["guardianPhoneNumber"],
-            });
-            return;
-          }
-          const guardianValidation = phoneSchema.safeParse(
-            data.guardianPhoneNumber
-          );
-          if (!guardianValidation.success) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message:
-                guardianValidation.error.issues[0]?.message ??
-                "Invalid phone number",
-              path: ["guardianPhoneNumber"],
-            });
-          }
+        if (!data.isChild) {
           return;
         }
 
-        if (!data.phoneNumber) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Patient phone number is required",
-            path: ["phoneNumber"],
-          });
+        validatePhoneNumber(
+          data.guardianPhoneNumber,
+          ctx,
+          ["guardianPhoneNumber"],
+          "Guardian's phone number is required for children"
+        );
+      })
+      .superRefine((data, ctx) => {
+        if (data.isChild) {
           return;
         }
-        const patientValidation = phoneSchema.safeParse(data.phoneNumber);
-        if (!patientValidation.success) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message:
-              patientValidation.error.issues[0]?.message ??
-              "Invalid phone number",
-            path: ["phoneNumber"],
-          });
-        }
+
+        validatePhoneNumber(
+          data.phoneNumber,
+          ctx,
+          ["phoneNumber"],
+          "Patient phone number is required"
+        );
       }),
-    departmentId: z.string().min(1, "Department is required"),
-    doctorId: z.string().min(1, "Doctor is required"),
-    consultationProductIds: z.array(z.string()).optional(),
+    chiefComplaint: z.string().optional(),
+    departmentId: z.string().optional(),
     priority: z.nativeEnum(Priority),
     isLabOnly: z.boolean().optional().default(false),
-    requiresConsultation: z.boolean().optional().default(true),
+    // Step 2: new fields
+    doctorId: z.string().optional(),
+    requiresConsultation: z.boolean().default(true),
+    consultationProductIds: z.array(z.string()).default([]),
+    labProductIds: z.array(z.string()).default([]),
+    paymentMode: z.string().optional(),
+    allowPartial: z.boolean().optional().default(false),
+    insurance: z
+      .union([insuranceSchema, z.object({}).strict(), z.undefined()])
+      .optional(),
   })
   .superRefine((data, ctx) => {
-    // If requires consultation, require at least one consultation product
+    if (data.isLabOnly && data.requiresConsultation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Lab-only visits cannot require consultation",
+        path: ["requiresConsultation"],
+      });
+    }
+  })
+  .superRefine((data, ctx) => {
     if (
-      data.requiresConsultation &&
-      (!data.consultationProductIds || data.consultationProductIds.length === 0)
+      !data.isLabOnly &&
+      (!data.departmentId || data.departmentId.length === 0)
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "At least one consultation is required",
+        message: "Department is required",
+        path: ["departmentId"],
+      });
+    }
+  })
+  .superRefine((data, ctx) => {
+    if (!data.isLabOnly) {
+      return;
+    }
+
+    if (!data.labProductIds || data.labProductIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one lab product is required for lab-only visits",
+        path: ["labProductIds"],
+      });
+    }
+    if (!data.paymentMode || data.paymentMode.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Payment mode is required for lab-only visits",
+        path: ["paymentMode"],
+      });
+    }
+  })
+  .superRefine((data, ctx) => {
+    if (data.isLabOnly || !data.requiresConsultation) {
+      return;
+    }
+
+    if (!data.doctorId || data.doctorId.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Doctor is required when consultation is required",
+        path: ["doctorId"],
+      });
+    }
+    if (
+      !data.consultationProductIds ||
+      data.consultationProductIds.length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one consultation product is required",
         path: ["consultationProductIds"],
+      });
+    }
+    if (!data.paymentMode || data.paymentMode.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Payment mode is required when consultation is required",
+        path: ["paymentMode"],
       });
     }
   });
@@ -189,13 +273,6 @@ export const preConsultationSchema = z.object({
 });
 
 export type PreConsultation = z.infer<typeof preConsultationSchema>;
-
-export const insuranceSchema = z.object({
-  insuranceNumber: z.string().min(1, "Insurance number is required"),
-  insuranceCompany: z.string().min(1, "Insurance company is required"),
-  employer: z.string().optional(),
-  coveragePercentage: z.string().min(1, "Coverage percentage is required"),
-});
 
 export const visitSchema = z.object({
   patient: patientSchema,

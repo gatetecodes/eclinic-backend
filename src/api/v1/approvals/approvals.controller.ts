@@ -3,7 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils.ts";
 import { httpCodes } from "@/lib/constants";
 import { getScope } from "@/lib/request-scope.ts";
-import type { Prisma } from "../../../../generated/prisma";
+import type { Prisma } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import {
   createApprovalSchema,

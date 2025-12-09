@@ -21,7 +21,7 @@ import {
   Role,
   UserStatus,
   VisitStatus,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import type {
   PerformanceDateRange,

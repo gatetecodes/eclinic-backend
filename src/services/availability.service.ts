@@ -12,7 +12,7 @@ import type {
   StaffScheduleException,
   StaffShift,
   StaffTimesheet,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import { TIMESHEETS_GOLIVE } from "../lib/timesheets-config";
 
 type GetUserAvailabilityParams = {
