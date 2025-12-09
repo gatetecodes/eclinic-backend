@@ -1,5 +1,9 @@
 import { format } from "date-fns";
-import { type Payment, PaymentMode, type Visit } from "../../generated/prisma";
+import {
+  type Payment,
+  PaymentMode,
+  type Visit,
+} from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 

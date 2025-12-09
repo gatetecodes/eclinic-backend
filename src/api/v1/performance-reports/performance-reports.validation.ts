@@ -1,4 +1,4 @@
-import { Role } from "generated/prisma";
+import { Role } from "generated/prisma/client";
 import { z } from "zod";
 
 export const filterSchema = z.object({

@@ -13,7 +13,7 @@ import {
   type RoomClass,
   type RoomPrice,
   VisitStatus,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers";
 import { buildQueryOptions } from "../../../helpers/query-helper";

@@ -1,4 +1,8 @@
-import type { ItemType, TransactionType, Unit } from "../../generated/prisma";
+import type {
+  ItemType,
+  TransactionType,
+  Unit,
+} from "../../generated/prisma/client";
 
 export type InventoryItem = {
   id: number;

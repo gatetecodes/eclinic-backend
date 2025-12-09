@@ -1,3 +1,4 @@
+import { Decimal } from "generated/prisma/internal/prismaNamespace";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError } from "@/lib/app-error";
@@ -6,8 +7,7 @@ import {
   type InsuranceClaim,
   PaymentStatus,
   type Prisma,
-} from "../../../../generated/prisma";
-import { Decimal } from "../../../../generated/prisma/runtime/library";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";

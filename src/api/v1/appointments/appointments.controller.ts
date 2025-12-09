@@ -24,7 +24,7 @@ import {
   EventType,
   type Prisma,
   type TimesheetPeriod,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers.ts";
 import { getOrCreatePatient } from "../../../helpers/visit-helper.ts";

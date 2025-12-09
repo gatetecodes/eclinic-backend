@@ -9,13 +9,13 @@ import type {
   PaymentMode,
   Prisma,
   Visit,
-} from "../../../../../generated/prisma";
+} from "../../../../../generated/prisma/client";
 import {
   ActivityType,
   PaymentType,
   Role,
   VisitStatus,
-} from "../../../../../generated/prisma";
+} from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { buildQueryOptions } from "../../../../helpers/query-helper";
@@ -107,6 +107,7 @@ export const createInitialCheckIn = async (c: Context) => {
       isLabOnly,
       doctorId,
       consultationProductIds,
+      labProductIds,
       requiresConsultation,
       paymentMode,
       allowPartial,
@@ -134,10 +135,14 @@ export const createInitialCheckIn = async (c: Context) => {
     const visit = await db.visit.create({
       data: {
         patient: { connect: { id: patientId } },
-        department: { connect: { id: Number.parseInt(departmentId, 10) } },
+        department: departmentId
+          ? { connect: { id: Number.parseInt(departmentId, 10) } }
+          : undefined,
         status: VisitStatus.CHECKED_IN,
         priority,
-        doctor: { connect: { id: Number.parseInt(doctorId, 10) } },
+        doctor: doctorId
+          ? { connect: { id: Number.parseInt(doctorId, 10) } }
+          : undefined,
         consultations: consultationProductIds
           ? {
               connect: consultationProductIds.map((pid) => ({
@@ -170,6 +175,30 @@ export const createInitialCheckIn = async (c: Context) => {
         allowPartial,
         branchId: user.branchId,
       });
+      // Lab-only visits should create lab payment bills immediately
+      const labProductIdsNumbers = (labProductIds ?? [])
+        .map((pid) => Number.parseInt(pid, 10))
+        .filter((pid) => Number.isFinite(pid));
+      if (isLabOnly && labProductIdsNumbers.length > 0) {
+        const labPayment = await createPaymentForProducts(
+          labProductIdsNumbers,
+          visit.id,
+          PaymentType.ADDITIONAL_EXAM,
+          Boolean(allowPartial)
+        );
+        const paymentCashier = await getCachier(user.branchId);
+        if (paymentCashier) {
+          await db.notification.create({
+            data: {
+              userId: paymentCashier.id,
+              title: "New payment bill",
+              message: `New ${String(labPayment.paymentType)} payment bill for ${visit.patient.firstName} ${visit.patient.lastName} has been created`,
+              type: "NEW_PAYMENT_BILL",
+              visitId: visit.id,
+            },
+          });
+        }
+      }
     } catch (error) {
       const message = (error as Error).message;
       return c.json(

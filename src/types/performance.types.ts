@@ -1,4 +1,4 @@
-import type { Role } from "../../generated/prisma";
+import type { Role } from "../../generated/prisma/client";
 
 export type PerformanceDateRange =
   | "today"

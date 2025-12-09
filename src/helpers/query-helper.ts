@@ -1,5 +1,5 @@
 import { format, parseISO } from "date-fns";
-import type { Gender, Role } from "../../generated/prisma";
+import type { Gender, Role } from "../../generated/prisma/client";
 import type { ParamsSchema } from "../lib/common-validation";
 
 type SortableEntity = {

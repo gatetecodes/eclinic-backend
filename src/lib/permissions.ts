@@ -1,4 +1,4 @@
-import type { Role } from "../../generated/prisma";
+import type { Role } from "../../generated/prisma/client";
 import type { Action, Resource } from "../types/access";
 
 export type PermissionConfig = Partial<

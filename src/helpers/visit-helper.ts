@@ -10,7 +10,7 @@ import {
   Prisma,
   Role,
   VisitStatus,
-} from "../../generated/prisma";
+} from "../../generated/prisma/client";
 import type {
   addPaymentMethodSchema,
   visitSchema,

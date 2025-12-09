@@ -1,4 +1,4 @@
-import type { SubscriptionPlan } from "../../generated/prisma";
+import type { SubscriptionPlan } from "../../generated/prisma/client";
 
 // Resources reflect backend API domains under src/api/v1/*
 export type Resource =

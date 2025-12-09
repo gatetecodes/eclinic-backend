@@ -1,5 +1,5 @@
 import { parse } from "csv-parse/sync";
-import { Decimal } from "generated/prisma/runtime/library";
+import { Decimal } from "generated/prisma/internal/prismaNamespace";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
@@ -16,7 +16,7 @@ import {
   type Transaction,
   TransactionStatus,
   TransactionType,
-} from "../../../../generated/prisma";
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { processInventoryItemRecord } from "../../../helpers/inventory-helpers";
 import { httpCodes } from "../../../lib/constants";

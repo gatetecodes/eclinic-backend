@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { httpCodes } from "@/lib/constants";
-import { ActivityType, Role } from "../../../../../generated/prisma";
+import { ActivityType, Role } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { invalidateVisitRelatedCaches } from "../../../../lib/cache-utils";

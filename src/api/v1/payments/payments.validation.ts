@@ -1,4 +1,4 @@
-import { PaymentMethod } from "generated/prisma";
+import { PaymentMethod } from "generated/prisma/client";
 import { z } from "zod";
 
 export const markPaymentAsPaidSchema = z.object({

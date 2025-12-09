@@ -1,7 +1,10 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils";
-import { ApprovalType, PaymentStatus } from "../../../../generated/prisma";
+import {
+  ApprovalType,
+  PaymentStatus,
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { httpCodes } from "../../../lib/constants";
 

@@ -1,8 +1,9 @@
 {
   "name": "carelogic-backend",
   "version": "1.0.0",
-  "description": "eClinic Backend API - Bun + Hono.js + Better-Auth",
+  "description": "CareLogic Backend API - Bun + Hono.js + Better-Auth",
   "main": "src/index.ts",
+  "type": "module",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
@@ -23,6 +24,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.11.10",
     "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.35.0",
@@ -48,7 +50,9 @@
     ]
   },
   "dependencies": {
-    "@prisma/client": "^6.16.0",
+    "@prisma/adapter-pg": "^7.1.0",
+    "@prisma/client": "^7.1.0",
+    "pg": "^8.13.1",
     "bcryptjs": "^3.0.2",
     "better-auth": "^1.3.9",
     "cors": "^2.8.5",
@@ -62,7 +66,7 @@
     "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.2.1",
-    "prisma": "^6.16.0",
+    "prisma": "^7.1.0",
     "rate-limiter-flexible": "^7.3.0",
     "resend": "^6.0.3",
     "socket.io": "^4.8.1",
