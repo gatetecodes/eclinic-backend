@@ -13,7 +13,7 @@ cmds = ["bun install"]
 [phases.build]
 # Generate right before build so it survives the prior COPY
 cmds = [
-  "bunx prisma generate --schema=prisma/schema/schema.prisma",
+  "bunx prisma generate",
   "bun run build"
 ]
 dependsOn = ["install"]
