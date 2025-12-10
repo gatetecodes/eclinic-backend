@@ -1,12 +1,12 @@
 //biome-ignore-all lint/suspicious/noConsole: <>
 import { randomBytes, scryptSync } from "node:crypto";
 import {
-  PrismaClient,
   Role,
   SubscriptionPlan,
   SubscriptionStatus,
   UserStatus,
 } from "../generated/prisma/client";
+import { db } from "../src/database/db";
 
 const InsuranceCompanies = {
   SONARWA: "SONARWA",
@@ -65,8 +65,6 @@ const p = 1;
 const SCRYPT_MAXMEM_BASE = 128;
 const SCRYPT_MAXMEM_FACTOR = 2;
 const maxmem = SCRYPT_MAXMEM_BASE * N * r * SCRYPT_MAXMEM_FACTOR;
-
-const db = new PrismaClient();
 
 // Better Auth-compatible scrypt password hash: `${saltHex}:${keyHex}`
 function hashCredentialPassword(password: string): string {
