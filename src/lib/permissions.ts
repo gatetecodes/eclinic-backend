@@ -81,7 +81,13 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     inventory: { read: true },
   },
   NURSE: {
-    visits: { read: true, update: true, create: true, readVisitDetails: true },
+    visits: {
+      read: true,
+      update: true,
+      create: true,
+      readVisitDetails: true,
+      updatePreConsultation: true,
+    },
     patients: { read: true, update: true },
     exams: { read: true, create: true, update: true },
     insurance: { read: true, create: true, update: true },
@@ -125,6 +131,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       read: true,
       addPaymentMethod: true,
       dischargePatient: true,
+      updateInitialCheckin: true,
     },
     departments: { read: true },
   },

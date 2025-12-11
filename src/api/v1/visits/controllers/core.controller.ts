@@ -842,10 +842,14 @@ export const getVisitById = async (c: Context) => {
                 id: true,
                 coveragePercentage: true,
                 insuranceNumber: true,
+                relationshipType: true,
+                principalName: true,
+                principalPhoneNumber: true,
                 employer: { select: { id: true, employerName: true } },
                 insuranceCompany: { select: { companyName: true } },
               },
             },
+            consultations: { select: { id: true, name: true } },
             payments: {
               select: {
                 id: true,
