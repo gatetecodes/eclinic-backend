@@ -36,7 +36,9 @@ export type Action =
   | "readMyProfile"
   | "addPaymentMethod"
   | "dischargePatient"
-  | "addExams";
+  | "addExams"
+  | "updatePreConsultation"
+  | "updateInitialCheckin";
 
 // Feature flags represent product-surface capabilities that can be plan/tier gated
 export type FeatureKey =
