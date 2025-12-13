@@ -232,6 +232,202 @@ export const createInitialCheckIn = async (c: Context) => {
 };
 
 /**
+ * Helper function to resolve patient insurance ID
+ */
+async function resolvePatientInsurance(
+  paymentMode: string | undefined,
+  insurance: unknown,
+  patientId: number
+): Promise<number | undefined> {
+  if (paymentMode !== "INSURANCE") {
+    return;
+  }
+  if (!insurance || typeof insurance !== "object") {
+    return;
+  }
+  if (Object.keys(insurance).length === 0) {
+    return;
+  }
+  const { handleInsurance } = await import("../../../../helpers/visit-helper");
+  return await handleInsurance(
+    insurance as unknown as NonNullable<unknown>,
+    patientId
+  );
+}
+
+/**
+ * Helper function to determine patient insurance connection/disconnection
+ */
+function getPatientInsuranceRelation(
+  patientInsuranceId: number | undefined,
+  paymentMode: string | undefined
+): { connect: { id: number } } | { disconnect: true } | undefined {
+  if (patientInsuranceId) {
+    return { connect: { id: patientInsuranceId } };
+  }
+  if (paymentMode !== "INSURANCE") {
+    return { disconnect: true };
+  }
+}
+
+/**
+ * Helper function to delete pending payment of a specific type
+ */
+async function deletePendingPayment(
+  visitId: number,
+  paymentType: PaymentType
+): Promise<void> {
+  const existingPayment = await db.payment.findFirst({
+    where: {
+      visitId,
+      paymentType,
+      paymentStatus: "PENDING",
+    },
+  });
+  if (existingPayment) {
+    await db.payment.delete({ where: { id: existingPayment.id } });
+  }
+}
+
+/**
+ * Helper function to handle consultation payment bill update
+ */
+async function handleConsultationPaymentUpdate(params: {
+  requiresConsultation: boolean;
+  consultationProductIds: string[] | undefined;
+  visitId: number;
+  allowPartial: boolean | undefined;
+  branchId: number | null;
+  patientName: string;
+}): Promise<void> {
+  const {
+    requiresConsultation,
+    consultationProductIds,
+    visitId,
+    allowPartial,
+    branchId,
+    patientName,
+  } = params;
+
+  if (!requiresConsultation) {
+    await deletePendingPayment(visitId, PaymentType.CONSULTATION);
+    return;
+  }
+
+  if (!consultationProductIds || consultationProductIds.length === 0) {
+    await deletePendingPayment(visitId, PaymentType.CONSULTATION);
+    return;
+  }
+
+  const consultationIds = consultationProductIds
+    .map((pid) => Number.parseInt(pid, 10))
+    .filter((pid) => Number.isFinite(pid));
+
+  if (consultationIds.length === 0) {
+    await deletePendingPayment(visitId, PaymentType.CONSULTATION);
+    return;
+  }
+
+  try {
+    await deletePendingPayment(visitId, PaymentType.CONSULTATION);
+
+    // Create new payment bill with updated consultation products
+    const consultationPayment = await createPaymentForProducts(
+      consultationIds,
+      visitId,
+      PaymentType.CONSULTATION,
+      Boolean(allowPartial)
+    );
+
+    if (branchId && consultationPayment) {
+      const paymentCashier = await getCachier(branchId);
+      if (paymentCashier) {
+        await db.notification.create({
+          data: {
+            userId: paymentCashier.id,
+            title: "Payment bill updated",
+            message: `Consultation payment bill for ${patientName} has been updated`,
+            type: "NEW_PAYMENT_BILL",
+            visitId,
+          },
+        });
+      }
+    }
+  } catch {
+    // Silently fail consultation payment update to not break the main update flow
+  }
+}
+
+/**
+ * Helper function to handle lab products payment update
+ */
+async function handleLabProductsUpdate(params: {
+  isLabOnly: boolean;
+  labProductIds: string[] | undefined;
+  visitId: number;
+  allowPartial: boolean | undefined;
+  branchId: number | null;
+  patientName: string;
+}): Promise<void> {
+  const {
+    isLabOnly,
+    labProductIds,
+    visitId,
+    allowPartial,
+    branchId,
+    patientName,
+  } = params;
+
+  if (!isLabOnly) {
+    await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    return;
+  }
+
+  if (!labProductIds || labProductIds.length === 0) {
+    await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    return;
+  }
+
+  const labProductIdsNumbers = labProductIds
+    .map((pid) => Number.parseInt(pid, 10))
+    .filter((pid) => Number.isFinite(pid));
+
+  if (labProductIdsNumbers.length === 0) {
+    await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    return;
+  }
+
+  try {
+    await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+
+    // Create new payment bill with updated lab products
+    const labPayment = await createPaymentForProducts(
+      labProductIdsNumbers,
+      visitId,
+      PaymentType.ADDITIONAL_EXAM,
+      Boolean(allowPartial)
+    );
+
+    if (branchId && labPayment) {
+      const paymentCashier = await getCachier(branchId);
+      if (paymentCashier) {
+        await db.notification.create({
+          data: {
+            userId: paymentCashier.id,
+            title: "Payment bill updated",
+            message: `Lab payment bill for ${patientName} has been updated`,
+            type: "NEW_PAYMENT_BILL",
+            visitId,
+          },
+        });
+      }
+    }
+  } catch {
+    // Silently fail lab products update to not break the main update flow
+  }
+}
+
+/**
  * UPDATE INITIAL CHECK-IN
  * @param c
  * @returns
@@ -250,7 +446,12 @@ export const updateInitialCheckIn = async (c: Context) => {
       isLabOnly,
       doctorId,
       consultationProductIds,
+      labProductIds,
       requiresConsultation,
+      paymentMode,
+      allowPartial,
+      insurance,
+      chiefComplaint,
     } = data as IUpdateInitialCheckIn;
 
     // Check if visit exists and belongs to the user's clinic
@@ -293,6 +494,13 @@ export const updateInitialCheckIn = async (c: Context) => {
       },
     });
 
+    // Resolve patient insurance if provided
+    const patientInsuranceId = await resolvePatientInsurance(
+      paymentMode,
+      insurance,
+      updatedPatient.id
+    );
+
     // Update visit
     const updatedVisit = await db.visit.update({
       where: { id: visitId },
@@ -314,11 +522,38 @@ export const updateInitialCheckIn = async (c: Context) => {
         priority,
         isLabOnly: !!isLabOnly,
         requiresConsultation: requiresConsultation ?? !isLabOnly,
+        paymentMode: paymentMode as PaymentMode | undefined,
+        patientInsurance: getPatientInsuranceRelation(
+          patientInsuranceId,
+          paymentMode
+        ),
+        chiefComplaint: chiefComplaint ?? undefined,
       },
       include: {
         patient: true,
         department: true,
+        consultations: { select: { id: true } },
       },
+    });
+
+    // Handle consultation payment bill update
+    await handleConsultationPaymentUpdate({
+      requiresConsultation: updatedVisit.requiresConsultation,
+      consultationProductIds,
+      visitId,
+      allowPartial,
+      branchId: user.branchId,
+      patientName: `${updatedPatient.firstName} ${updatedPatient.lastName}`,
+    });
+
+    // Handle lab products update for lab-only visits
+    await handleLabProductsUpdate({
+      isLabOnly: updatedVisit.isLabOnly,
+      labProductIds,
+      visitId,
+      allowPartial,
+      branchId: user.branchId,
+      patientName: `${updatedPatient.firstName} ${updatedPatient.lastName}`,
     });
 
     // Log activity
@@ -334,6 +569,12 @@ export const updateInitialCheckIn = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
+    await invalidatePaymentRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+    await invalidateDashboardRelatedCaches(user.clinicId);
 
     return c.json(
       { success: "Initial check-in updated successfully", visit: updatedVisit },
