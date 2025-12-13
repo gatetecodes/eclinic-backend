@@ -101,7 +101,7 @@ router.put(
   "/:id/initial-check-in",
   validate(getVisitParamsSchema, "param"),
   validate(initialCheckInSchema, "json"),
-  ...withAccess({ resource: "visits", action: "update" }),
+  ...withAccess({ resource: "visits", action: "updateInitialCheckin" }),
   updateInitialCheckIn
 );
 router.put(
