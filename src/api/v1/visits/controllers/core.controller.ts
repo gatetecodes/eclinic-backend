@@ -180,12 +180,26 @@ export const createInitialCheckIn = async (c: Context) => {
         .map((pid) => Number.parseInt(pid, 10))
         .filter((pid) => Number.isFinite(pid));
       if (isLabOnly && labProductIdsNumbers.length > 0) {
+        // Create exam record first to ensure data consistency
+        // If exam creation fails, no payment will be created
+        await db.exam.create({
+          data: {
+            clinic: { connect: { id: user.clinicId } },
+            visit: { connect: { id: visit.id } },
+            products: {
+              connect: labProductIdsNumbers.map((pid) => ({ id: pid })),
+            },
+          },
+        });
+
+        // Create payment after exam is successfully created
         const labPayment = await createPaymentForProducts(
           labProductIdsNumbers,
           visit.id,
           PaymentType.ADDITIONAL_EXAM,
           Boolean(allowPartial)
         );
+
         const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
           await db.notification.create({
@@ -367,6 +381,7 @@ async function handleLabProductsUpdate(params: {
   visitId: number;
   allowPartial: boolean | undefined;
   branchId: number | null;
+  clinicId: number;
   patientName: string;
 }): Promise<void> {
   const {
@@ -375,16 +390,21 @@ async function handleLabProductsUpdate(params: {
     visitId,
     allowPartial,
     branchId,
+    clinicId,
     patientName,
   } = params;
 
   if (!isLabOnly) {
     await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    // Also delete any exams if it's no longer lab-only
+    await db.exam.deleteMany({ where: { visitId } });
     return;
   }
 
   if (!labProductIds || labProductIds.length === 0) {
     await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    // Delete exams if no products
+    await db.exam.deleteMany({ where: { visitId } });
     return;
   }
 
@@ -394,11 +414,24 @@ async function handleLabProductsUpdate(params: {
 
   if (labProductIdsNumbers.length === 0) {
     await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+    await db.exam.deleteMany({ where: { visitId } });
     return;
   }
 
   try {
     await deletePendingPayment(visitId, PaymentType.ADDITIONAL_EXAM);
+
+    // Update exams: delete existing and create new
+    await db.exam.deleteMany({ where: { visitId } });
+    await db.exam.create({
+      data: {
+        clinic: { connect: { id: clinicId } },
+        visit: { connect: { id: visitId } },
+        products: {
+          connect: labProductIdsNumbers.map((pid) => ({ id: pid })),
+        },
+      },
+    });
 
     // Create new payment bill with updated lab products
     const labPayment = await createPaymentForProducts(
@@ -553,6 +586,7 @@ export const updateInitialCheckIn = async (c: Context) => {
       visitId,
       allowPartial,
       branchId: user.branchId,
+      clinicId: user.clinicId,
       patientName: `${updatedPatient.firstName} ${updatedPatient.lastName}`,
     });
 
