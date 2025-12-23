@@ -180,14 +180,8 @@ export const createInitialCheckIn = async (c: Context) => {
         .map((pid) => Number.parseInt(pid, 10))
         .filter((pid) => Number.isFinite(pid));
       if (isLabOnly && labProductIdsNumbers.length > 0) {
-        const labPayment = await createPaymentForProducts(
-          labProductIdsNumbers,
-          visit.id,
-          PaymentType.ADDITIONAL_EXAM,
-          Boolean(allowPartial)
-        );
-
-        // Create exam record for lab-only visits
+        // Create exam record first to ensure data consistency
+        // If exam creation fails, no payment will be created
         await db.exam.create({
           data: {
             clinic: { connect: { id: user.clinicId } },
@@ -197,6 +191,14 @@ export const createInitialCheckIn = async (c: Context) => {
             },
           },
         });
+
+        // Create payment after exam is successfully created
+        const labPayment = await createPaymentForProducts(
+          labProductIdsNumbers,
+          visit.id,
+          PaymentType.ADDITIONAL_EXAM,
+          Boolean(allowPartial)
+        );
 
         const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
