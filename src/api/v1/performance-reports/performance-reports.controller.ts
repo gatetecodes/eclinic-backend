@@ -647,6 +647,11 @@ export const getTopPerformers = async (c: Context) => {
               },
               select: {
                 amount: true,
+                discounts: {
+                  select: {
+                    amount: true,
+                  },
+                },
               },
             },
           },
@@ -661,10 +666,14 @@ export const getTopPerformers = async (c: Context) => {
         revenue: doctor.doctorVisits.reduce(
           (total, visit) =>
             total +
-            visit.payments.reduce(
-              (sum, payment) => sum + Number(payment.amount),
-              0
-            ),
+            visit.payments.reduce((sum, payment) => {
+              const paymentAmount = Number(payment.amount);
+              const discountAmount = payment.discounts.reduce(
+                (dSum, d) => dSum + Number(d.amount),
+                0
+              );
+              return sum + (paymentAmount - discountAmount);
+            }, 0),
           0
         ),
       }))
@@ -720,66 +729,77 @@ export const getPerformanceChartData = async (c: Context) => {
         const dayStart = startOfDay(date);
         const dayEnd = endOfDay(date);
 
-        const [visits, revenue, completedVisits] = await db.$transaction([
-          db.visit.count({
-            where: {
-              clinicId: user.clinicId,
-              createdAt: { gte: dayStart, lte: dayEnd },
-              ...(filters?.doctorId && {
-                doctorId: Number(filters.doctorId),
-              }),
-              ...(filters?.departmentId && {
-                departmentId: Number(filters.departmentId),
-              }),
-            },
-          }),
-          db.payment.aggregate({
-            _sum: { amount: true },
-            where: {
-              clinicId: user.clinicId,
-              createdAt: { gte: dayStart, lte: dayEnd },
-              paymentStatus: {
-                in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
+        const paymentWhere = {
+          clinicId: user.clinicId,
+          createdAt: { gte: dayStart, lte: dayEnd },
+          paymentStatus: {
+            in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
+          },
+          ...(filters?.doctorId || filters?.departmentId
+            ? {
+                visit: {
+                  ...(filters?.doctorId && {
+                    doctorId: Number(filters.doctorId),
+                  }),
+                  ...(filters?.departmentId && {
+                    departmentId: Number(filters.departmentId),
+                  }),
+                },
+              }
+            : {}),
+        };
+
+        const [visits, revenue, discounts, completedVisits] =
+          await db.$transaction([
+            db.visit.count({
+              where: {
+                clinicId: user.clinicId,
+                createdAt: { gte: dayStart, lte: dayEnd },
+                ...(filters?.doctorId && {
+                  doctorId: Number(filters.doctorId),
+                }),
+                ...(filters?.departmentId && {
+                  departmentId: Number(filters.departmentId),
+                }),
               },
-              ...(filters?.doctorId || filters?.departmentId
-                ? {
-                    visit: {
-                      ...(filters?.doctorId && {
-                        doctorId: Number(filters.doctorId),
-                      }),
-                      ...(filters?.departmentId && {
-                        departmentId: Number(filters.departmentId),
-                      }),
-                    },
-                  }
-                : {}),
-            },
-          }),
-          db.visit.count({
-            where: {
-              clinicId: user.clinicId,
-              createdAt: { gte: dayStart, lte: dayEnd },
-              status: {
-                in: [
-                  VisitStatus.DISCHARGED,
-                  VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
-                  VisitStatus.FINALIZED,
-                ],
+            }),
+            db.payment.aggregate({
+              _sum: { amount: true },
+              where: paymentWhere,
+            }),
+            db.discount.aggregate({
+              _sum: { amount: true },
+              where: {
+                payment: paymentWhere,
               },
-              ...(filters?.doctorId && {
-                doctorId: Number(filters.doctorId),
-              }),
-              ...(filters?.departmentId && {
-                departmentId: Number(filters.departmentId),
-              }),
-            },
-          }),
-        ]);
+            }),
+            db.visit.count({
+              where: {
+                clinicId: user.clinicId,
+                createdAt: { gte: dayStart, lte: dayEnd },
+                status: {
+                  in: [
+                    VisitStatus.DISCHARGED,
+                    VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
+                    VisitStatus.FINALIZED,
+                  ],
+                },
+                ...(filters?.doctorId && {
+                  doctorId: Number(filters.doctorId),
+                }),
+                ...(filters?.departmentId && {
+                  departmentId: Number(filters.departmentId),
+                }),
+              },
+            }),
+          ]);
 
         return {
           date: format(date, "MMM dd"),
           visits,
-          revenue: Number(revenue._sum.amount || 0),
+          revenue:
+            Number(revenue._sum.amount || 0) -
+            Number(discounts._sum.amount || 0),
           completions: completedVisits,
         };
       })
