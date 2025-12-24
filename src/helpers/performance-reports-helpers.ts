@@ -17,6 +17,7 @@ import {
   subYears,
 } from "date-fns";
 import {
+  ApprovalStatus,
   PaymentStatus,
   Role,
   UserStatus,
@@ -194,6 +195,8 @@ export const getDoctorMetricsForPeriod = async ({
     db.discount.aggregate({
       _sum: { amount: true },
       where: {
+        clinicId,
+        approval: { status: ApprovalStatus.APPROVED },
         payment: {
           clinicId,
           createdAt: { gte: startDate, lte: endDate },

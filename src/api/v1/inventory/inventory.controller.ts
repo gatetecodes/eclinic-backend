@@ -18,7 +18,10 @@ import {
   TransactionType,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
-import { processInventoryItemRecord } from "../../../helpers/inventory-helpers";
+import {
+  processInventoryItemRecord,
+  refreshItemStatus,
+} from "../../../helpers/inventory-helpers";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
 import redis, {
@@ -59,6 +62,7 @@ export const createInventoryItem = async (c: Context) => {
         manufacturer,
         minOrderQuantity,
         notes,
+        status: InventoryStatus.OUT_OF_STOCK,
         currentStock: {
           create: {
             quantity: 0,
@@ -164,6 +168,10 @@ export const updateInventoryItem = async (c: Context) => {
         minOrderQuantity,
         notes,
       },
+    });
+
+    await db.$transaction(async (tx) => {
+      await refreshItemStatus(tx as Prisma.TransactionClient, Number(id));
     });
 
     await invalidateInventoryRelatedCaches({
@@ -462,7 +470,6 @@ export const addStock = async (c: Context) => {
       notes,
     } = data;
 
-    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       // Prevent duplicate batch numbers per item
       const existing = await tx.inventoryBatch.findFirst({
@@ -512,25 +519,7 @@ export const addStock = async (c: Context) => {
         create: { itemId, quantity },
         update: { quantity: { increment: quantity } },
       });
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: itemId },
-        include: { currentStock: true },
-      });
-      if (item) {
-        const currentQuantity = item.currentStock?.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (currentQuantity === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (currentQuantity <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, itemId);
       return { batch, transaction };
     });
 
@@ -604,7 +593,6 @@ export const createSaleTransaction = async (c: Context) => {
       );
     }
 
-    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       const unitPrice = batch.unitPrice;
       const transaction = await tx.transaction.create({
@@ -637,27 +625,7 @@ export const createSaleTransaction = async (c: Context) => {
           quantity: { decrement: Number(quantity) },
         },
       });
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: itemId },
-        include: { currentStock: true },
-      });
-      if (item?.currentStock) {
-        const currentQuantity = item.currentStock?.quantity ?? 0;
-
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (currentQuantity === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (currentQuantity <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, itemId);
 
       await invalidateInventoryRelatedCaches({
         clinicId: user.clinicId,
@@ -1117,26 +1085,7 @@ export const stockOutMultiBatch = async (c: Context) => {
         data: { quantity: { decrement: Number(providedQty) } },
       });
 
-      // Update item status
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: payload.itemId },
-        include: { currentStock: true },
-      });
-      if (item?.currentStock) {
-        const currentQuantity = item.currentStock.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (currentQuantity === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (currentQuantity <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: payload.itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, payload.itemId);
       return { totalQuantity: providedQty };
     });
 
@@ -1225,26 +1174,7 @@ export const stocktake = async (c: Context) => {
         update: { quantity: countedQuantity },
       });
 
-      // Update item status
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: itemId },
-        include: { currentStock: true },
-      });
-      if (item?.currentStock) {
-        const qty = item.currentStock.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (qty === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (qty <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, itemId);
       return { adjustedBy: diff };
     });
 
@@ -1480,7 +1410,6 @@ export const disposeInventory = async (c: Context) => {
     }
     const total = allocations.reduce((s, a) => s + a.quantity, 0);
 
-    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       const byId = await validateAllocations(tx, itemId, allocations);
       for (const a of allocations) {
@@ -1524,27 +1453,7 @@ export const disposeInventory = async (c: Context) => {
         where: { itemId },
         data: { quantity: { decrement: total } },
       });
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: itemId },
-        include: { currentStock: true },
-      });
-
-      //Recomute item status after disposal
-      if (item?.currentStock) {
-        const qty = item.currentStock.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (qty === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (qty <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, itemId);
       return { disposed: total };
     });
     await invalidateInventoryRelatedCaches({
@@ -1619,25 +1528,7 @@ export const returnToStock = async (c: Context) => {
         create: { itemId, quantity },
         update: { quantity: { increment: quantity } },
       });
-      const item = await tx.inventoryItem.findUnique({
-        where: { id: itemId },
-        include: { currentStock: true },
-      });
-      if (item?.currentStock) {
-        const qty = item.currentStock.quantity ?? 0;
-        let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-        if (qty === 0) {
-          newStatus = InventoryStatus.OUT_OF_STOCK;
-        } else if (qty <= item.reorderLevel) {
-          newStatus = InventoryStatus.LOW_STOCK;
-        }
-        if (newStatus !== item.status) {
-          await tx.inventoryItem.update({
-            where: { id: itemId },
-            data: { status: newStatus },
-          });
-        }
-      }
+      await refreshItemStatus(tx, itemId);
       return { returned: quantity };
     });
     await invalidateInventoryRelatedCaches({
@@ -1739,29 +1630,8 @@ export const receiveGoods = async (c: Context) => {
       // Get all unique item IDs from the receipt
       const uniqueItemIds = [...new Set(items.map((item) => item.itemId))];
 
-      // Batch fetch all inventory items with their current stock
-      const inventoryItems = await tx.inventoryItem.findMany({
-        where: { id: { in: uniqueItemIds } },
-        include: { currentStock: true },
-      });
-
-      // Update status for each item that has changed
-      for (const item of inventoryItems) {
-        if (item.currentStock) {
-          const qty = item.currentStock.quantity ?? 0;
-          let newStatus: InventoryStatus = InventoryStatus.IN_STOCK;
-          if (qty === 0) {
-            newStatus = InventoryStatus.OUT_OF_STOCK;
-          } else if (qty <= item.reorderLevel) {
-            newStatus = InventoryStatus.LOW_STOCK;
-          }
-          if (newStatus !== item.status) {
-            await tx.inventoryItem.update({
-              where: { id: item.id },
-              data: { status: newStatus },
-            });
-          }
-        }
+      for (const itemId of uniqueItemIds) {
+        await refreshItemStatus(tx, itemId);
       }
       return { received: items.length, totalQuantity: totalQty };
     });

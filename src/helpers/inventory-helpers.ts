@@ -61,10 +61,17 @@ export const handleExistingInventoryItem = async (
     data.unit = record.UNIT as Unit;
   }
 
-  return await db.inventoryItem.update({
+  const updatedItem = await db.inventoryItem.update({
     where: { id: existingItem.id },
     data,
   });
+
+  // Refresh status after reorder level or other potential changes
+  await db.$transaction(async (tx) => {
+    await refreshItemStatus(tx as Prisma.TransactionClient, existingItem.id);
+  });
+
+  return updatedItem;
 };
 
 export async function createNewInventoryItem(
@@ -83,6 +90,12 @@ export async function createNewInventoryItem(
         ? Number.parseInt(record.REORDER_LEVEL, 10)
         : 0,
       unit: record.UNIT as Unit,
+      status: InventoryStatus.OUT_OF_STOCK,
+      currentStock: {
+        create: {
+          quantity: 0,
+        },
+      },
     },
   });
 }
@@ -174,9 +187,13 @@ async function decrementBatchAndStock(
     where: { itemId },
     data: { quantity: { decrement: Number(quantity) } },
   });
+  await refreshItemStatus(tx, itemId);
 }
 
-async function refreshItemStatus(tx: Prisma.TransactionClient, itemId: number) {
+export async function refreshItemStatus(
+  tx: Prisma.TransactionClient,
+  itemId: number
+) {
   const item = await tx.inventoryItem.findUnique({
     where: { id: itemId },
     include: { currentStock: true },
@@ -222,7 +239,6 @@ export const performStockOut = async (
         userId: options?.userId,
       });
       await decrementBatchAndStock(tx, id, itemId, quantity);
-      await refreshItemStatus(tx, itemId);
     }
   });
 };
