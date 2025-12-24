@@ -196,8 +196,6 @@ export function parseDateString(dateString: string): Date {
   for (const format of formats) {
     const date = parse(dateString, format, new Date());
     if (!Number.isNaN(date.getTime())) {
-      // Create a new date object at UTC midnight to avoid timezone conversion issues
-      // This ensures that date-of-birth values are stored as pure dates without time zone shifts
       return new Date(date.getFullYear(), date.getMonth(), date.getDate());
     }
   }

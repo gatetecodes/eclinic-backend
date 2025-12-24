@@ -12,6 +12,7 @@ import {
   TransactionType,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { refreshItemStatus } from "../../../helpers/inventory-helpers";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import {
   invalidateInventoryRelatedCaches,
@@ -562,6 +563,8 @@ const processInventoryConsumables = async (data: InventoryConsumablesData) => {
         where: { itemId: inventoryItem.id },
         data: { quantity: newStock },
       });
+
+      await refreshItemStatus(tx, inventoryItem.id);
     });
 
     // Invalidate inventory cache

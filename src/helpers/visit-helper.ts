@@ -16,7 +16,6 @@ import type {
   visitSchema,
 } from "../api/v1/visits/visits.validation";
 import { db } from "../database/db";
-import { createAutomaticClaim } from "../helpers/claim-helper";
 import type { User } from "../lib/auth";
 import { Consultations, DefaultDepartments } from "../lib/constants";
 import { logger } from "../lib/logger";
@@ -548,29 +547,6 @@ export const dischargeVisit = async ({
           endTime: new Date(),
         },
       });
-
-      // Create insurance claim if applicable
-      if (
-        visit.paymentMode === PaymentMode.INSURANCE &&
-        visit.patientInsurance
-      ) {
-        await createAutomaticClaim(visit);
-
-        // If visit has prescriptions, automatically attach them as claim documents
-        // if (visit.prescriptions.length > 0) {
-        //   await Promise.all(
-        //     visit.prescriptions.map(async (prescription) => {
-        //       await tx.insuranceClaimDocument.create({
-        //         data: {
-        //           claim: { connect: { id: claim.id } },
-        //           documentType: 'PRESCRIPTION',
-        //           documentUrl: prescription.documentUrl // Assuming this exists
-        //         }
-        //       });
-        //     })
-        //   );
-        // }
-      }
 
       return updatedVisit;
     });
