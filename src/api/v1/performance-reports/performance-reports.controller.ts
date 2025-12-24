@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
 import type { Prisma } from "../../../../generated/prisma/client";
 import {
+  ApprovalStatus,
   ClaimStatus,
   PaymentStatus,
   Role,
@@ -124,6 +125,7 @@ export const getPerformanceOverview = async (c: Context) => {
           where: {
             clinicId: user.clinicId,
             createdAt: { gte: startDate, lte: endDate },
+            approval: { status: ApprovalStatus.APPROVED },
             ...(filters?.doctorId || filters?.departmentId
               ? {
                   payment: {
@@ -228,6 +230,7 @@ export const getPerformanceOverview = async (c: Context) => {
           where: {
             clinicId: user.clinicId,
             createdAt: { gte: prevStartDate, lte: prevEndDate },
+            approval: { status: ApprovalStatus.APPROVED },
             ...(filters?.doctorId || filters?.departmentId
               ? {
                   payment: {
@@ -771,6 +774,7 @@ export const getPerformanceChartData = async (c: Context) => {
               _sum: { amount: true },
               where: {
                 payment: paymentWhere,
+                approval: { status: ApprovalStatus.APPROVED },
               },
             }),
             db.visit.count({

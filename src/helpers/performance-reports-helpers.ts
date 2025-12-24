@@ -198,7 +198,6 @@ export const getDoctorMetricsForPeriod = async ({
         clinicId,
         approval: { status: ApprovalStatus.APPROVED },
         payment: {
-          clinicId,
           createdAt: { gte: startDate, lte: endDate },
           paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID] },
           visit: { doctorId },

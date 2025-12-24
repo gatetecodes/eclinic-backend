@@ -1,13 +1,17 @@
 import { format } from "date-fns";
-import type { Payment } from "../../generated/prisma/client";
+import type { Payment, Prisma } from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 
-export async function generateClaimNumber(): Promise<string> {
+export async function generateClaimNumber(
+  tx?: Prisma.TransactionClient
+): Promise<string> {
   const date = format(new Date(), "yyyyMMdd");
   const prefix = "ICL";
 
-  const lastClaim = await db.insuranceClaim.findFirst({
+  const client = tx || db;
+
+  const lastClaim = await client.insuranceClaim.findFirst({
     where: {
       claimNumber: {
         startsWith: `${prefix}${date}`,
@@ -84,10 +88,10 @@ export async function createAutomaticClaim({
     return await db.$transaction(async (tx) => {
       const claim = await tx.insuranceClaim.create({
         data: {
-          claimNumber: await generateClaimNumber(),
+          claimNumber: await generateClaimNumber(tx),
           visit: { connect: { id: visitId } },
           clinic: { connect: { id: clinicId } },
-          branch: { connect: { id: branchId || 0 } },
+          ...(branchId ? { branch: { connect: { id: branchId } } } : {}),
           patientInsurance: { connect: { id: patientInsuranceId } },
           totalAmount,
           items: {

@@ -77,7 +77,7 @@ export const processInsuranceClaims = async () => {
         continue;
       }
 
-      await createAutomaticClaim({
+      const claim = await createAutomaticClaim({
         visitId: group.visitId,
         clinicId: group.clinicId,
         branchId: group.branchId,
@@ -85,9 +85,15 @@ export const processInsuranceClaims = async () => {
         payments: group.payments,
       });
 
-      logger.info(
-        `Generated insurance claim for visit ${group.visitId} with ${group.payments.length} payments.`
-      );
+      if (claim) {
+        logger.info(
+          `Generated insurance claim ${claim.claimNumber} for visit ${group.visitId} with ${group.payments.length} payments.`
+        );
+      } else {
+        logger.error(
+          `Failed to generate insurance claim for visit ${group.visitId}.`
+        );
+      }
     }
 
     logger.info("Insurance claim generation completed.");
