@@ -1449,16 +1449,6 @@ export const dischargeVisit = async (c: Context) => {
       );
     }
 
-    // Log insurance claim creation activity if applicable
-    if (visit.patientInsurance?.insuranceCompany?.companyName) {
-      await logActivity({
-        userId: Number(user.id),
-        visitId,
-        type: ActivityType.INSURANCE_CLAIM,
-        action: `Insurance claim created for ${visit.patient.firstName} ${visit.patient.lastName}. Insurance company: ${visit.patientInsurance.insuranceCompany.companyName}`,
-      });
-    }
-
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
       branchId: user.branchId,

@@ -17,6 +17,7 @@ import {
   subYears,
 } from "date-fns";
 import {
+  ApprovalStatus,
   PaymentStatus,
   Role,
   UserStatus,
@@ -153,62 +154,81 @@ export const getDoctorMetricsForPeriod = async ({
   endDate: Date;
   clinicId: number;
 }) => {
-  const [totalVisits, completedVisits, revenue, examOrders, treatmentOrders] =
-    await db.$transaction([
-      db.visit.count({
-        where: {
-          doctorId,
-          clinicId,
-          createdAt: { gte: startDate, lte: endDate },
+  const [
+    totalVisits,
+    completedVisits,
+    revenue,
+    discounts,
+    examOrders,
+    treatmentOrders,
+  ] = await db.$transaction([
+    db.visit.count({
+      where: {
+        doctorId,
+        clinicId,
+        createdAt: { gte: startDate, lte: endDate },
+      },
+    }),
+    db.visit.count({
+      where: {
+        doctorId,
+        clinicId,
+        createdAt: { gte: startDate, lte: endDate },
+        status: {
+          in: [
+            VisitStatus.DISCHARGED,
+            VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
+            VisitStatus.FINALIZED,
+          ],
         },
-      }),
-      db.visit.count({
-        where: {
-          doctorId,
-          clinicId,
-          createdAt: { gte: startDate, lte: endDate },
-          status: {
-            in: [
-              VisitStatus.DISCHARGED,
-              VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
-              VisitStatus.FINALIZED,
-            ],
-          },
-        },
-      }),
-      db.payment.aggregate({
-        _sum: { amount: true },
-        where: {
-          clinicId,
+      },
+    }),
+    db.payment.aggregate({
+      _sum: { amount: true },
+      where: {
+        clinicId,
+        createdAt: { gte: startDate, lte: endDate },
+        paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID] },
+        visit: { doctorId },
+      },
+    }),
+    db.discount.aggregate({
+      _sum: { amount: true },
+      where: {
+        clinicId,
+        approval: { status: ApprovalStatus.APPROVED },
+        payment: {
           createdAt: { gte: startDate, lte: endDate },
           paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID] },
           visit: { doctorId },
         },
-      }),
-      db.exam.count({
-        where: {
-          visit: {
-            doctorId,
-            clinicId,
-            createdAt: { gte: startDate, lte: endDate },
-          },
+      },
+    }),
+    db.exam.count({
+      where: {
+        visit: {
+          doctorId,
+          clinicId,
+          createdAt: { gte: startDate, lte: endDate },
         },
-      }),
-      db.treatment.count({
-        where: {
-          visit: {
-            doctorId,
-            clinicId,
-            createdAt: { gte: startDate, lte: endDate },
-          },
+      },
+    }),
+    db.treatment.count({
+      where: {
+        visit: {
+          doctorId,
+          clinicId,
+          createdAt: { gte: startDate, lte: endDate },
         },
-      }),
-    ]);
+      },
+    }),
+  ]);
 
   return {
     totalVisits,
     completedVisits,
-    totalRevenue: Number(revenue._sum.amount || 0),
+    totalRevenue:
+      Number(revenue._sum.amount || 0) - Number(discounts._sum.amount || 0),
     examOrders,
     treatmentOrders,
   };

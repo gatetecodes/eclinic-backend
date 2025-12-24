@@ -1,17 +1,17 @@
 import { format } from "date-fns";
-import {
-  type Payment,
-  PaymentMode,
-  type Visit,
-} from "../../generated/prisma/client";
+import type { Payment, Prisma } from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 
-export async function generateClaimNumber(): Promise<string> {
+export async function generateClaimNumber(
+  tx?: Prisma.TransactionClient
+): Promise<string> {
   const date = format(new Date(), "yyyyMMdd");
   const prefix = "ICL";
 
-  const lastClaim = await db.insuranceClaim.findFirst({
+  const client = tx || db;
+
+  const lastClaim = await client.insuranceClaim.findFirst({
     where: {
       claimNumber: {
         startsWith: `${prefix}${date}`,
@@ -29,27 +29,32 @@ export async function generateClaimNumber(): Promise<string> {
   return `${prefix}${date}${sequence}`;
 }
 
-export async function createAutomaticClaim(
-  visit: Visit & {
-    payments: (Payment & {
-      products: { id: number }[];
-    })[];
-    patientInsurance: { id: number } | null;
-  }
-) {
-  if (
-    visit.paymentMode !== PaymentMode.INSURANCE ||
-    !visit.patientInsurance?.id
-  ) {
-    return null;
-  }
-
+export async function createAutomaticClaim({
+  visitId,
+  clinicId,
+  branchId,
+  patientInsuranceId,
+  payments,
+}: {
+  visitId: number;
+  clinicId: number;
+  branchId: number | null;
+  patientInsuranceId: number;
+  payments: (Payment & {
+    products: { id: number }[];
+  })[];
+}) {
   // Group payments by product for claim items
-  const claimItems = visit.payments.flatMap((payment) => {
+  const claimItems = payments.flatMap((payment) => {
     if (!payment.paymentDetails) {
+      if (!payment.products[0]?.id) {
+        logger.error("No product found for payment fallback");
+
+        return [];
+      }
       return [
         {
-          productId: payment.products[0]?.id || 0,
+          productId: payment.products[0].id,
           quantity: 1,
           amount: Number(payment.amount),
           insuranceAmount: Number(payment.insuranceAmount),
@@ -80,30 +85,42 @@ export async function createAutomaticClaim(
   );
 
   try {
-    const claim = await db.insuranceClaim.create({
-      data: {
-        claimNumber: await generateClaimNumber(),
-        visit: { connect: { id: visit.id } },
-        clinic: { connect: { id: visit.clinicId } },
-        branch: { connect: { id: visit.branchId || 0 } },
-        patientInsurance: { connect: { id: visit.patientInsurance.id } },
-        totalAmount,
-        items: {
-          create: claimItems.map((item) => ({
-            product: { connect: { id: item.productId } },
-            quantity: item.quantity,
-            amount: item.amount,
-            insuranceAmount: item.insuranceAmount,
-            itemStatus: "PENDING",
-          })),
+    return await db.$transaction(async (tx) => {
+      const claim = await tx.insuranceClaim.create({
+        data: {
+          claimNumber: await generateClaimNumber(tx),
+          visit: { connect: { id: visitId } },
+          clinic: { connect: { id: clinicId } },
+          ...(branchId ? { branch: { connect: { id: branchId } } } : {}),
+          patientInsurance: { connect: { id: patientInsuranceId } },
+          totalAmount,
+          items: {
+            create: claimItems.map((item) => ({
+              product: { connect: { id: item.productId } },
+              quantity: item.quantity,
+              amount: item.amount,
+              insuranceAmount: item.insuranceAmount,
+              itemStatus: "PENDING",
+            })),
+          },
         },
-      },
-      include: {
-        items: true,
-      },
-    });
+        include: {
+          items: true,
+        },
+      });
 
-    return claim;
+      // Link payments to the claim
+      await tx.payment.updateMany({
+        where: {
+          id: { in: payments.map((p) => p.id) },
+        },
+        data: {
+          insuranceClaimId: claim.id,
+        },
+      });
+
+      return claim;
+    });
   } catch (error) {
     logger.error("Error creating automatic claim", { error });
     return null;

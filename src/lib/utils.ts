@@ -196,7 +196,7 @@ export function parseDateString(dateString: string): Date {
   for (const format of formats) {
     const date = parse(dateString, format, new Date());
     if (!Number.isNaN(date.getTime())) {
-      return date;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
     }
   }
 
