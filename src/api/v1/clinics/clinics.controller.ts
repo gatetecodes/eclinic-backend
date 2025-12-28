@@ -1,4 +1,3 @@
-import { hash } from "bcryptjs";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -9,6 +8,7 @@ import {
   UserStatus,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { hashCredentialPassword } from "../../../helpers/auth-helper";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
@@ -89,10 +89,6 @@ export const createClinic = async (c: Context) => {
           updatedAt: new Date(),
         },
       });
-      const hashedPassword = await hash(
-        process.env.DEFAULT_USER_PASSWORD as string,
-        10
-      );
       const adminUser = await tx.user.create({
         data: {
           name: admin.name,
@@ -102,17 +98,32 @@ export const createClinic = async (c: Context) => {
           clinicId: newClinic.id,
           role: Role.CLINIC_ADMIN,
           status: UserStatus.ACTIVE,
-          password: hashedPassword,
           emailVerified: null, // Explicitly set to avoid coercion issues
+        },
+      });
+
+      // Create better-auth credential account for the admin user
+      const credentialHash = hashCredentialPassword(
+        process.env.DEFAULT_USER_PASSWORD as string
+      );
+      await tx.account.create({
+        data: {
+          providerId: "credential",
+          accountId: adminUser.id.toString(),
+          userId: adminUser.id,
+          password: credentialHash,
         },
       });
       return { newClinic, branch, adminUser };
     });
-    return c.json({
-      status: httpCodes.CREATED,
-      message: "Clinic created successfully",
-      data: clinic,
-    });
+    return c.json(
+      {
+        status: httpCodes.CREATED,
+        success: "Clinic created successfully",
+        data: clinic,
+      },
+      httpCodes.CREATED as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
