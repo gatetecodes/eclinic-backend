@@ -6,6 +6,13 @@ import { randomBytes, scryptSync } from "node:crypto";
  */
 
 export const hashCredentialPassword = (password: string): string => {
+  if (
+    !password ||
+    typeof password !== "string" ||
+    password.trim().length === 0
+  ) {
+    throw new Error("Password must be a non-empty string");
+  }
   const SALT_LENGTH = 16;
   const DERIVED_KEY_LENGTH = 64;
   const N = 16_384;
