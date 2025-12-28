@@ -1,4 +1,3 @@
-import { hash } from "bcryptjs";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -90,10 +89,6 @@ export const createClinic = async (c: Context) => {
           updatedAt: new Date(),
         },
       });
-      const hashedPassword = await hash(
-        process.env.DEFAULT_USER_PASSWORD as string,
-        10
-      );
       const adminUser = await tx.user.create({
         data: {
           name: admin.name,
@@ -103,7 +98,6 @@ export const createClinic = async (c: Context) => {
           clinicId: newClinic.id,
           role: Role.CLINIC_ADMIN,
           status: UserStatus.ACTIVE,
-          password: hashedPassword,
           emailVerified: null, // Explicitly set to avoid coercion issues
         },
       });
