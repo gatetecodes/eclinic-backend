@@ -19,10 +19,13 @@ import insuranceRouter from "./insurance/insurance.routes.ts";
 import insuranceClaimsRouter from "./insurance-claim/insurance-claim.routes.ts";
 import inventoryRouter from "./inventory/inventory.routes.ts";
 import notificationsRouter from "./notifications/routes.ts";
+import onboardingRouter from "./onboarding/routes.ts";
 import patientPortalRouter from "./patient-portal/patient-portal.routes.ts";
 import patientsRouter from "./patients/routes.ts";
 import paymentsRouter from "./payments/payments.routes.ts";
 import performanceReportsRouter from "./performance-reports/performance-reports.routes.ts";
+import publicQueuesRouter from "./queues/public.routes.ts";
+import queuesRouter from "./queues/routes.ts";
 import tariffRouter from "./tariff/tariff.routes.ts";
 // Resource routers
 import usersRouter from "./users/users.routes.ts";
@@ -31,6 +34,8 @@ import visitsRouter from "./visits/visits.routes.ts";
 const v1 = new Hono();
 
 v1.route("/demo-requests", demoRequestsRouter);
+v1.route("/onboarding", onboardingRouter);
+v1.route("/public/queues", publicQueuesRouter);
 
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login
@@ -71,6 +76,7 @@ v1.route("/admin", adminRouter);
 v1.route("/activity", activityRouter);
 v1.route("/appointments", appointmentsRouter);
 v1.route("/approvals", approvalsRouter);
+v1.route("/queues", queuesRouter);
 v1.route("/insurance-claims", insuranceClaimsRouter);
 v1.route("/insurance", insuranceRouter);
 v1.route("/hospitalization", hospitalizationRouter);
