@@ -35,10 +35,35 @@ export const QueuesController = {
       });
     }
 
+    // Extract only allowed fields
+    const {
+      name,
+      description,
+      slug,
+      isPublic,
+      departmentId,
+      doctorId,
+      autoOpenTime,
+      autoCloseTime,
+      isAutoOpenEnabled,
+      defaultAvgTime,
+      maxCapacity,
+    } = body;
+
     const config = await QueueConfigService.create({
-      ...body,
+      name,
+      description,
+      slug,
+      isPublic,
+      departmentId,
+      doctorId,
+      autoOpenTime,
+      autoCloseTime,
+      isAutoOpenEnabled,
       clinicId,
       branchId,
+      defaultAvgTime,
+      maxCapacity,
     });
     return c.json(
       { success: true, data: config },
