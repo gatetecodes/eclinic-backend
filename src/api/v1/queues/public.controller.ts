@@ -94,6 +94,14 @@ export const PublicController = {
   getClinicQueues: async (c: Context) => {
     const clinicId = Number(c.req.param("clinicId"));
 
+    if (Number.isNaN(clinicId)) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Invalid clinic ID",
+        code: "INVALID_CLINIC_ID",
+      });
+    }
+
     const queues = await db.queueConfig.findMany({
       where: {
         clinicId,

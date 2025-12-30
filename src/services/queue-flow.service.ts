@@ -19,61 +19,80 @@ export const QueueFlowService = {
     patientLng?: number;
     travelTimeEstimate?: number;
   }) => {
-    const queue = await db.queue.findUnique({
-      where: { id: data.queueId },
-      include: {
-        entries: {
-          where: { status: QueueEntryStatus.WAITING },
+    return await db.$transaction(async (tx) => {
+      // Lock the queue to prevent concurrent position calculations for the same queue
+      await tx.$executeRaw`SELECT id FROM "Queue" WHERE id = ${data.queueId} FOR UPDATE`;
+
+      const queue = await tx.queue.findUnique({
+        where: { id: data.queueId },
+      });
+
+      if (!queue) {
+        throw new AppError({
+          status: httpCodes.NOT_FOUND,
+          message: "Queue not found",
+          code: "NOT_FOUND",
+        });
+      }
+
+      if (queue.status !== "OPEN") {
+        throw new AppError({
+          status: httpCodes.BAD_REQUEST,
+          message: "Queue is not open",
+          code: "QUEUE_CLOSED",
+        });
+      }
+
+      // Calculate next position by finding the current maximum position
+      const lastEntry = await tx.queueEntry.findFirst({
+        where: { queueId: data.queueId },
+        orderBy: { position: "desc" },
+        select: { position: true },
+      });
+
+      const nextPosition = (lastEntry?.position ?? 0) + 1;
+
+      // Count waiting entries to calculate current wait time estimate for the new entry
+      const waitingCount = await tx.queueEntry.count({
+        where: {
+          queueId: data.queueId,
+          status: QueueEntryStatus.WAITING,
         },
-      },
-    });
-
-    if (!queue) {
-      throw new AppError({
-        status: httpCodes.NOT_FOUND,
-        message: "Queue not found",
-        code: "NOT_FOUND",
       });
-    }
 
-    if (queue.status !== "OPEN") {
-      throw new AppError({
-        status: httpCodes.BAD_REQUEST,
-        message: "Queue is not open",
-        code: "QUEUE_CLOSED",
-      });
-    }
+      const estimatedWaitTime =
+        (waitingCount + 1) * queue.avgDepartmentTimeInMinutes;
 
-    // Calculate position and estimated wait time
-    const position = queue.entries.length + 1;
-    const estimatedWaitTime = position * queue.avgDepartmentTimeInMinutes;
-
-    const entry = await db.queueEntry.create({
-      data: {
-        queueId: data.queueId,
-        patientId: data.patientId,
-        phoneNumber: data.phoneNumber,
-        name: data.name,
-        position,
-        status: QueueEntryStatus.WAITING,
-        source: data.source,
-        joinedAt: new Date(),
-        estimatedWaitTime,
-        patientLat: data.patientLat,
-        patientLng: data.patientLng,
-        travelTimeEstimate: data.travelTimeEstimate,
-        checkInTime: null, // Remote join, will check-in on arrival
-        events: {
-          create: {
-            type: QueueEventType.JOINED,
+      const entry = await tx.queueEntry.create({
+        data: {
+          queueId: data.queueId,
+          patientId: data.patientId,
+          phoneNumber: data.phoneNumber,
+          name: data.name,
+          position: nextPosition,
+          status: QueueEntryStatus.WAITING,
+          source: data.source,
+          joinedAt: new Date(),
+          estimatedWaitTime,
+          patientLat: data.patientLat,
+          patientLng: data.patientLng,
+          travelTimeEstimate: data.travelTimeEstimate,
+          checkInTime: null,
+          events: {
+            create: {
+              type: QueueEventType.JOINED,
+            },
           },
         },
-      },
+      });
+
+      notifyQueueUpdate(data.queueId, {
+        type: "NEW_ENTRY",
+        count: waitingCount + 1,
+      });
+
+      return entry;
     });
-
-    notifyQueueUpdate(data.queueId, { type: "NEW_ENTRY", count: position });
-
-    return entry;
   },
 
   updateStatus: async (entryId: number, status: QueueEntryStatus) => {
@@ -97,8 +116,14 @@ export const QueueFlowService = {
       eventType = QueueEventType.NOTIFIED;
     } else if (status === QueueEntryStatus.CANCELLED) {
       eventType = QueueEventType.CANCELLED;
-    } else {
+    } else if (status === QueueEntryStatus.SKIPPED) {
       eventType = QueueEventType.SKIPPED;
+    } else {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: `Cannot update to status: ${status}`,
+        code: "INVALID_STATUS_TRANSITION",
+      });
     }
 
     const updated = await db.queueEntry.update({
@@ -144,8 +169,6 @@ export const QueueFlowService = {
         entries: {
           where: {
             status: QueueEntryStatus.WAITING,
-            isTravelAlertSent: false,
-            travelTimeEstimate: { not: null },
           },
           orderBy: { position: "asc" },
         },
@@ -157,16 +180,15 @@ export const QueueFlowService = {
     }
 
     const buffer = queue.queueConfig.travelTimeBuffer;
+    const allWaitingEntries = queue.entries;
 
-    // Check each waiting patient who hasn't been alerted yet
-    for (const entry of queue.entries) {
-      const waitingEntriesAhead = await db.queueEntry.count({
-        where: {
-          queueId,
-          status: QueueEntryStatus.WAITING,
-          position: { lt: entry.position },
-        },
-      });
+    const entriesToAlert = allWaitingEntries.filter(
+      (e) => !e.isTravelAlertSent && e.travelTimeEstimate !== null
+    ); // Check each waiting patient who hasn't been alerted yet
+    for (const entry of entriesToAlert) {
+      const waitingEntriesAhead = allWaitingEntries.filter(
+        (e) => e.position < entry.position
+      ).length;
 
       const currentWaitEstimate =
         waitingEntriesAhead * queue.avgDepartmentTimeInMinutes;
@@ -174,22 +196,28 @@ export const QueueFlowService = {
 
       if (currentWaitEstimate <= timeToLeaveThreshold) {
         // It's time to notify the patient!
-        await db.queueEntry.update({
-          where: { id: entry.id },
+        // Use updateMany with isTravelAlertSent: false to ensure we only send one alert
+        const updateResult = await db.queueEntry.updateMany({
+          where: { id: entry.id, isTravelAlertSent: false },
           data: { isTravelAlertSent: true },
         });
 
-        notifyEntryUpdate(entry.id, {
-          type: "TRAVEL_ALERT",
-          message:
-            "Time to leave! Based on your travel time, you should head to the clinic now to make it for your turn.",
-        });
+        if (updateResult.count > 0) {
+          notifyEntryUpdate(entry.id, {
+            type: "TRAVEL_ALERT",
+            message:
+              "Time to leave! Based on your travel time, you should head to the clinic now to make it for your turn.",
+          });
+        }
       }
     }
   },
 
   getEntryStatus: async (tokenOrId: string | number) => {
     const id = Number(tokenOrId);
+    if (Number.isNaN(id)) {
+      return null;
+    }
     return await db.queueEntry.findUnique({
       where: { id },
       include: { queue: { include: { clinic: true } } },
