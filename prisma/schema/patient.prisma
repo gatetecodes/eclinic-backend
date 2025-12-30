@@ -32,6 +32,7 @@ model Patient {
     portalAccount        PatientPortalAccount?
     patientAppointments  PatientAppointment[]
     patientNotifications PatientNotification[]
+    queues               QueueEntry[]
 
     @@index([phoneNumber, lastName, firstName])
     @@index([guardianPhoneNumber]) // Add index for guardian phone
