@@ -59,12 +59,14 @@ model Clinic {
     clinicProductPrices ClinicProductPrice[]
     insurancePrices     InsurancePrice[]
 
-    convertedAt            DateTime?
-    staffTimesheets        StaffTimesheet[]
-    purchaseOrders         PurchaseOrder[]
-    suppliers              Supplier[]
-    goodsReceipts          GoodsReceipt[]
+    convertedAt                  DateTime?
+    staffTimesheets              StaffTimesheet[]
+    purchaseOrders               PurchaseOrder[]
+    suppliers                    Supplier[]
+    goodsReceipts                GoodsReceipt[]
     inventoryExpiryNotifications InventoryExpiryNotification[]
+    queues                       Queue[]
+    queueConfigs                 QueueConfig[]
 
     @@index([convertedAt])
 }
@@ -74,6 +76,8 @@ model Branch {
     name                   String
     code                   String
     address                String?
+    latitude               Float?
+    longitude              Float?
     contactPhone           String?
     contactEmail           String?
     isHeadOffice           Boolean                 @default(false)
@@ -105,6 +109,8 @@ model Branch {
     staffShifts            StaffShift[]
     inventoryStocks        InventoryStock[]
     inventoryBatches       InventoryBatch[]
+    queues                 Queue[]
+    queueConfigs           QueueConfig[]
 
     @@index([clinicId])
     @@index([code])

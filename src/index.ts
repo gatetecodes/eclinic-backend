@@ -110,14 +110,37 @@ app.notFound((c) => {
   );
 });
 
+import { initSocket } from "@/lib/socket";
+
 const port = process.env.PORT || DEFAULT_PORT;
 const host = process.env.HOST || "0.0.0.0";
 
-//biome-ignore lint/suspicious/noConsole: <>
-console.log(`Server is running on ${host}:${port}`);
-
-export default {
-  port,
-  host,
-  fetch: app.fetch,
+// Define minimal Bun types locally to avoid using 'any'
+type BunServer = {
+  stop: () => void;
+  // Add other properties if needed
 };
+
+type BunServeOptions = {
+  port: string | number;
+  hostname: string;
+  fetch: (req: Request) => Response | Promise<Response>;
+};
+
+type BunRuntime = {
+  serve: (options: BunServeOptions) => BunServer;
+};
+
+declare const Bun: BunRuntime;
+
+const server = Bun.serve({
+  port,
+  hostname: host,
+  fetch: app.fetch,
+});
+
+initSocket(server);
+
+appLogger.info(`Server is running on ${host}:${port}`);
+
+export default server;
