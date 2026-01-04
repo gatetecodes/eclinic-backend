@@ -30,12 +30,14 @@ import tariffRouter from "./tariff/tariff.routes.ts";
 // Resource routers
 import usersRouter from "./users/users.routes.ts";
 import visitsRouter from "./visits/visits.routes.ts";
+import whatsappRouter from "./whatsapp/whatsapp.routes";
 
 const v1 = new Hono();
 
 v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/onboarding", onboardingRouter);
 v1.route("/public/queues", publicQueuesRouter);
+v1.route("/whatsapp", whatsappRouter);
 
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login

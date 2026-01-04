@@ -63,7 +63,7 @@ app.get("/health", (c) => {
 // API routes (versioned)
 app.route("/api", mainRoutes);
 
-if (process.env.NODE_ENV !== "test") {
+if (import.meta.main && process.env.NODE_ENV !== "test") {
   startRecurringJobs();
 }
 
@@ -133,14 +133,18 @@ type BunRuntime = {
 
 declare const Bun: BunRuntime;
 
-const server = Bun.serve({
-  port,
-  hostname: host,
-  fetch: app.fetch,
-});
+let server: BunServer | null = null;
 
-initSocket(server);
+if (import.meta.main) {
+  server = Bun.serve({
+    port,
+    hostname: host,
+    fetch: app.fetch,
+  });
 
-appLogger.info(`Server is running on ${host}:${port}`);
+  initSocket(server);
 
-export default server;
+  appLogger.info(`Server is running on ${host}:${port}`);
+}
+
+export { server };
