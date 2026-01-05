@@ -17,39 +17,40 @@ enum BranchStatus {
 }
 
 model Clinic {
-    id                     Int                  @id @default(autoincrement())
-    name                   String
-    logo                   String?
-    subscriptionStatus     SubscriptionStatus   @default(TRIAL)
-    subscriptionPlan       SubscriptionPlan
-    contactPhone           String?
-    contactEmail           String?
-    subscriptionExpiryDate DateTime?
-    createdAt              DateTime             @default(now())
-    updatedAt              DateTime             @updatedAt
-    users                  User[]
-    patients               Patient[]
-    payments               Payment[]
-    inventoryItems         InventoryItem[]
-    prescriptions          Prescription[]
-    medicalRecords         MedicalRecord[]
-    examResults            ExamResult[]
-    visits                 Visit[]
-    departments            ClinicalDepartment[]
-    products               Product[]
-    events                 Event[]
-    expenses               Expense[]
-    discounts              Discount[]
-    approvals              Approval[]
-    roomPrices             RoomPrice[]
-    rooms                  Room[]
-    exams                  Exam[]
-    hospitalizations       Hospitalization[]
-    insuranceClaims        InsuranceClaim[]
-    branches               Branch[]
-    patientAppointments    PatientAppointment[]
-    isPatientPortalEnabled Boolean              @default(false)
-    portalSettings         Json? // Store portal configuration
+    id                       Int                  @id @default(autoincrement())
+    name                     String
+    logo                     String?
+    subscriptionStatus       SubscriptionStatus   @default(TRIAL)
+    subscriptionPlan         SubscriptionPlan
+    contactPhone             String?
+    contactEmail             String?
+    subscriptionExpiryDate   DateTime?
+    createdAt                DateTime             @default(now())
+    updatedAt                DateTime             @updatedAt
+    users                    User[]
+    patients                 Patient[]
+    payments                 Payment[]
+    inventoryItems           InventoryItem[]
+    prescriptions            Prescription[]
+    medicalRecords           MedicalRecord[]
+    examResults              ExamResult[]
+    visits                   Visit[]
+    departments              ClinicalDepartment[]
+    products                 Product[]
+    events                   Event[]
+    expenses                 Expense[]
+    discounts                Discount[]
+    approvals                Approval[]
+    roomPrices               RoomPrice[]
+    rooms                    Room[]
+    exams                    Exam[]
+    hospitalizations         Hospitalization[]
+    insuranceClaims          InsuranceClaim[]
+    branches                 Branch[]
+    patientAppointments      PatientAppointment[]
+    isPatientPortalEnabled   Boolean              @default(false)
+    isQueueManagementEnabled Boolean              @default(false)
+    portalSettings           Json? // Store portal configuration
 
     // Entitlements & quotas
     entitlementOverrides EntitlementOverride[]
