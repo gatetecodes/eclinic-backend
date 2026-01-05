@@ -48,6 +48,7 @@ export const OnboardingController = {
           subscriptionPlan: SubscriptionPlan.CLINIC_STARTER, // Or QUEUE_ONLY if added
           contactEmail: email,
           contactPhone: phone,
+          isQueueManagementEnabled: true,
         },
       });
 

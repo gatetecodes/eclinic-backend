@@ -1348,6 +1348,7 @@ export const getUserById = async (c: Context) => {
             name: true,
             subscriptionStatus: true,
             subscriptionPlan: true,
+            isQueueManagementEnabled: true,
           },
         },
         branch: {

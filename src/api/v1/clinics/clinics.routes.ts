@@ -10,6 +10,7 @@ import {
   togglePatientPortalForClinic,
   updateClinic,
   updateClinicAdmin,
+  updateClinicSettings,
   updateClinicSubscriptionStatus,
 } from "./clinics.controller.ts";
 import {
@@ -36,6 +37,7 @@ router.put(
 );
 router.get("/:id/doctors", getPortalClinicDoctors);
 router.put("/:id/toggle-patient-portal", togglePatientPortalForClinic);
+router.patch("/:id/settings", updateClinicSettings);
 
 router.put(
   "/:id/subscription-status",

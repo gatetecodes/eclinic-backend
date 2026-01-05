@@ -421,3 +421,44 @@ export const togglePatientPortalForClinic = async (c: Context) => {
     );
   }
 };
+
+export const updateClinicSettings = async (c: Context) => {
+  try {
+    const { id } = c.req.param();
+    const user = c.get("user");
+    const clinicId = Number.parseInt(id, 10);
+
+    if (user.role !== Role.SUPER_ADMIN && user.clinicId !== clinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const body = await c.req.json();
+    const { isQueueManagementEnabled } = body;
+
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data: {
+        isQueueManagementEnabled:
+          typeof isQueueManagementEnabled === "boolean"
+            ? isQueueManagementEnabled
+            : undefined,
+      },
+    });
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Clinic settings updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
