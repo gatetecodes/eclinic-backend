@@ -428,6 +428,13 @@ export const updateClinicSettings = async (c: Context) => {
     const user = c.get("user");
     const clinicId = Number.parseInt(id, 10);
 
+    if (Number.isNaN(clinicId)) {
+      return c.json(
+        { error: "Invalid clinicId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     if (user.role !== Role.SUPER_ADMIN && user.clinicId !== clinicId) {
       return c.json(
         { error: "Forbidden" },
@@ -435,8 +442,18 @@ export const updateClinicSettings = async (c: Context) => {
       );
     }
 
-    const body = await c.req.json();
+    const body = c.get("validatedJson");
     const { isQueueManagementEnabled } = body;
+
+    const clinic = await db.clinic.findUnique({
+      where: { id: clinicId },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
 
     const updatedClinic = await db.clinic.update({
       where: { id: clinicId },

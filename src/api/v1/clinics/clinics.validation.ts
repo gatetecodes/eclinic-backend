@@ -41,5 +41,9 @@ export const updateClinicSubscriptionStatusSchema = z.object({
   subscriptionStatus: z.enum(SubscriptionStatus),
 });
 
+export const updateClinicSettingsSchema = z.object({
+  isQueueManagementEnabled: z.boolean(),
+});
+
 export type UpdateClinicSchema = z.infer<typeof updateClinicSchema>;
 export type UpdateClinicAdminSchema = z.infer<typeof updateClinicAdminSchema>;
