@@ -67,6 +67,7 @@ if (import.meta.main && process.env.NODE_ENV !== "test") {
   startRecurringJobs();
 }
 
+
 // Error handling
 app.onError((err, c) => {
   // Known AppError
@@ -148,3 +149,4 @@ if (import.meta.main) {
 }
 
 export { server };
+
