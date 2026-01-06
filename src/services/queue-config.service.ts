@@ -9,8 +9,14 @@ const resolveUniqueSlug = async (
   providedSlug?: string | null,
   excludeId?: number
 ): Promise<string> => {
-  const slug = providedSlug?.trim() || generateSlug(name);
-  const isCustom = !!providedSlug?.trim();
+  const trimmedProvided = providedSlug?.trim();
+
+  const slug =
+    trimmedProvided && trimmedProvided.length > 0
+      ? trimmedProvided
+      : generateSlug(name);
+
+  const isCustom = !!(trimmedProvided && trimmedProvided.length > 0);
 
   const existing = await db.queueConfig.findFirst({
     where: {
@@ -31,8 +37,33 @@ const resolveUniqueSlug = async (
     });
   }
 
-  const randomStr = Math.random().toString(36).substring(2, 6);
-  return `${slug}-${randomStr}`;
+  // Retry logic for auto-generated slugs
+  let attempt = 0;
+
+  const maxAttempts = 10;
+
+  while (attempt < maxAttempts) {
+    const randomStr = Math.random().toString(36).substring(2, 6);
+
+    const candidateSlug = `${slug}-${randomStr}`;
+
+    const conflict = await db.queueConfig.findFirst({
+      where: {
+        slug: candidateSlug,
+        id: excludeId ? { not: excludeId } : undefined,
+      },
+    });
+    if (!conflict) {
+      return candidateSlug;
+    }
+    attempt++;
+  }
+
+  throw new AppError({
+    status: httpCodes.INTERNAL_SERVER_ERROR,
+    message: "Failed to generate unique slug",
+    code: "SLUG_GENERATION_FAILED",
+  });
 };
 
 export const QueueConfigService = {
