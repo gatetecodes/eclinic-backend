@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { validateIdParamsSchema } from "@/lib/common-validation";
+import { validate } from "@/middlewares/validation.middleware";
 import { QueuesController } from "./queues.controller";
 
 const queuesRouter = new Hono();
@@ -6,8 +8,16 @@ const queuesRouter = new Hono();
 // Configuration
 queuesRouter.post("/config", QueuesController.createConfig);
 queuesRouter.get("/config", QueuesController.listConfigs);
-queuesRouter.put("/config/:id", QueuesController.updateConfig);
-queuesRouter.delete("/config/:id", QueuesController.deleteConfig);
+queuesRouter.put(
+  "/config/:id",
+  validate(validateIdParamsSchema, "param"),
+  QueuesController.updateConfig
+);
+queuesRouter.delete(
+  "/config/:id",
+  validate(validateIdParamsSchema, "param"),
+  QueuesController.deleteConfig
+);
 
 // Operations
 queuesRouter.post("/:id/open", QueuesController.openQueue); // :id is configId
