@@ -6,11 +6,13 @@ const queuesRouter = new Hono();
 // Configuration
 queuesRouter.post("/config", QueuesController.createConfig);
 queuesRouter.get("/config", QueuesController.listConfigs);
+queuesRouter.put("/config/:id", QueuesController.updateConfig);
+queuesRouter.delete("/config/:id", QueuesController.deleteConfig);
 
 // Operations
 queuesRouter.post("/:id/open", QueuesController.openQueue); // :id is configId
 queuesRouter.post("/active/:id/close", QueuesController.closeQueue); // :id is queueId
 queuesRouter.get("/active", QueuesController.listActiveQueues);
-queuesRouter.patch("/entries/:entryId/status", QueuesController.nextPatient);
+queuesRouter.put("/entries/:entryId/status", QueuesController.nextPatient);
 
 export default queuesRouter;

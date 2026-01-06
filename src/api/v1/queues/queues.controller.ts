@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import { QueueConfigService } from "@/services/queue-config.service";
@@ -78,6 +79,20 @@ export const QueuesController = {
     return c.json({ success: true, data: configs });
   },
 
+  updateConfig: async (c: Context) => {
+    const id = Number(c.req.param("id"));
+    const body = await c.req.json();
+
+    const config = await QueueConfigService.update(id, body);
+    return c.json({ success: true, data: config });
+  },
+
+  deleteConfig: async (c: Context) => {
+    const id = Number(c.req.param("id"));
+    await db.queueConfig.delete({ where: { id } });
+    return c.json({ success: true, message: "Service deleted successfully" });
+  },
+
   // --- Operations (Protected) ---
 
   openQueue: async (c: Context) => {
@@ -103,7 +118,8 @@ export const QueuesController = {
     // Logic: Find current serving, mark done. Find next waiting, mark notified/serving.
     // For simplicity, we expose updateStatus.
     const entryId = Number(c.req.param("entryId"));
-    const status = c.req.query("status") as QueueEntryStatus;
+    const body = await c.req.json().catch(() => ({}));
+    const status = (c.req.query("status") || body.status) as QueueEntryStatus;
 
     if (!Object.values(QueueEntryStatus).includes(status)) {
       throw new AppError({
