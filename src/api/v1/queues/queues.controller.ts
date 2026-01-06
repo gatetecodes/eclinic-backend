@@ -65,7 +65,7 @@ export const QueuesController = {
       maxCapacity,
     });
     return c.json(
-      { success: true, data: config },
+      { success: "Service configuration created", data: config },
       httpCodes.CREATED as ContentfulStatusCode
     );
   },
@@ -112,7 +112,7 @@ export const QueuesController = {
     }
 
     const config = await QueueConfigService.update(id, body);
-    return c.json({ success: true, data: config });
+    return c.json({ success: "Service configuration updated", data: config });
   },
 
   deleteConfig: async (c: Context) => {
@@ -147,7 +147,7 @@ export const QueuesController = {
     }
 
     await db.queueConfig.delete({ where: { id } });
-    return c.json({ success: true, message: "Service deleted successfully" });
+    return c.json({ success: "Service configuration deleted" });
   },
 
   // --- Operations (Protected) ---
@@ -155,13 +155,13 @@ export const QueuesController = {
   openQueue: async (c: Context) => {
     const configId = Number(c.req.param("id"));
     const queue = await QueueManagerService.openQueue(configId);
-    return c.json({ success: true, data: queue });
+    return c.json({ success: "Queue opened", data: queue });
   },
 
   closeQueue: async (c: Context) => {
     const queueId = Number(c.req.param("id"));
     const queue = await QueueManagerService.closeQueue(queueId);
-    return c.json({ success: true, data: queue });
+    return c.json({ success: "Queue closed", data: queue });
   },
 
   listActiveQueues: async (c: Context) => {
@@ -187,7 +187,7 @@ export const QueuesController = {
     }
 
     const entry = await QueueFlowService.updateStatus(entryId, status);
-    return c.json({ success: true, data: entry });
+    return c.json({ success: "Status updated", data: entry });
   },
 
   // --- Public (No Auth) ---

@@ -44,13 +44,15 @@ export const getClinics = async (c: Context) => {
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
       : 0;
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinics fetched successfully",
-      data: clinics,
-      totalCount,
-      pageCount,
-    });
+    return c.json(
+      {
+        success: "Clinics fetched successfully",
+        data: clinics,
+        totalCount,
+        pageCount,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -118,7 +120,6 @@ export const createClinic = async (c: Context) => {
     });
     return c.json(
       {
-        status: httpCodes.CREATED,
         success: "Clinic created successfully",
         data: clinic,
       },
@@ -149,7 +150,10 @@ export const getClinicById = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    return c.json({ data: clinic });
+    return c.json(
+      { success: true, data: clinic },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
@@ -183,11 +187,13 @@ export const updateClinic = async (c: Context) => {
     ) {
       await invalidateEntitlements(clinicId);
     }
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinic updated successfully",
-      data: updatedClinic,
-    });
+    return c.json(
+      {
+        success: "Clinic updated successfully",
+        data: updatedClinic,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -243,11 +249,13 @@ export const updateClinicAdmin = async (c: Context) => {
       }
     }
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinic admin updated successfully",
-      data: updatedClinicAdmin,
-    });
+    return c.json(
+      {
+        success: "Clinic admin updated successfully",
+        data: updatedClinicAdmin,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -279,11 +287,13 @@ export const updateClinicSubscriptionStatus = async (c: Context) => {
     if ("subscriptionStatus" in data) {
       await invalidateEntitlements(clinicId);
     }
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinic subscription status updated successfully",
-      data: updatedClinic,
-    });
+    return c.json(
+      {
+        success: "Clinic subscription status updated successfully",
+        data: updatedClinic,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -306,11 +316,13 @@ export const getPortalClinics = async (c: Context) => {
         createdAt: "desc",
       },
     });
-    return c.json({
-      status: httpCodes.OK,
-      message: "Portal clinics fetched successfully",
-      data: clinics,
-    });
+    return c.json(
+      {
+        success: "Portal clinics fetched successfully",
+        data: clinics,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -355,11 +367,13 @@ export const getPortalClinicDoctors = async (c: Context) => {
         name: true,
       },
     });
-    return c.json({
-      status: httpCodes.OK,
-      message: "Doctors fetched successfully",
-      data: doctors,
-    });
+    return c.json(
+      {
+        success: "Doctors fetched successfully",
+        data: doctors,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -407,11 +421,12 @@ export const togglePatientPortalForClinic = async (c: Context) => {
       data: { isPatientPortalEnabled: !clinic.isPatientPortalEnabled },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Patient portal toggled successfully",
-      success: true,
-    });
+    return c.json(
+      {
+        success: "Patient portal toggled successfully",
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
@@ -465,11 +480,13 @@ export const updateClinicSettings = async (c: Context) => {
       },
     });
 
-    return c.json({
-      status: httpCodes.OK,
-      message: "Clinic settings updated successfully",
-      data: updatedClinic,
-    });
+    return c.json(
+      {
+        success: "Clinic settings updated successfully",
+        data: updatedClinic,
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {
