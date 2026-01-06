@@ -1,7 +1,70 @@
 import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { generateSlug } from "@/lib/utils";
 import type { QueueConfig } from "../../generated/prisma/client";
+
+const resolveUniqueSlug = async (
+  name: string,
+  providedSlug?: string | null,
+  excludeId?: number
+): Promise<string> => {
+  const trimmedProvided = providedSlug?.trim();
+
+  const slug =
+    trimmedProvided && trimmedProvided.length > 0
+      ? trimmedProvided
+      : generateSlug(name);
+
+  const isCustom = !!(trimmedProvided && trimmedProvided.length > 0);
+
+  const existing = await db.queueConfig.findFirst({
+    where: {
+      slug,
+      id: excludeId ? { not: excludeId } : undefined,
+    },
+  });
+
+  if (!existing) {
+    return slug;
+  }
+
+  if (isCustom) {
+    throw new AppError({
+      status: httpCodes.CONFLICT,
+      message: "Slug already exists",
+      code: "SLUG_EXISTS",
+    });
+  }
+
+  // Retry logic for auto-generated slugs
+  let attempt = 0;
+
+  const maxAttempts = 10;
+
+  while (attempt < maxAttempts) {
+    const randomStr = Math.random().toString(36).substring(2, 6);
+
+    const candidateSlug = `${slug}-${randomStr}`;
+
+    const conflict = await db.queueConfig.findFirst({
+      where: {
+        slug: candidateSlug,
+        id: excludeId ? { not: excludeId } : undefined,
+      },
+    });
+    if (!conflict) {
+      return candidateSlug;
+    }
+    attempt++;
+  }
+
+  throw new AppError({
+    status: httpCodes.INTERNAL_SERVER_ERROR,
+    message: "Failed to generate unique slug",
+    code: "SLUG_GENERATION_FAILED",
+  });
+};
 
 export const QueueConfigService = {
   create: async (data: {
@@ -19,21 +82,19 @@ export const QueueConfigService = {
     defaultAvgTime?: number;
     maxCapacity?: number;
   }) => {
-    if (data.slug) {
-      const existing = await db.queueConfig.findFirst({
-        where: { slug: data.slug },
-      });
-      if (existing) {
-        throw new AppError({
-          status: httpCodes.CONFLICT,
-          message: "Slug already exists",
-          code: "SLUG_EXISTS",
-        });
-      }
-    }
+    const slug = await resolveUniqueSlug(data.name, data.slug);
+    const description = data.description?.trim() || null;
+    const autoOpenTime = data.autoOpenTime?.trim() || null;
+    const autoCloseTime = data.autoCloseTime?.trim() || null;
 
     return await db.queueConfig.create({
-      data,
+      data: {
+        ...data,
+        slug,
+        description,
+        autoOpenTime,
+        autoCloseTime,
+      },
     });
   },
 
@@ -52,22 +113,33 @@ export const QueueConfigService = {
       });
     }
 
-    if (data.slug) {
-      const existing = await db.queueConfig.findFirst({
-        where: { slug: data.slug, id: { not: id } },
-      });
-      if (existing) {
-        throw new AppError({
-          status: httpCodes.CONFLICT,
-          message: "Slug already exists",
-          code: "SLUG_EXISTS",
-        });
-      }
+    let slug: string | undefined;
+    if (data.slug !== undefined) {
+      slug = await resolveUniqueSlug(data.name || config.name, data.slug, id);
     }
+
+    const description =
+      data.description !== undefined
+        ? data.description?.trim() || null
+        : undefined;
+    const autoOpenTime =
+      data.autoOpenTime !== undefined
+        ? data.autoOpenTime?.trim() || null
+        : undefined;
+    const autoCloseTime =
+      data.autoCloseTime !== undefined
+        ? data.autoCloseTime?.trim() || null
+        : undefined;
 
     return await db.queueConfig.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        slug,
+        description,
+        autoOpenTime,
+        autoCloseTime,
+      },
     });
   },
 

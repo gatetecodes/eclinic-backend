@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import { QueueConfigService } from "@/services/queue-config.service";
@@ -17,7 +18,20 @@ export const QueuesController = {
     const user = c.get("user");
     const clinicId = user.clinicId; // Provided by tenant middleware
     const branchId = user.branchId;
-    const body = await c.req.json();
+
+    const {
+      name,
+      description,
+      slug,
+      isPublic,
+      departmentId,
+      doctorId,
+      autoOpenTime,
+      autoCloseTime,
+      isAutoOpenEnabled,
+      defaultAvgTime,
+      maxCapacity,
+    } = c.get("validatedJson");
 
     if (!clinicId) {
       throw new AppError({
@@ -34,21 +48,6 @@ export const QueuesController = {
         code: "CONTEXT_ERROR",
       });
     }
-
-    // Extract only allowed fields
-    const {
-      name,
-      description,
-      slug,
-      isPublic,
-      departmentId,
-      doctorId,
-      autoOpenTime,
-      autoCloseTime,
-      isAutoOpenEnabled,
-      defaultAvgTime,
-      maxCapacity,
-    } = body;
 
     const config = await QueueConfigService.create({
       name,
@@ -78,6 +77,79 @@ export const QueuesController = {
     return c.json({ success: true, data: configs });
   },
 
+  updateConfig: async (c: Context) => {
+    const { id } = c.get("validatedParam");
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    const body = await c.req.json();
+
+    //Verify ownership before update
+    const existingConfig = await QueueConfigService.getById(id);
+
+    if (!existingConfig) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Config not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    if (existingConfig.clinicId !== clinicId) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Access denied",
+        code: "FORBIDDEN",
+      });
+    }
+
+    const config = await QueueConfigService.update(id, body);
+    return c.json({ success: true, data: config });
+  },
+
+  deleteConfig: async (c: Context) => {
+    const { id } = c.get("validatedParam");
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    const existingConfig = await QueueConfigService.getById(id);
+
+    if (!existingConfig) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Config not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    if (existingConfig.clinicId !== clinicId) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Access denied",
+        code: "FORBIDDEN",
+      });
+    }
+
+    await db.queueConfig.delete({ where: { id } });
+    return c.json({ success: true, message: "Service deleted successfully" });
+  },
+
   // --- Operations (Protected) ---
 
   openQueue: async (c: Context) => {
@@ -103,7 +175,8 @@ export const QueuesController = {
     // Logic: Find current serving, mark done. Find next waiting, mark notified/serving.
     // For simplicity, we expose updateStatus.
     const entryId = Number(c.req.param("entryId"));
-    const status = c.req.query("status") as QueueEntryStatus;
+    const body = await c.req.json().catch(() => ({}));
+    const status = (c.req.query("status") || body.status) as QueueEntryStatus;
 
     if (!Object.values(QueueEntryStatus).includes(status)) {
       throw new AppError({

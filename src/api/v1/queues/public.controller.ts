@@ -36,6 +36,7 @@ export const PublicController = {
 
     // biome-ignore lint/suspicious/noExplicitAny: Prisma where clause is dynamic
     const whereClause: any = {
+      isQueueManagementEnabled: true,
       // Only show clinics that have at least one public queue
       queueConfigs: {
         some: { isPublic: true },
@@ -99,6 +100,19 @@ export const PublicController = {
         status: httpCodes.BAD_REQUEST,
         message: "Invalid clinic ID",
         code: "INVALID_CLINIC_ID",
+      });
+    }
+
+    const clinic = await db.clinic.findUnique({
+      where: { id: clinicId },
+      select: { isQueueManagementEnabled: true },
+    });
+
+    if (!clinic?.isQueueManagementEnabled) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Queue management is not enabled for this clinic",
+        code: "QUEUE_MANAGEMENT_DISABLED",
       });
     }
 

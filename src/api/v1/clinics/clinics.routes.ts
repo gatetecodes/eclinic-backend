@@ -10,12 +10,14 @@ import {
   togglePatientPortalForClinic,
   updateClinic,
   updateClinicAdmin,
+  updateClinicSettings,
   updateClinicSubscriptionStatus,
 } from "./clinics.controller.ts";
 import {
   clinicSchema,
   updateClinicAdminSchema,
   updateClinicSchema,
+  updateClinicSettingsSchema,
   updateClinicSubscriptionStatusSchema,
 } from "./clinics.validation.ts";
 
@@ -36,6 +38,11 @@ router.put(
 );
 router.get("/:id/doctors", getPortalClinicDoctors);
 router.put("/:id/toggle-patient-portal", togglePatientPortalForClinic);
+router.put(
+  "/:id/settings",
+  validate(updateClinicSettingsSchema, "json"),
+  updateClinicSettings
+);
 
 router.put(
   "/:id/subscription-status",

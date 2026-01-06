@@ -421,3 +421,61 @@ export const togglePatientPortalForClinic = async (c: Context) => {
     );
   }
 };
+
+export const updateClinicSettings = async (c: Context) => {
+  try {
+    const { id } = c.req.param();
+    const user = c.get("user");
+    const clinicId = Number.parseInt(id, 10);
+
+    if (Number.isNaN(clinicId)) {
+      return c.json(
+        { error: "Invalid clinicId" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.clinicId !== clinicId) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const body = c.get("validatedJson");
+    const { isQueueManagementEnabled } = body;
+
+    const clinic = await db.clinic.findUnique({
+      where: { id: clinicId },
+    });
+    if (!clinic) {
+      return c.json(
+        { error: "Clinic not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const updatedClinic = await db.clinic.update({
+      where: { id: clinicId },
+      data: {
+        isQueueManagementEnabled:
+          typeof isQueueManagementEnabled === "boolean"
+            ? isQueueManagementEnabled
+            : undefined,
+      },
+    });
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Clinic settings updated successfully",
+      data: updatedClinic,
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
