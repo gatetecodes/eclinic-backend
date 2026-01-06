@@ -80,15 +80,58 @@ export const QueuesController = {
   },
 
   updateConfig: async (c: Context) => {
-    const id = Number(c.req.param("id"));
+    const { id } = c.get("validatedParam");
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
     const body = await c.req.json();
+
+    //Verify ownership before update
+    const existingConfig = await QueueConfigService.getById(id);
+
+    if (existingConfig?.clinicId !== clinicId) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Access denied",
+        code: "FORBIDDEN",
+      });
+    }
 
     const config = await QueueConfigService.update(id, body);
     return c.json({ success: true, data: config });
   },
 
   deleteConfig: async (c: Context) => {
-    const id = Number(c.req.param("id"));
+    const { id } = c.get("validatedParam");
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    const existingConfig = await QueueConfigService.getById(id);
+
+    if (existingConfig?.clinicId !== clinicId) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Access denied",
+        code: "FORBIDDEN",
+      });
+    }
+
     await db.queueConfig.delete({ where: { id } });
     return c.json({ success: true, message: "Service deleted successfully" });
   },
