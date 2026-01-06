@@ -1,5 +1,5 @@
-import { QueueEntryStatus } from "generated/prisma/client";
 import { z } from "zod";
+import { QueueEntryStatus } from "../../../../generated/prisma/client";
 
 export const createQueueConfigSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -13,8 +13,6 @@ export const createQueueConfigSchema = z.object({
   maxCapacity: z.number().optional(),
   slug: z.string().optional(),
   isPublic: z.boolean().optional(),
-  clinicId: z.number().optional(),
-  branchId: z.number().optional(),
 });
 
 export const updateQueueConfigSchema = createQueueConfigSchema.partial();

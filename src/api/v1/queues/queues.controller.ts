@@ -18,7 +18,20 @@ export const QueuesController = {
     const user = c.get("user");
     const clinicId = user.clinicId; // Provided by tenant middleware
     const branchId = user.branchId;
-    const body = await c.req.json();
+
+    const {
+      name,
+      description,
+      slug,
+      isPublic,
+      departmentId,
+      doctorId,
+      autoOpenTime,
+      autoCloseTime,
+      isAutoOpenEnabled,
+      defaultAvgTime,
+      maxCapacity,
+    } = c.get("validatedJson");
 
     if (!clinicId) {
       throw new AppError({
@@ -35,21 +48,6 @@ export const QueuesController = {
         code: "CONTEXT_ERROR",
       });
     }
-
-    // Extract only allowed fields
-    const {
-      name,
-      description,
-      slug,
-      isPublic,
-      departmentId,
-      doctorId,
-      autoOpenTime,
-      autoCloseTime,
-      isAutoOpenEnabled,
-      defaultAvgTime,
-      maxCapacity,
-    } = body;
 
     const config = await QueueConfigService.create({
       name,
@@ -97,7 +95,15 @@ export const QueuesController = {
     //Verify ownership before update
     const existingConfig = await QueueConfigService.getById(id);
 
-    if (existingConfig?.clinicId !== clinicId) {
+    if (!existingConfig) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Config not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    if (existingConfig.clinicId !== clinicId) {
       throw new AppError({
         status: httpCodes.FORBIDDEN,
         message: "Access denied",
@@ -124,7 +130,15 @@ export const QueuesController = {
 
     const existingConfig = await QueueConfigService.getById(id);
 
-    if (existingConfig?.clinicId !== clinicId) {
+    if (!existingConfig) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Config not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    if (existingConfig.clinicId !== clinicId) {
       throw new AppError({
         status: httpCodes.FORBIDDEN,
         message: "Access denied",

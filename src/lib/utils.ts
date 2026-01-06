@@ -133,6 +133,15 @@ export const generatePatientId = () => {
   return `${prefix}-${randomString}`;
 };
 
+export const generateSlug = (name: string): string => {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
 export const parseNationalityFromPhoneNumber = (phoneNumber: string) => {
   const knownCountryCodes = [
     {
