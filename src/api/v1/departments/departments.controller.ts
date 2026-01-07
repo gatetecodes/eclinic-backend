@@ -698,6 +698,9 @@ export const assignDepartmentsToClinic = async (c: Context) => {
         },
       },
     });
+    // Invalidate cached clinic departments so the dashboard reflects new data
+    await invalidateDashboardCache();
+
     return c.json({
       status: httpCodes.OK,
       message: "Departments assigned to clinic successfully",

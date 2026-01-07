@@ -60,8 +60,10 @@ export const QueueFlowService = {
         },
       });
 
-      const estimatedWaitTime =
-        (waitingCount + 1) * queue.avgDepartmentTimeInMinutes;
+      // Estimated wait is based on how many patients are ahead in the queue.
+      // When the new entry is first in line, waitingCount will be 0 and
+      // the estimated wait will correctly be 0 minutes.
+      const estimatedWaitTime = waitingCount * queue.avgDepartmentTimeInMinutes;
 
       const entry = await tx.queueEntry.create({
         data: {
