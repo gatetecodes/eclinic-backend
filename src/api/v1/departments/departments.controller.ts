@@ -4,6 +4,7 @@ import {
   CACHE_KEYS,
   DEFAULT_CACHE_TTL,
   getCachedData,
+  invalidateDashboardCache,
 } from "@/services/redis.service";
 import {
   type ClinicalDepartment,
@@ -519,6 +520,9 @@ export const createClinicDepartments = async (c: Context) => {
         },
       },
     });
+
+    // Invalidate cached clinic departments so the dashboard reflects new data
+    await invalidateDashboardCache();
 
     return c.json(
       {

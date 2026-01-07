@@ -27,12 +27,14 @@ type WhatsAppSession = {
     | "IDLE"
     | "AWAITING_CLINIC"
     | "AWAITING_SERVICE"
-    | "AWAITING_TRAVEL_TIME";
+    | "AWAITING_TRAVEL_TIME"
+    | "AWAITING_NAME";
   clinicId?: number;
   queueConfigId?: number;
   activeQueueId?: number;
   searchResults?: ClinicSearchResult[];
   servicesResults?: ServiceSearchResult[];
+  pendingTravelTime?: number;
 };
 
 type WhatsAppPayload = {
@@ -170,6 +172,8 @@ async function processMessage(
       return handleAwaitingService(text, session);
     case "AWAITING_TRAVEL_TIME":
       return await handleAwaitingTravelTime(from, text, session);
+    case "AWAITING_NAME":
+      return await handleAwaitingName(from, text, session);
     default:
       return {
         updatedSession: { state: "IDLE" },
@@ -372,15 +376,104 @@ async function handleAwaitingTravelTime(
     };
   }
 
+  const normalizedFrom = from.replace(/\D/g, "");
+
+  const existingPatient = await db.patient.findFirst({
+    where: {
+      OR: [
+        { phoneNumber: from },
+        { phoneNumber: normalizedFrom },
+        { phoneNumber: `+${normalizedFrom}` },
+      ],
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  });
+
+  if (existingPatient) {
+    const nameParts = [
+      existingPatient.firstName,
+      existingPatient.lastName,
+    ].filter((part) => part && part.trim().length > 0);
+    const displayName = nameParts.join(" ");
+
+    const entry = await QueueFlowService.joinQueue({
+      queueId: session.activeQueueId,
+      phoneNumber: from,
+      patientId: existingPatient.id,
+      name: displayName || undefined,
+      source: QueueSource.WHATSAPP,
+      travelTimeEstimate: travelTime,
+    });
+
+    return {
+      updatedSession: { state: "IDLE" },
+      responseMessage: formatJoinQueueMessage(entry),
+    };
+  }
+
+  return {
+    updatedSession: {
+      ...session,
+      state: "AWAITING_NAME",
+      pendingTravelTime: travelTime,
+      activeQueueId: session.activeQueueId,
+    },
+    responseMessage: "Before we add you to the queue, what's your full name?",
+  };
+}
+
+async function handleAwaitingName(
+  from: string,
+  text: string,
+  session: WhatsAppSession
+): Promise<{ updatedSession: WhatsAppSession; responseMessage: string }> {
+  const trimmedName = text.trim();
+
+  if (trimmedName.length === 0) {
+    return {
+      updatedSession: session,
+      responseMessage:
+        "Please provide your full name so we can add you to the queue.",
+    };
+  }
+
+  if (!session.activeQueueId || session.pendingTravelTime === undefined) {
+    return {
+      updatedSession: { state: "IDLE" },
+      responseMessage:
+        "Session expired or queue closed. Please start over by typing 'clinic'.",
+    };
+  }
+
   const entry = await QueueFlowService.joinQueue({
     queueId: session.activeQueueId,
     phoneNumber: from,
+    name: trimmedName,
     source: QueueSource.WHATSAPP,
-    travelTimeEstimate: travelTime,
+    travelTimeEstimate: session.pendingTravelTime,
   });
 
   return {
     updatedSession: { state: "IDLE" },
-    responseMessage: `Success! You have joined the queue.\n\nTicket #${entry.position}\nEstimated wait: ${entry.estimatedWaitTime} mins.\n\nWe will notify you when it's time to leave home! 🏥`,
+    responseMessage: formatJoinQueueMessage(entry),
   };
+}
+
+type JoinQueueEntrySummary = {
+  position: number;
+  estimatedWaitTime: number | null;
+};
+
+function formatJoinQueueMessage(entry: JoinQueueEntrySummary): string {
+  const estimatedWaitTime = entry.estimatedWaitTime ?? 0;
+
+  if (estimatedWaitTime <= 0) {
+    return `Success! You have joined the queue.\n\nTicket #${entry.position}\nYou are next in line. Please head to the clinic now. 🏥`;
+  }
+
+  return `Success! You have joined the queue.\n\nTicket #${entry.position}\nEstimated wait: ${estimatedWaitTime} mins.\n\nWe will notify you when it's time to leave home! 🏥`;
 }
