@@ -4,6 +4,7 @@ import { db } from "@/database/db";
 import { hashCredentialPassword } from "@/helpers/auth-helper";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import {
   BranchStatus,
   Role,
@@ -111,11 +112,13 @@ export const OnboardingController = {
     // Send verification email to the clinic admin so they can activate their account
     const emailResult = await createVerificationEmail(email);
     if (!emailResult.success) {
-      throw new AppError({
-        status: httpCodes.INTERNAL_SERVER_ERROR,
-        message: "Failed to send verification email",
-        code: "EMAIL_VERIFICATION_FAILED",
-      });
+      logger.warn(
+        "Onboarding clinic admin created but verification email failed",
+        {
+          email,
+          error: emailResult.error,
+        }
+      );
     }
 
     return c.json(
@@ -124,7 +127,9 @@ export const OnboardingController = {
         data: {
           clinicId: result.clinic.id,
           userId: result.user.id,
-          message: "Registration successful",
+          message: emailResult.success
+            ? "Registration successful. Please check your email to verify your account."
+            : "Registration successful, but we couldn't send the verification email. Please contact support if you don't receive an email.",
         },
       },
       httpCodes.CREATED as ContentfulStatusCode

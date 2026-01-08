@@ -128,13 +128,21 @@ export const createClinic = async (c: Context) => {
       });
     }
 
-    return c.json(
-      {
-        success: "Clinic created successfully",
-        data: clinic,
-      },
-      httpCodes.CREATED as ContentfulStatusCode
-    );
+    const responseBody: {
+      success: string;
+      data: typeof clinic;
+      message?: string;
+    } = {
+      success: "Clinic created successfully",
+      data: clinic,
+    };
+
+    if (!emailResult.success) {
+      responseBody.message =
+        "Clinic created successfully, but we couldn't send the verification email. Please contact support if you don't receive an email.";
+    }
+
+    return c.json(responseBody, httpCodes.CREATED as ContentfulStatusCode);
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
