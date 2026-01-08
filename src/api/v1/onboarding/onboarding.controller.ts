@@ -4,6 +4,7 @@ import { db } from "@/database/db";
 import { hashCredentialPassword } from "@/helpers/auth-helper";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import {
   BranchStatus,
   Role,
@@ -11,6 +12,7 @@ import {
   SubscriptionStatus,
   UserStatus,
 } from "../../../../generated/prisma/client";
+import { createVerificationEmail } from "../users/users.controller";
 
 export const OnboardingController = {
   registerQueueLess: async (c: Context) => {
@@ -75,7 +77,8 @@ export const OnboardingController = {
           phone_number: phone,
           clinicId: clinic.id,
           branchId: branch.id,
-          emailVerified: new Date(), // Auto-verify for simplicity in this flow? Or keep null.
+          // Mark as unverified until the admin completes email verification
+          emailVerified: null,
         },
       });
 
@@ -106,16 +109,83 @@ export const OnboardingController = {
       return { clinic, user };
     });
 
+    // Send verification email to the clinic admin so they can activate their account
+    const emailResult = await createVerificationEmail(email);
+    if (!emailResult.success) {
+      logger.warn(
+        "Onboarding clinic admin created but verification email failed",
+        {
+          email,
+          error: emailResult.error,
+        }
+      );
+    }
+
     return c.json(
       {
         success: true,
         data: {
           clinicId: result.clinic.id,
           userId: result.user.id,
-          message: "Registration successful",
+          message: emailResult.success
+            ? "Registration successful. Please check your email to verify your account."
+            : "Registration successful, but we couldn't send the verification email. Please contact support if you don't receive an email.",
         },
       },
       httpCodes.CREATED as ContentfulStatusCode
+    );
+  },
+  verifyEmail: async (c: Context) => {
+    const token = c.req.query("token");
+
+    if (!token) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Missing verification token",
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    const verificationToken = await db.verificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!verificationToken) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Invalid or expired verification token",
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    if (verificationToken.expires < new Date()) {
+      // Clean up expired token
+      await db.verificationToken.delete({
+        where: { token },
+      });
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Verification token has expired",
+        code: "TOKEN_EXPIRED",
+      });
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { email: verificationToken.email },
+        data: { emailVerified: new Date() },
+      });
+      await tx.verificationToken.deleteMany({
+        where: { email: verificationToken.email },
+      });
+    });
+
+    return c.json(
+      {
+        success: true,
+        message: "Email verified successfully",
+      },
+      httpCodes.OK as ContentfulStatusCode
     );
   },
 };

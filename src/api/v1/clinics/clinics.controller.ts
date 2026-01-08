@@ -118,13 +118,31 @@ export const createClinic = async (c: Context) => {
       });
       return { newClinic, branch, adminUser };
     });
-    return c.json(
-      {
-        success: "Clinic created successfully",
-        data: clinic,
-      },
-      httpCodes.CREATED as ContentfulStatusCode
-    );
+
+    // Send verification email to the clinic admin so they can activate their account
+    const emailResult = await createVerificationEmail(clinic.adminUser.email);
+    if (!emailResult.success) {
+      logger.warn("Clinic admin created but verification email failed", {
+        email: clinic.adminUser.email,
+        error: emailResult.error,
+      });
+    }
+
+    const responseBody: {
+      success: string;
+      data: typeof clinic;
+      message?: string;
+    } = {
+      success: "Clinic created successfully",
+      data: clinic,
+    };
+
+    if (!emailResult.success) {
+      responseBody.message =
+        "Clinic created successfully, but we couldn't send the verification email. Please contact support if you don't receive an email.";
+    }
+
+    return c.json(responseBody, httpCodes.CREATED as ContentfulStatusCode);
   } catch (_error) {
     return c.json(
       { error: "Internal Server Error" },
