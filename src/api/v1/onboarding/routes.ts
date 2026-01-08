@@ -8,4 +8,6 @@ onboardingRouter.post(
   OnboardingController.registerQueueLess
 );
 
+onboardingRouter.get("/verify-email", OnboardingController.verifyEmail);
+
 export default onboardingRouter;

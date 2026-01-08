@@ -11,6 +11,7 @@ import {
   SubscriptionStatus,
   UserStatus,
 } from "../../../../generated/prisma/client";
+import { createVerificationEmail } from "../users/users.controller";
 
 export const OnboardingController = {
   registerQueueLess: async (c: Context) => {
@@ -75,7 +76,8 @@ export const OnboardingController = {
           phone_number: phone,
           clinicId: clinic.id,
           branchId: branch.id,
-          emailVerified: new Date(), // Auto-verify for simplicity in this flow? Or keep null.
+          // Mark as unverified until the admin completes email verification
+          emailVerified: null,
         },
       });
 
@@ -106,6 +108,16 @@ export const OnboardingController = {
       return { clinic, user };
     });
 
+    // Send verification email to the clinic admin so they can activate their account
+    const emailResult = await createVerificationEmail(email);
+    if (!emailResult.success) {
+      throw new AppError({
+        status: httpCodes.INTERNAL_SERVER_ERROR,
+        message: "Failed to send verification email",
+        code: "EMAIL_VERIFICATION_FAILED",
+      });
+    }
+
     return c.json(
       {
         success: true,
@@ -116,6 +128,59 @@ export const OnboardingController = {
         },
       },
       httpCodes.CREATED as ContentfulStatusCode
+    );
+  },
+  verifyEmail: async (c: Context) => {
+    const token = c.req.query("token");
+
+    if (!token) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Missing verification token",
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    const verificationToken = await db.verificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!verificationToken) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Invalid or expired verification token",
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    if (verificationToken.expires < new Date()) {
+      // Clean up expired token
+      await db.verificationToken.delete({
+        where: { token },
+      });
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Verification token has expired",
+        code: "TOKEN_EXPIRED",
+      });
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { email: verificationToken.email },
+        data: { emailVerified: new Date() },
+      });
+      await tx.verificationToken.deleteMany({
+        where: { email: verificationToken.email },
+      });
+    });
+
+    return c.json(
+      {
+        success: true,
+        message: "Email verified successfully",
+      },
+      httpCodes.OK as ContentfulStatusCode
     );
   },
 };
