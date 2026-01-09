@@ -156,6 +156,7 @@ const prismaForAuth = createCoercingPrisma(prisma);
 
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
+const nextUpUrl = process.env.NEXT_UP_URL || "";
 
 if (!(backendUrl && frontendUrl)) {
   throw new Error("BACKEND_URL or APP_URL is not set");
@@ -167,7 +168,7 @@ if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
 
 export const auth = betterAuth({
   baseURL: backendUrl,
-  trustedOrigins: [frontendUrl],
+  trustedOrigins: [frontendUrl, nextUpUrl],
   database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),
