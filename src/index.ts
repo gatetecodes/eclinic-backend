@@ -28,7 +28,7 @@ app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: process.env.APP_URL as string,
+    origin: [process.env.APP_URL as string, process.env.NEXT_UP_URL as string],
     credentials: true,
   })
 );
