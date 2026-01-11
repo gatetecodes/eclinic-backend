@@ -1,5 +1,11 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  ServerResponse,
+} from "node:http";
+import { createServer } from "node:http";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -115,35 +121,80 @@ import { initSocket } from "@/lib/socket";
 const port = process.env.PORT || DEFAULT_PORT;
 const host = process.env.HOST || "0.0.0.0";
 
-// Define minimal Bun types locally to avoid using 'any'
-type BunServer = {
-  stop: () => void;
-  // Add other properties if needed
-};
+type NodeServer = ReturnType<typeof createServer>;
 
-type BunServeOptions = {
-  port: string | number;
-  hostname: string;
-  fetch: (req: Request) => Response | Promise<Response>;
-};
+let server: NodeServer | null = null;
 
-type BunRuntime = {
-  serve: (options: BunServeOptions) => BunServer;
-};
+function getRequestBody(
+  req: IncomingMessage
+): ReadableStream<Uint8Array> | null {
+  if (!req.method || req.method === "GET" || req.method === "HEAD") {
+    return null;
+  }
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      req.on("data", (chunk: Buffer) => {
+        controller.enqueue(new Uint8Array(chunk));
+      });
+      req.on("end", () => {
+        controller.close();
+      });
+      req.on("error", (err) => {
+        controller.error(err);
+      });
+    },
+  });
+}
 
-declare const Bun: BunRuntime;
+async function handleNodeRequest(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const hostHeader = req.headers.host ?? `${host}:${port}`;
+  const url = new URL(req.url ?? "/", `http://${hostHeader}`);
 
-let server: BunServer | null = null;
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(
+    req.headers as IncomingHttpHeaders
+  )) {
+    if (typeof value === "string") {
+      headers.set(key, value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      headers.set(key, value.join(", "));
+    }
+  }
+
+  const request = new Request(url, {
+    method: req.method,
+    headers,
+    body: getRequestBody(req),
+  });
+
+  const response = await app.fetch(request);
+  res.statusCode = response.status;
+
+  for (const [key, value] of response.headers.entries()) {
+    res.setHeader(key, value);
+  }
+
+  const body = await response.arrayBuffer();
+  res.end(Buffer.from(body));
+}
 
 if (import.meta.main) {
-  server = Bun.serve({
-    port,
-    hostname: host,
-    fetch: app.fetch,
+  server = createServer((req, res) => {
+    handleNodeRequest(req, res).catch((error: unknown) => {
+      appLogger.error("http.server_error", { error });
+      res.statusCode = httpCodes.INTERNAL_SERVER_ERROR;
+      res.end("Internal Server Error");
+    });
   });
 
   initSocket(server);
 
+  server.listen(Number(port), host);
   appLogger.info(`Server is running on ${host}:${port}`);
 }
 
