@@ -90,7 +90,15 @@ export const QueueFlowService = {
 
       notifyQueueUpdate(data.queueId, {
         type: "NEW_ENTRY",
+        entryId: entry.id,
         count: waitingCount + 1,
+        entry: {
+          id: entry.id,
+          position: entry.position,
+          name: entry.name,
+          phoneNumber: entry.phoneNumber,
+          status: entry.status,
+        },
       });
 
       return entry;
