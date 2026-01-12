@@ -1346,6 +1346,7 @@ export const getUserById = async (c: Context) => {
           select: {
             id: true,
             name: true,
+            logo: true,
             subscriptionStatus: true,
             subscriptionPlan: true,
             isQueueManagementEnabled: true,
