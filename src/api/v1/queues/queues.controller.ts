@@ -15,6 +15,28 @@ import {
 
 const TRAILING_SLASH_REGEX = /\/$/;
 
+function getFrontendBaseUrl(origin: string | undefined): string | null {
+  const eclinicUrl = process.env.APP_URL;
+  const queuelessUrl = process.env.NEXT_UP_URL;
+
+  if (!origin) {
+    return eclinicUrl || queuelessUrl || null;
+  }
+
+  try {
+    if (queuelessUrl && origin.includes(new URL(queuelessUrl).host)) {
+      return queuelessUrl;
+    }
+    if (eclinicUrl && origin.includes(new URL(eclinicUrl).host)) {
+      return eclinicUrl;
+    }
+  } catch {
+    // ignore
+  }
+
+  return eclinicUrl || queuelessUrl || null;
+}
+
 export const QueuesController = {
   // --- Configuration (Protected) ---
 
@@ -168,7 +190,8 @@ export const QueuesController = {
     }
 
     const secret = process.env.NEXTUP_QR_SECRET;
-    const publicUrl = process.env.APP_URL || process.env.NEXT_UP_URL;
+    const publicUrl = getFrontendBaseUrl(c.req.header("origin"));
+
     if (!(secret && publicUrl)) {
       throw new AppError({
         status: httpCodes.INTERNAL_SERVER_ERROR,
