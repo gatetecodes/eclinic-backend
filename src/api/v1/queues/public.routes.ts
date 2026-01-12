@@ -13,6 +13,7 @@ publicQueuesRouter.get(
 publicQueuesRouter.post("/patients/check", PublicController.checkPatient);
 
 // Actions
+publicQueuesRouter.get("/qr/:token", PublicController.resolveQrToken);
 publicQueuesRouter.get("/config/:slug", QueuesController.getPublicClinic);
 publicQueuesRouter.post("/:id/join", QueuesController.joinQueuePublic); // :id is active Queue ID? Or Config ID? Controller implementation assumes active Queue ID.
 publicQueuesRouter.get("/entry/:id", QueuesController.getEntryStatus);

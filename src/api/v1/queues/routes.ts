@@ -24,6 +24,13 @@ queuesRouter.delete(
   QueuesController.deleteConfig
 );
 
+// QR code (per-service)
+queuesRouter.get(
+  "/config/:id/qr",
+  validate(validateIdParamsSchema, "param"),
+  QueuesController.getQueueConfigQr
+);
+
 // Operations
 queuesRouter.post("/:id/open", QueuesController.openQueue); // :id is configId
 queuesRouter.post("/active/:id/close", QueuesController.closeQueue); // :id is queueId
