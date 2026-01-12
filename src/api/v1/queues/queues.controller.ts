@@ -1,8 +1,10 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import jwt from "jsonwebtoken";
 import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import { QueueConfigService } from "@/services/queue-config.service";
 import { QueueFlowService } from "@/services/queue-flow.service";
 import { QueueManagerService } from "@/services/queue-manager.service";
@@ -10,6 +12,8 @@ import {
   QueueEntryStatus,
   QueueSource,
 } from "../../../../generated/prisma/client";
+
+const TRAILING_SLASH_REGEX = /\/$/;
 
 export const QueuesController = {
   // --- Configuration (Protected) ---
@@ -150,6 +154,71 @@ export const QueuesController = {
     return c.json({ success: "Service configuration deleted" });
   },
 
+  getQueueConfigQr: async (c: Context) => {
+    const { id } = c.get("validatedParam") as { id: number };
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    const secret = process.env.NEXTUP_QR_SECRET;
+    const publicUrl = process.env.APP_URL || process.env.NEXT_UP_URL;
+    if (!(secret && publicUrl)) {
+      throw new AppError({
+        status: httpCodes.INTERNAL_SERVER_ERROR,
+        message: "QR code configuration missing",
+        code: "QR_CONFIG_MISSING",
+      });
+    }
+
+    const config = await QueueConfigService.getById(id);
+    if (!config) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Config not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    if (config.clinicId !== clinicId) {
+      throw new AppError({
+        status: httpCodes.FORBIDDEN,
+        message: "Access denied",
+        code: "FORBIDDEN",
+      });
+    }
+
+    const ttlSeconds = Number(
+      process.env.QUEUELESS_QR_TTL_SECONDS ?? "2592000"
+    ); // 30d
+    const expiresIn =
+      Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds : 2_592_000;
+
+    const token = jwt.sign(
+      { queueConfigId: config.id, clinicId: config.clinicId },
+      secret,
+      { expiresIn }
+    );
+
+    const normalizedPublicUrl = publicUrl.replace(TRAILING_SLASH_REGEX, "");
+    const joinUrl = `${normalizedPublicUrl}/q/${token}`;
+
+    logger.info("qr.issued", {
+      clinicId: config.clinicId,
+      queueConfigId: config.id,
+      userId: user.id,
+      expiresInSeconds: expiresIn,
+    });
+
+    return c.json({ success: true, data: { token, joinUrl } });
+  },
+
   // --- Operations (Protected) ---
 
   openQueue: async (c: Context) => {
@@ -214,8 +283,14 @@ export const QueuesController = {
   joinQueuePublic: async (c: Context) => {
     const queueId = Number(c.req.param("id"));
     const body = await c.req.json();
-    const { phoneNumber, name, patientLat, patientLng, travelTimeEstimate } =
-      body;
+    const {
+      phoneNumber,
+      name,
+      patientLat,
+      patientLng,
+      travelTimeEstimate,
+      source,
+    } = body;
 
     if (!phoneNumber) {
       throw new AppError({
@@ -232,7 +307,15 @@ export const QueuesController = {
       patientLat,
       patientLng,
       travelTimeEstimate,
-      source: QueueSource.WHATSAPP, // or determine from UA
+      source: Object.values(QueueSource).includes(source)
+        ? (source as QueueSource)
+        : QueueSource.KIOSK,
+    });
+
+    logger.info("qr.joined", {
+      queueId,
+      entryId: entry.id,
+      source: entry.source,
     });
 
     return c.json({ success: true, data: entry });

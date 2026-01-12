@@ -1,9 +1,22 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import jwt from "jsonwebtoken";
 import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import { QueueEntryStatus } from "../../../../generated/prisma/client";
+
+function parsePositiveInt(value: unknown): number | null {
+  const n =
+    typeof value === "string" || typeof value === "number"
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isFinite(n) || n <= 0) {
+    return null;
+  }
+  return Math.trunc(n);
+}
 
 export const PublicController = {
   /**
@@ -198,5 +211,96 @@ export const PublicController = {
           }
         : null,
     });
+  },
+
+  resolveQrToken: async (c: Context) => {
+    const token = c.req.param("token");
+    const secret = process.env.NEXTUP_QR_SECRET;
+    if (!secret) {
+      throw new AppError({
+        status: httpCodes.INTERNAL_SERVER_ERROR,
+        message: "QR code configuration missing",
+        code: "QR_CONFIG_MISSING",
+      });
+    }
+
+    let decoded: unknown;
+    try {
+      decoded = jwt.verify(token, secret);
+    } catch {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Invalid or expired QR code",
+        code: "QR_INVALID",
+      });
+    }
+
+    const payload = decoded as Record<string, unknown>;
+    const queueConfigId = parsePositiveInt(payload.queueConfigId);
+    const clinicId = parsePositiveInt(payload.clinicId);
+    if (!(queueConfigId && clinicId)) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Invalid QR payload",
+        code: "QR_INVALID_PAYLOAD",
+      });
+    }
+
+    const config = await db.queueConfig.findFirst({
+      where: { id: queueConfigId, clinicId },
+      select: {
+        id: true,
+        clinicId: true,
+        name: true,
+        description: true,
+        doctor: { select: { name: true } },
+        department: { select: { name: true } },
+        clinic: { select: { name: true } },
+      },
+    });
+
+    if (!config) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Service queue not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    const activeQueue = await db.queue.findFirst({
+      where: {
+        queueConfigId,
+        status: "OPEN",
+        closeAt: null,
+      },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    logger.info("qr.resolved", {
+      clinicId,
+      queueConfigId,
+      activeQueueId: activeQueue?.id ?? null,
+    });
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          queueConfig: {
+            id: config.id,
+            clinicId: config.clinicId,
+            clinicName: config.clinic.name,
+            name: config.name,
+            description: config.description,
+            doctorName: config.doctor?.name ?? null,
+            departmentName: config.department?.name ?? null,
+          },
+          activeQueueId: activeQueue?.id ?? null,
+          isOpen: Boolean(activeQueue?.id),
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
   },
 };
