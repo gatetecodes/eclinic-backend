@@ -466,14 +466,16 @@ async function handleAwaitingName(
 type JoinQueueEntrySummary = {
   position: number;
   estimatedWaitTime: number | null;
+  waitingAhead?: number;
 };
 
 function formatJoinQueueMessage(entry: JoinQueueEntrySummary): string {
   const estimatedWaitTime = entry.estimatedWaitTime ?? 0;
+  const positionInQueue = (entry.waitingAhead ?? 0) + 1;
 
   if (estimatedWaitTime <= 0) {
-    return `Success! You have joined the queue.\n\nTicket #${entry.position}\nYou are next in line. Please head to the clinic now. 🏥`;
+    return `Success! You have joined the queue.\n\nTicket #${entry.position}\nYou are #${positionInQueue} in line. Please head to the clinic now. 🏥`;
   }
 
-  return `Success! You have joined the queue.\n\nTicket #${entry.position}\nEstimated wait: ${estimatedWaitTime} mins.\n\nWe will notify you when it's time to leave home! 🏥`;
+  return `Success! You have joined the queue.\n\nTicket #${entry.position}\nYou are #${positionInQueue} in line.\nEstimated wait: ${estimatedWaitTime} mins.\n\nWe will notify you when it's time to leave home! 🏥`;
 }

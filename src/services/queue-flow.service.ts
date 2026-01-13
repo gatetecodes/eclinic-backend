@@ -101,7 +101,10 @@ export const QueueFlowService = {
         },
       });
 
-      return entry;
+      return {
+        ...entry,
+        waitingAhead: waitingCount,
+      };
     });
   },
 
