@@ -157,6 +157,11 @@ const prismaForAuth = createCoercingPrisma(prisma);
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
 const nextUpUrl = process.env.NEXT_UP_URL || "";
+const isProdLike =
+  process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+const cookieDomain = isProdLike
+  ? process.env.COOKIE_DOMAIN || ".usecarelogic.com"
+  : undefined;
 
 if (!(backendUrl && frontendUrl)) {
   throw new Error("BACKEND_URL or APP_URL is not set");
@@ -255,10 +260,8 @@ export const auth = betterAuth({
     cookies: {
       session_token: {
         attributes: {
-          domain: process.env.COOKIE_DOMAIN || ".usecarelogic.com",
-          secure:
-            process.env.NODE_ENV === "production" ||
-            process.env.NODE_ENV === "staging",
+          ...(cookieDomain ? { domain: cookieDomain } : {}),
+          secure: isProdLike,
           sameSite: "lax",
           path: "/",
           httpOnly: true,
@@ -266,12 +269,10 @@ export const auth = betterAuth({
       },
     },
     crossSubDomainCookies: {
-      enabled: true,
-      domains: [process.env.COOKIE_DOMAIN || ".usecarelogic.com"],
+      enabled: Boolean(cookieDomain),
+      domains: cookieDomain ? [cookieDomain] : [],
     },
-    useSecureCookies:
-      process.env.NODE_ENV === "production" ||
-      process.env.NODE_ENV === "staging",
+    useSecureCookies: isProdLike,
     database: {
       generateId: false,
     },
