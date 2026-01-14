@@ -1466,40 +1466,47 @@ export const getLabTechnicianStats = async (c: Context) => {
   }
 };
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
 export const getAccountantStats = async (c: Context) => {
   try {
     const accountantId = Number(c.req.query("accountantId"));
     const accountant = await db.user.findUnique({
       where: { id: accountantId },
+      select: { clinicId: true },
     });
-    if (!accountant) {
+
+    if (!accountant?.clinicId) {
       return c.json(
-        { error: "Accountant not found" },
+        { error: "Accountant or Clinic not found" },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
 
+    const clinicId = accountant.clinicId;
     const now = new Date();
-    const today = new Date(now.setHours(0, 0, 0, 0));
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    const today = startOfDay(now);
+    const yesterday = startOfDay(subDays(now, 1));
 
-    const [currentDay, previousDay] = await Promise.all([
+    const [currentDay, previousDay, paymentsToday] = await Promise.all([
       db.$transaction([
         db.payment.aggregate({
           _sum: { amount: true },
-          where: { createdAt: { gte: today } },
+          where: { createdAt: { gte: today }, clinicId },
         }),
         db.payment.count({
           where: {
             createdAt: { gte: today },
             paymentStatus: PaymentStatus.PENDING,
+            clinicId,
           },
         }),
         db.payment.count({
           where: {
             createdAt: { gte: today },
-            paymentStatus: PaymentStatus.PAID,
+            paymentStatus: {
+              in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
+            },
+            clinicId,
           },
         }),
         db.payment.aggregate({
@@ -1507,24 +1514,29 @@ export const getAccountantStats = async (c: Context) => {
           where: {
             createdAt: { gte: today },
             paymentMode: PaymentMode.INSURANCE,
+            clinicId,
           },
         }),
       ]),
       db.$transaction([
         db.payment.aggregate({
           _sum: { amount: true },
-          where: { createdAt: { gte: yesterday, lt: today } },
+          where: { createdAt: { gte: yesterday, lt: today }, clinicId },
         }),
         db.payment.count({
           where: {
             createdAt: { gte: yesterday, lt: today },
             paymentStatus: PaymentStatus.PENDING,
+            clinicId,
           },
         }),
         db.payment.count({
           where: {
             createdAt: { gte: yesterday, lt: today },
-            paymentStatus: PaymentStatus.PAID,
+            paymentStatus: {
+              in: [PaymentStatus.PAID, PaymentStatus.FULLY_PAID],
+            },
+            clinicId,
           },
         }),
         db.payment.aggregate({
@@ -1532,15 +1544,55 @@ export const getAccountantStats = async (c: Context) => {
           where: {
             createdAt: { gte: yesterday, lt: today },
             paymentMode: PaymentMode.INSURANCE,
+            clinicId,
           },
         }),
       ]),
+      db.payment.findMany({
+        where: { createdAt: { gte: today }, clinicId },
+        select: {
+          amount: true,
+          paymentMode: true,
+          visit: {
+            select: {
+              patientInsurance: {
+                select: {
+                  insuranceCompany: {
+                    select: {
+                      companyName: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
     ]);
+
+    const distributionMap: Record<string, number> = {};
+    for (const p of paymentsToday) {
+      let mode = p.paymentMode as string;
+      if (mode === "INSURANCE") {
+        const insuranceName =
+          p.visit?.patientInsurance?.insuranceCompany?.companyName;
+        mode = insuranceName || "Insurance";
+      }
+      distributionMap[mode] = (distributionMap[mode] || 0) + Number(p.amount);
+    }
+
+    const formattedPaymentModeDist = Object.entries(distributionMap).map(
+      ([mode, amount]) => ({
+        mode,
+        amount,
+      })
+    );
+
     return c.json(
       {
         data: {
           totalRevenue: {
-            count: currentDay[0]._sum.amount || 0,
+            count: Number(currentDay[0]._sum.amount || 0),
             trend: calculateTrend(
               Number(currentDay[0]._sum.amount || 0),
               Number(previousDay[0]._sum.amount || 0)
@@ -1561,7 +1613,7 @@ export const getAccountantStats = async (c: Context) => {
             trendText: calculateTrendText(currentDay[2], previousDay[2]),
           },
           insuranceClaims: {
-            count: currentDay[3]._sum.insuranceAmount || 0,
+            count: Number(currentDay[3]._sum.insuranceAmount || 0),
             trend: calculateTrend(
               Number(currentDay[3]._sum.insuranceAmount || 0),
               Number(previousDay[3]._sum.insuranceAmount || 0)
@@ -1571,6 +1623,10 @@ export const getAccountantStats = async (c: Context) => {
               Number(previousDay[3]._sum.insuranceAmount || 0)
             ),
           },
+          todayRevenue: {
+            count: Number(currentDay[0]._sum.amount || 0),
+          },
+          paymentModeDistribution: formattedPaymentModeDist,
         },
       },
       httpCodes.OK as ContentfulStatusCode
