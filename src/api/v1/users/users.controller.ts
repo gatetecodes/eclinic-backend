@@ -1347,6 +1347,8 @@ export const getUserById = async (c: Context) => {
             id: true,
             name: true,
             logo: true,
+            contactPhone: true,
+            contactEmail: true,
             subscriptionStatus: true,
             subscriptionPlan: true,
             isQueueManagementEnabled: true,
@@ -1356,6 +1358,9 @@ export const getUserById = async (c: Context) => {
           select: {
             id: true,
             name: true,
+            address: true,
+            contactPhone: true,
+            contactEmail: true,
             isHeadOffice: true,
           },
         },

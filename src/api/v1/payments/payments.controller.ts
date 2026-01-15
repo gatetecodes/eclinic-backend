@@ -66,10 +66,15 @@ export const getPayments = async (c: Context) => {
                     lastName: true,
                     phoneNumber: true,
                     dateOfBirth: true,
+                    gender: true,
+                    isChild: true,
                   },
                 },
                 patientInsurance: {
                   select: {
+                    insuranceNumber: true,
+                    coveragePercentage: true,
+                    relationshipType: true,
                     insuranceCompany: {
                       select: {
                         companyName: true,
@@ -272,10 +277,15 @@ export const exportPayments = async (c: Context) => {
                 firstName: true,
                 lastName: true,
                 phoneNumber: true,
+                gender: true,
+                isChild: true,
               },
             },
             patientInsurance: {
               select: {
+                insuranceNumber: true,
+                coveragePercentage: true,
+                relationshipType: true,
                 insuranceCompany: {
                   select: {
                     companyName: true,
