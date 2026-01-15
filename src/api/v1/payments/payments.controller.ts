@@ -75,6 +75,11 @@ export const getPayments = async (c: Context) => {
                         companyName: true,
                       },
                     },
+                    employer: {
+                      select: {
+                        employerName: true,
+                      },
+                    },
                   },
                 },
               },
@@ -274,6 +279,11 @@ export const exportPayments = async (c: Context) => {
                 insuranceCompany: {
                   select: {
                     companyName: true,
+                  },
+                },
+                employer: {
+                  select: {
+                    employerName: true,
                   },
                 },
               },
