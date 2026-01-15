@@ -178,7 +178,7 @@ export async function handleInsurance(
   insuranceData: NonNullable<PaymentModeType["insurance"]>,
   patientId: number
 ): Promise<number> {
-  if (!(insuranceData && "insuranceCompany" in insuranceData)) {
+  if (!(insuranceData?.insuranceCompany && insuranceData?.insuranceNumber)) {
     return 0;
   }
 
@@ -219,7 +219,7 @@ export async function handleInsurance(
       patientId,
       insuranceNumber: insuranceData.insuranceNumber,
       coveragePercentage: Number.parseFloat(
-        Number.parseFloat(insuranceData.coveragePercentage).toFixed(2)
+        Number.parseFloat(insuranceData.coveragePercentage || "0").toFixed(2)
       ),
       insuranceCompanyId,
       employerId,
