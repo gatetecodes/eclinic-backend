@@ -13,9 +13,11 @@ import { buildQueryOptions } from "../../../helpers/query-helper";
 import {
   createNewInsurancePrice,
   createNewProduct,
-  findExistingProduct,
+  findExistingProductsByNames,
+  getInsuranceCompaniesMap,
   getTargetClinicId,
   handleExistingProduct,
+  type IExistingProduct,
   type ProductCSVRow,
 } from "../../../helpers/tariff-helpers";
 import { searchParamsSchema } from "../../../lib/common-validation";
@@ -69,31 +71,30 @@ function userCanAccessProduct(
 async function createInitialInsurancePricesForNewProduct(
   productId: number,
   tariffs: { tariff: number; tariffWithCo: number; govTariff: number },
-  clinicId: number
+  clinicId: number,
+  companyMap?: Map<string, number>
 ) {
   const { tariff, tariffWithCo, govTariff } = tariffs;
-  if (!Number.isNaN(tariff)) {
+
+  // Process private insurance companies
+  const hasTariff = !Number.isNaN(tariff);
+  const hasTariffWithCo = !Number.isNaN(tariffWithCo);
+
+  if (hasTariff || hasTariffWithCo) {
     for (const insuranceCompanyName of Object.values(InsuranceCompanies)) {
       await createNewInsurancePrice({
         productId,
-        price: tariff,
+        price: Number.isNaN(tariff) ? 0 : tariff,
         insuranceCompanyName,
         priceType: PriceType.PRIVATE,
+        priceWithCo: Number.isNaN(tariffWithCo) ? undefined : tariffWithCo,
         clinicId,
+        companyMap,
       });
     }
   }
-  if (!Number.isNaN(tariffWithCo)) {
-    for (const insuranceCompanyName of Object.values(InsuranceCompanies)) {
-      await createNewInsurancePrice({
-        productId,
-        price: tariffWithCo,
-        insuranceCompanyName,
-        priceType: PriceType.PRIVATE,
-        clinicId,
-      });
-    }
-  }
+
+  // Process government/special insurers
   if (!Number.isNaN(govTariff)) {
     for (const insuranceCompanyName of Object.values(SpecialInsurers)) {
       await createNewInsurancePrice({
@@ -102,6 +103,7 @@ async function createInitialInsurancePricesForNewProduct(
         insuranceCompanyName,
         priceType: PriceType.GOV,
         clinicId,
+        companyMap,
       });
     }
   }
@@ -1156,6 +1158,9 @@ export const importProductsFromCSV = async (c: Context) => {
 
     const { csvContent } = validatedFields.data;
 
+    // Fetch insurance companies map once for all records
+    const companyMap = await getInsuranceCompaniesMap();
+
     // Parse CSV content
     const records: ProductCSVRow[] = parse(csvContent, {
       columns: true,
@@ -1168,6 +1173,8 @@ export const importProductsFromCSV = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+
+    logger.info(`Starting product import: ${records.length} records found`);
 
     // Sort records to process parent products first (match frontend logic)
     const sortedRecords = [...records].sort((a, b) => {
@@ -1184,14 +1191,39 @@ export const importProductsFromCSV = async (c: Context) => {
     let failedImports = 0;
     const errors: string[] = [];
 
-    const BATCH_SIZE = 20;
+    const BATCH_SIZE = 25;
     // Process records in batches
     for (let i = 0; i < sortedRecords.length; i += BATCH_SIZE) {
       const batch = sortedRecords.slice(i, i + BATCH_SIZE);
+      logger.info(
+        `Processing batch ${i / BATCH_SIZE + 1} (${batch.length} products)`
+      );
+
+      // Fetch all existing products for this batch in one call
+      const existingProducts = await findExistingProductsByNames(
+        batch.map((r) => r.NAME)
+      );
+      const existingProductsMap = new Map(
+        existingProducts.map((p) => [p.name.toLowerCase(), p])
+      );
+
       const results = await Promise.all(
         batch.map(async (record) => {
           try {
-            return await processRecord(user.clinicId)(record);
+            const existingProduct = existingProductsMap.get(
+              record.NAME.toLowerCase()
+            );
+            const startTime = Date.now();
+            const result = await processRecord(
+              user.clinicId,
+              companyMap,
+              existingProduct
+            )(record);
+            const duration = Date.now() - startTime;
+            if (duration > 1000) {
+              logger.warn(`Slow import for ${record.NAME}: ${duration}ms`);
+            }
+            return result;
           } catch (error) {
             logger.error(`Error processing product ${record.NAME}:`, { error });
             return null;
@@ -1204,8 +1236,14 @@ export const importProductsFromCSV = async (c: Context) => {
       successfulImports += batchSuccesses;
       failedImports += batch.length - batchSuccesses;
 
+      logger.info(
+        `Batch ${i / BATCH_SIZE + 1} completed: ${batchSuccesses} successful, ${batch.length - batchSuccesses} failed`
+      );
+
       // Add a small delay between batches to prevent overwhelming the connection pool
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 250);
+      });
     }
 
     return c.json({
@@ -1226,26 +1264,20 @@ export const importProductsFromCSV = async (c: Context) => {
 };
 
 // Helper function to process individual CSV records (matches original structure)
-function processRecord(clinicId: number) {
+function processRecord(
+  clinicId: number,
+  companyMap: Map<string, number>,
+  existingProduct?: IExistingProduct
+) {
   return async (record: ProductCSVRow) => {
     try {
-      const existingProduct = await findExistingProduct(record.NAME);
-      if (existingProduct) {
-        const formattedProduct = {
-          ...existingProduct,
-          insurancePrices: existingProduct.insurancePrices.map((ip) => ({
-            ...ip,
-            price: Number(ip.price),
-            priceWithCo: Number(ip.priceWithCo),
-          })),
-          basePrice: Number(existingProduct.basePrice),
-          foreignersPrice: Number(existingProduct.foreignersPrice),
-          unit: existingProduct.unit || undefined,
-          normalRange: existingProduct.normalRange || undefined,
-          consumables: existingProduct.consumables || undefined,
-          clinics: existingProduct.clinics,
-        };
-        await handleExistingProduct(formattedProduct, record, clinicId);
+      if (existingProduct != null) {
+        await handleExistingProduct(
+          existingProduct,
+          record,
+          clinicId,
+          companyMap
+        );
         return true;
       }
       const newProduct = await createNewProduct(record, clinicId);
@@ -1256,7 +1288,8 @@ function processRecord(clinicId: number) {
           tariffWithCo: Number.parseFloat(record.TARIFF_WITH_CO as string),
           govTariff: Number.parseFloat(record.GOV_INSURANCE as string),
         },
-        clinicId
+        clinicId,
+        companyMap
       );
       return true;
     } catch (error) {

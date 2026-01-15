@@ -4,6 +4,7 @@ import {
   PaymentStatus,
   type PaymentType,
   PriceType,
+  type Prisma,
   Role,
   Unit,
 } from "../../generated/prisma/client";
@@ -243,8 +244,19 @@ async function isParentProduct(referenceNumber: string) {
 }
 
 // Helper function to get insurance company ID (trim + case-insensitive match; auto-create if missing)
-async function getInsuranceCompanyId(companyName: string) {
+async function getInsuranceCompanyId(
+  companyName: string,
+  companyMap?: Map<string, number>
+) {
   const normalizedName = companyName.trim().replace(/\s+/g, " ");
+
+  if (companyMap) {
+    const id = companyMap.get(normalizedName.toLowerCase());
+    if (id) {
+      return id;
+    }
+  }
+
   // Try case-insensitive match first
   const existing = await db.insuranceCompany.findFirst({
     where: {
@@ -279,6 +291,21 @@ async function getInsuranceCompanyId(companyName: string) {
     }
     throw new Error("Insurance company not found");
   }
+}
+
+// Helper to get all insurance companies at once
+export async function getInsuranceCompaniesMap() {
+  const companies = await db.insuranceCompany.findMany({
+    select: { id: true, companyName: true },
+  });
+  const map = new Map<string, number>();
+  for (const company of companies) {
+    map.set(
+      company.companyName.trim().replace(/\s+/g, " ").toLowerCase(),
+      company.id
+    );
+  }
+  return map;
 }
 
 // Helper function to generate product code
@@ -319,12 +346,12 @@ async function addConsumablesToInventory(
   });
 }
 
-// Main helper function to find existing product
-export async function findExistingProduct(
-  name: string
-): Promise<IExistingProduct | null> {
-  const product = await db.product.findFirst({
-    where: { name },
+// Main helper function to find existing products in a batch
+export async function findExistingProductsByNames(
+  names: string[]
+): Promise<IExistingProduct[]> {
+  const products = await db.product.findMany({
+    where: { name: { in: names } },
     select: {
       id: true,
       name: true,
@@ -347,11 +374,7 @@ export async function findExistingProduct(
     },
   });
 
-  if (!product) {
-    return null;
-  }
-
-  return {
+  return products.map((product) => ({
     ...product,
     basePrice: Number(product.basePrice) || 0,
     foreignersPrice: Number(product.foreignersPrice) || 0,
@@ -366,7 +389,7 @@ export async function findExistingProduct(
       priceWithCo: ip.priceWithCo ? Number(ip.priceWithCo) : undefined,
       clinicId: ip.clinicId,
     })),
-  };
+  }));
 }
 
 // Helper function to create new insurance price
@@ -377,6 +400,7 @@ export const createNewInsurancePrice = async ({
   priceType,
   priceWithCo,
   clinicId,
+  companyMap,
 }: {
   productId: number;
   price: number;
@@ -384,10 +408,13 @@ export const createNewInsurancePrice = async ({
   priceType: PriceType;
   priceWithCo?: number;
   clinicId?: number;
+  companyMap?: Map<string, number>;
 }) => {
   try {
-    const insuranceCompanyId =
-      await getInsuranceCompanyId(insuranceCompanyName);
+    const insuranceCompanyId = await getInsuranceCompanyId(
+      insuranceCompanyName,
+      companyMap
+    );
     return db.insurancePrice.create({
       data: {
         productId,
@@ -433,82 +460,6 @@ const findGlobalInsurancePrice = (
 };
 
 // Helper functions to reduce complexity
-const updateInsurancePrice = async ({
-  existingProduct,
-  price,
-  companies,
-  priceType,
-  field,
-  clinicId,
-}: {
-  existingProduct: IExistingProduct;
-  price: number;
-  companies: string[];
-  priceType: PriceType;
-  field: "price" | "priceWithCo";
-  clinicId: number;
-  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
-}) => {
-  for (const companyName of companies) {
-    // Try to find clinic-specific insurance price first
-    const existingPrice = findClinicInsurancePrice(
-      existingProduct.insurancePrices,
-      companyName,
-      clinicId
-    );
-
-    if (existingPrice) {
-      // Update existing clinic-specific price
-      await db.insurancePrice.update({
-        where: { id: existingPrice.id },
-        data: { [field]: price },
-      });
-      continue;
-    }
-
-    // Check if there's a global price (clinicId = null) we should use as base
-    const globalPrice = findGlobalInsurancePrice(
-      existingProduct.insurancePrices,
-      companyName
-    );
-
-    if (globalPrice) {
-      // Create clinic-specific version from global
-      let finalPrice: number;
-      let finalPriceWithCo: number | undefined;
-
-      if (field === "price") {
-        finalPrice = price;
-        finalPriceWithCo = globalPrice.priceWithCo
-          ? Number(globalPrice.priceWithCo)
-          : undefined;
-      } else {
-        finalPrice = Number(globalPrice.price);
-        finalPriceWithCo = price;
-      }
-
-      await createNewInsurancePrice({
-        productId: existingProduct.id,
-        price: finalPrice,
-        insuranceCompanyName: companyName,
-        priceType,
-        priceWithCo: finalPriceWithCo,
-        clinicId,
-      });
-    } else {
-      // Create new clinic-specific price
-      await createNewInsurancePrice({
-        productId: existingProduct.id,
-        price: field === "price" ? price : 0,
-        insuranceCompanyName: companyName,
-        priceType,
-        priceWithCo: field === "priceWithCo" ? price : undefined,
-        clinicId,
-      });
-    }
-  }
-};
-
 const updateProductPricing = async (
   productId: number,
   newPrivateTariff: number,
@@ -552,25 +503,6 @@ const updateProductPricing = async (
   });
 };
 
-// Connect product to clinic if missing
-async function connectProductToClinic(
-  existingProduct: IExistingProduct,
-  clinicId: number
-) {
-  const clinicIds = existingProduct.clinics.map((c) => c.id);
-  if (!clinicIds.includes(clinicId)) {
-    await db.product.update({
-      where: { id: existingProduct.id },
-      data: {
-        clinics: {
-          connect: { id: clinicId },
-        },
-      },
-    });
-  }
-}
-
-// Apply insurance updates in one place to reduce complexity at call site
 async function applyInsuranceUpdates(
   existingProduct: IExistingProduct,
   tariffs: {
@@ -578,66 +510,241 @@ async function applyInsuranceUpdates(
     newGovTariff: number;
     newTariffWithCo: number;
   },
-  clinicId: number
+  clinicId: number,
+  companyMap?: Map<string, number>
 ) {
   const { newTariff, newGovTariff, newTariffWithCo } = tariffs;
 
-  if (Number.isFinite(newTariff)) {
-    await updateInsurancePrice({
-      existingProduct,
-      price: newTariff,
-      companies: Object.values(InsuranceCompanies),
-      priceType: PriceType.PRIVATE,
-      field: "price",
-      clinicId,
-    });
+  await updatePrivateInsurancePrices({
+    existingProduct,
+    newTariff,
+    newTariffWithCo,
+    clinicId,
+    companyMap,
+  });
+  await updateGovInsurancePrices({
+    existingProduct,
+    newGovTariff,
+    clinicId,
+    companyMap,
+  });
+}
+
+async function updatePrivateInsurancePrices({
+  existingProduct,
+  newTariff,
+  newTariffWithCo,
+  clinicId,
+  companyMap,
+}: {
+  existingProduct: IExistingProduct;
+  newTariff: number;
+  newTariffWithCo: number;
+  clinicId: number;
+  companyMap?: Map<string, number>;
+}) {
+  const hasPricing =
+    Number.isFinite(newTariff) || Number.isFinite(newTariffWithCo);
+
+  if (!hasPricing) {
+    return;
   }
-  if (Number.isFinite(newGovTariff)) {
-    await updateInsurancePrice({
+
+  for (const companyName of Object.values(InsuranceCompanies)) {
+    await updateSinglePrivateInsurancePrice({
       existingProduct,
-      price: newGovTariff,
-      companies: Object.values(SpecialInsurers),
-      priceType: PriceType.GOV,
-      field: "price",
+      companyName,
+      newTariff,
+      newTariffWithCo,
       clinicId,
-    });
-  }
-  if (Number.isFinite(newTariffWithCo)) {
-    await updateInsurancePrice({
-      existingProduct,
-      price: newTariffWithCo,
-      companies: Object.values(InsuranceCompanies),
-      priceType: PriceType.PRIVATE,
-      field: "priceWithCo",
-      clinicId,
+      companyMap,
     });
   }
 }
 
-// Update non-lab product fields
-async function updateNonLabFields(
-  productId: number,
-  newUnit?: string,
-  newNormalRange?: string,
-  newConsumables?: { name: string; quantity: string }[]
-) {
-  if (newUnit) {
-    await db.product.update({
-      where: { id: productId },
-      data: { unit: newUnit },
+async function updateSinglePrivateInsurancePrice({
+  existingProduct,
+  companyName,
+  newTariff,
+  newTariffWithCo,
+  clinicId,
+  companyMap,
+}: {
+  existingProduct: IExistingProduct;
+  companyName: string;
+  newTariff: number;
+  newTariffWithCo: number;
+  clinicId: number;
+  companyMap?: Map<string, number>;
+}) {
+  const existingPrice = findClinicInsurancePrice(
+    existingProduct.insurancePrices,
+    companyName,
+    clinicId
+  );
+
+  if (existingPrice) {
+    // Only update if something actually changed
+    const needsPriceUpdate =
+      Number.isFinite(newTariff) &&
+      Number(existingPrice.price) !== Number(newTariff);
+    const needsCoUpdate =
+      Number.isFinite(newTariffWithCo) &&
+      Number(existingPrice.priceWithCo) !== Number(newTariffWithCo);
+
+    if (needsPriceUpdate || needsCoUpdate) {
+      await updateExistingInsurancePrice({
+        existingPrice,
+        newTariff: needsPriceUpdate ? newTariff : Number(existingPrice.price),
+        newTariffWithCo: needsCoUpdate
+          ? newTariffWithCo
+          : Number(existingPrice.priceWithCo),
+      });
+    }
+    return;
+  }
+
+  await createNewInsurancePriceFromGlobal({
+    existingProduct,
+    companyName,
+    newTariff,
+    newTariffWithCo,
+    clinicId,
+    companyMap,
+  });
+}
+
+async function updateExistingInsurancePrice({
+  existingPrice,
+  newTariff,
+  newTariffWithCo,
+}: {
+  existingPrice: { id: number };
+  newTariff: number;
+  newTariffWithCo: number;
+}) {
+  const updateData: Prisma.InsurancePriceUpdateInput = {};
+  if (Number.isFinite(newTariff)) {
+    updateData.price = newTariff;
+  }
+  if (Number.isFinite(newTariffWithCo)) {
+    updateData.priceWithCo = newTariffWithCo;
+  }
+
+  if (Object.keys(updateData).length > 0) {
+    await db.insurancePrice.update({
+      where: { id: existingPrice.id },
+      data: updateData,
     });
   }
-  if (newNormalRange) {
-    await db.product.update({
-      where: { id: productId },
-      data: { normalRange: newNormalRange },
+}
+
+// Helper to create new insurance price from global base
+async function createNewInsurancePriceFromGlobal({
+  existingProduct,
+  companyName,
+  newTariff,
+  newTariffWithCo,
+  clinicId,
+  companyMap,
+}: {
+  existingProduct: IExistingProduct;
+  companyName: string;
+  newTariff: number;
+  newTariffWithCo: number;
+  clinicId: number;
+  companyMap?: Map<string, number>;
+}) {
+  const globalPrice = findGlobalInsurancePrice(
+    existingProduct.insurancePrices,
+    companyName
+  );
+
+  let finalPrice = 0;
+  let finalPriceWithCo: number | undefined;
+
+  if (globalPrice) {
+    finalPrice = Number.isFinite(newTariff)
+      ? newTariff
+      : Number(globalPrice.price);
+    if (Number.isFinite(newTariffWithCo)) {
+      finalPriceWithCo = newTariffWithCo;
+    } else {
+      finalPriceWithCo = globalPrice.priceWithCo
+        ? Number(globalPrice.priceWithCo)
+        : undefined;
+    }
+  } else {
+    finalPrice = Number.isFinite(newTariff) ? newTariff : 0;
+    finalPriceWithCo = Number.isFinite(newTariffWithCo)
+      ? newTariffWithCo
+      : undefined;
+  }
+
+  // ONLY create if either price is non-zero or defined
+  if (finalPrice > 0 || finalPriceWithCo !== undefined) {
+    await createNewInsurancePrice({
+      productId: existingProduct.id,
+      price: finalPrice,
+      insuranceCompanyName: companyName,
+      priceType: PriceType.PRIVATE,
+      priceWithCo: finalPriceWithCo,
+      clinicId,
+      companyMap,
     });
   }
-  if (Array.isArray(newConsumables) && newConsumables.length > 0) {
-    await db.product.update({
-      where: { id: productId },
-      data: { consumables: newConsumables },
-    });
+}
+
+async function updateGovInsurancePrices({
+  existingProduct,
+  newGovTariff,
+  clinicId,
+  companyMap,
+}: {
+  existingProduct: IExistingProduct;
+  newGovTariff: number;
+  clinicId: number;
+  companyMap?: Map<string, number>;
+}) {
+  if (!Number.isFinite(newGovTariff)) {
+    return;
+  }
+
+  for (const companyName of Object.values(SpecialInsurers)) {
+    const existingPrice = findClinicInsurancePrice(
+      existingProduct.insurancePrices,
+      companyName,
+      clinicId
+    );
+
+    if (existingPrice) {
+      if (Number(existingPrice.price) !== Number(newGovTariff)) {
+        await db.insurancePrice.update({
+          where: { id: existingPrice.id },
+          data: { price: newGovTariff },
+        });
+      }
+    } else {
+      const globalPrice = findGlobalInsurancePrice(
+        existingProduct.insurancePrices,
+        companyName
+      );
+
+      const finalPrice = newGovTariff;
+      const finalPriceWithCo = globalPrice?.priceWithCo
+        ? Number(globalPrice.priceWithCo)
+        : undefined;
+
+      await createNewInsurancePrice({
+        productId: existingProduct.id,
+        price: finalPrice,
+        insuranceCompanyName: companyName,
+        priceType: PriceType.GOV,
+        priceWithCo: finalPriceWithCo,
+        clinicId,
+        companyMap,
+      });
+    }
   }
 }
 
@@ -737,9 +844,18 @@ const handleLabTestUpdates = async ({
 export async function handleExistingProduct(
   existingProduct: IExistingProduct,
   record: ProductCSVRow,
-  clinicId: number
+  clinicId: number,
+  companyMap?: Map<string, number>
 ) {
-  await connectProductToClinic(existingProduct, clinicId);
+  const productUpdateData: Prisma.ProductUpdateInput = {};
+
+  // 1. Connect clinic if missing
+  const clinicIds = existingProduct.clinics.map((c) => c.id);
+  if (!clinicIds.includes(clinicId)) {
+    productUpdateData.clinics = {
+      connect: { id: clinicId },
+    };
+  }
 
   const newTariff = Number.parseFloat(record.TARIFF);
   const newGovTariff = Number.parseFloat(record.GOV_INSURANCE as string);
@@ -778,7 +894,17 @@ export async function handleExistingProduct(
     ? parseLabTestName(record.NAME)
     : { testName: record.NAME.trim() };
 
-  // Handle insurance prices
+  // 2. Add departments to update data
+  if (newDepartments.length > 0) {
+    productUpdateData.departments = {
+      connectOrCreate: newDepartments.map((department) => ({
+        where: { name: department },
+        create: { name: department },
+      })),
+    };
+  }
+
+  // 3. Handle insurance prices (these stay as separate calls for now but use pre-fetched map)
   await applyInsuranceUpdates(
     existingProduct,
     {
@@ -786,10 +912,11 @@ export async function handleExistingProduct(
       newGovTariff,
       newTariffWithCo,
     },
-    clinicId
+    clinicId,
+    companyMap
   );
 
-  // Update clinic-specific product pricing
+  // 4. Update clinic-specific product pricing
   await updateProductPricing(
     existingProduct.id,
     newPrivateTariff,
@@ -797,7 +924,7 @@ export async function handleExistingProduct(
     clinicId
   );
 
-  // Handle lab test specific logic
+  // 5. Handle lab test specific logic or update non-lab fields
   if (isLabTest) {
     await handleLabTestUpdates({
       existingProduct,
@@ -808,26 +935,22 @@ export async function handleExistingProduct(
       newConsumables,
     });
   } else {
-    await updateNonLabFields(
-      existingProduct.id,
-      newUnit,
-      newNormalRange,
-      newConsumables
-    );
+    if (newUnit) {
+      productUpdateData.unit = newUnit;
+    }
+    if (newNormalRange) {
+      productUpdateData.normalRange = newNormalRange;
+    }
+    if (newConsumables.length > 0) {
+      productUpdateData.consumables = newConsumables;
+    }
   }
 
-  // Handle departments
-  if (newDepartments.length > 0) {
+  // 6. Perform the combined product update if needed
+  if (Object.keys(productUpdateData).length > 0) {
     await db.product.update({
       where: { id: existingProduct.id },
-      data: {
-        departments: {
-          connectOrCreate: newDepartments.map((department) => ({
-            where: { name: department },
-            create: { name: department },
-          })),
-        },
-      },
+      data: productUpdateData,
     });
   }
 }

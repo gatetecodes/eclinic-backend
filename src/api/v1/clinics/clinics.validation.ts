@@ -16,6 +16,7 @@ export const adminSchema = z.object({
 
 export const clinicSchema = z.object({
   name: z.string().min(1),
+  logo: z.string().optional().nullable(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
   contactEmail: z.email(),
@@ -25,6 +26,7 @@ export const clinicSchema = z.object({
 
 export const updateClinicSchema = z.object({
   name: z.string().min(1),
+  logo: z.string().optional().nullable(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
   contactEmail: z.email(),
