@@ -517,19 +517,21 @@ export const editUser = async (c: Context) => {
       phone_number,
     };
 
-    if (password) {
-      const hashedPassword = hashCredentialPassword(password);
-      updateData.password = hashedPassword;
-      // Also update Better-Auth account password
-      await db.account.updateMany({
-        where: { userId, providerId: "credential" },
-        data: { password: hashedPassword },
-      });
-    }
+    await db.$transaction(async (tx) => {
+      if (password) {
+        const hashedPassword = hashCredentialPassword(password);
+        updateData.password = hashedPassword;
+        // Also update Better-Auth account password
+        await tx.account.updateMany({
+          where: { userId, providerId: "credential" },
+          data: { password: hashedPassword },
+        });
+      }
 
-    await db.user.update({
-      where: { id: userId },
-      data: updateData,
+      await tx.user.update({
+        where: { id: userId },
+        data: updateData,
+      });
     });
 
     return c.json(
@@ -1210,19 +1212,21 @@ export const editDoctor = async (c: Context) => {
       };
     }
 
-    if (password) {
-      const hashedPassword = hashCredentialPassword(password);
-      updateData.password = hashedPassword;
-      // Also update Better-Auth account password
-      await db.account.updateMany({
-        where: { userId: doctorId, providerId: "credential" },
-        data: { password: hashedPassword },
-      });
-    }
+    await db.$transaction(async (tx) => {
+      if (password) {
+        const hashedPassword = hashCredentialPassword(password);
+        updateData.password = hashedPassword;
+        // Also update Better-Auth account password
+        await tx.account.updateMany({
+          where: { userId: doctorId, providerId: "credential" },
+          data: { password: hashedPassword },
+        });
+      }
 
-    await db.user.update({
-      where: { id: doctorId },
-      data: updateData,
+      await tx.user.update({
+        where: { id: doctorId },
+        data: updateData,
+      });
     });
 
     return c.json(
