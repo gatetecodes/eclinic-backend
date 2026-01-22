@@ -154,9 +154,12 @@ export const QueueConfigService = {
     });
   },
 
-  listByClinic: async (clinicId: number) => {
+  listByClinic: async (clinicId: number, doctorId?: number) => {
     return await db.queueConfig.findMany({
-      where: { clinicId },
+      where: {
+        clinicId,
+        doctorId: doctorId !== undefined ? doctorId : undefined,
+      },
       include: {
         department: true,
         doctor: true,

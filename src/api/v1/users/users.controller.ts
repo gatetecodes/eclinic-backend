@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { hash } from "bcryptjs";
 import {
   addDays,
   addHours,
@@ -24,6 +23,7 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { logActivity } from "../../../helpers/activity-helpers.ts";
+import { hashCredentialPassword } from "../../../helpers/auth-helper.ts";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import {
   isWorkingNowForWeekly,
@@ -278,7 +278,7 @@ export const addNewUser = async (c: Context) => {
       );
     }
 
-    const hashedPassword = await hash(password, 10);
+    const hashedPassword = hashCredentialPassword(password);
     const isDoctor = role === "DOCTOR";
 
     let createdUser: User;
@@ -312,6 +312,16 @@ export const addNewUser = async (c: Context) => {
           },
         });
 
+        // 2. Create Authentication Account (Better-Auth)
+        await tx.account.create({
+          data: {
+            providerId: "credential",
+            accountId: doctor.id.toString(),
+            userId: doctor.id,
+            password: hashedPassword,
+          },
+        });
+
         // Create availability if provided
         if (weeklyAvailability && weeklyAvailability.length > 0) {
           const availabilityData = filterValidAvailability(
@@ -333,18 +343,31 @@ export const addNewUser = async (c: Context) => {
       });
     } else {
       // Handle regular staff creation
-      createdUser = await db.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-          role: role as Role,
-          emailVerified: new Date(),
-          phone_number,
-          clinicId: authUser.clinicId,
-          branchId: authUser.branchId,
-          highestEducation: highestEducation as EducationLevel | undefined,
-        },
+      createdUser = await db.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: role as Role,
+            emailVerified: null, // Force verification
+            phone_number,
+            clinicId: authUser.clinicId,
+            branchId: authUser.branchId,
+            highestEducation: highestEducation as EducationLevel | undefined,
+          },
+        });
+
+        await tx.account.create({
+          data: {
+            providerId: "credential",
+            accountId: user.id.toString(),
+            userId: user.id,
+            password: hashedPassword,
+          },
+        });
+
+        return user;
       });
     }
 
@@ -495,7 +518,13 @@ export const editUser = async (c: Context) => {
     };
 
     if (password) {
-      updateData.password = await hash(password, 10);
+      const hashedPassword = hashCredentialPassword(password);
+      updateData.password = hashedPassword;
+      // Also update Better-Auth account password
+      await db.account.updateMany({
+        where: { userId, providerId: "credential" },
+        data: { password: hashedPassword },
+      });
     }
 
     await db.user.update({
@@ -709,7 +738,7 @@ export const createDoctor = async (c: Context) => {
       );
     }
 
-    const hashedPassword = await hash(doctorData.password, 10);
+    const hashedPassword = hashCredentialPassword(doctorData.password);
 
     const newDoctor = await db.$transaction(async (tx) => {
       const doctor = await tx.user.create({
@@ -735,6 +764,16 @@ export const createDoctor = async (c: Context) => {
           clinicalDepartments: {
             connect: departments.map((departmentId) => ({ id: departmentId })),
           },
+        },
+      });
+
+      // 2. Create Authentication Account (Better-Auth)
+      await tx.account.create({
+        data: {
+          providerId: "credential",
+          accountId: doctor.id.toString(),
+          userId: doctor.id,
+          password: hashedPassword,
         },
       });
 
@@ -1172,7 +1211,13 @@ export const editDoctor = async (c: Context) => {
     }
 
     if (password) {
-      updateData.password = await hash(password, 10);
+      const hashedPassword = hashCredentialPassword(password);
+      updateData.password = hashedPassword;
+      // Also update Better-Auth account password
+      await db.account.updateMany({
+        where: { userId: doctorId, providerId: "credential" },
+        data: { password: hashedPassword },
+      });
     }
 
     await db.user.update({
