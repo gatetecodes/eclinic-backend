@@ -100,10 +100,16 @@ export const patientSchema = z.object({
 });
 
 export const insuranceSchema = z.object({
-  insuranceNumber: z.string().min(1, "Insurance number is required"),
-  insuranceCompany: z.string().min(1, "Insurance company is required"),
-  employer: z.string().optional(),
-  coveragePercentage: z.string().min(1, "Coverage percentage is required"),
+  insuranceNumber: z.string().optional(),
+  insuranceCompany: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v[0] : v)),
+  employer: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v[0] : v)),
+  coveragePercentage: z.string().optional(),
   relationshipType: z
     .enum(["PRINCIPAL", "SPOUSE", "CHILD", "OTHER"])
     .optional()
@@ -186,9 +192,57 @@ export const initialCheckInSchema = z
     labProductIds: z.array(z.string()).default([]),
     paymentMode: z.string().optional(),
     allowPartial: z.boolean().optional().default(false),
-    insurance: z
-      .union([insuranceSchema, z.object({}).strict(), z.undefined()])
-      .optional(),
+    insurance: insuranceSchema.optional(),
+  })
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
+  .superRefine((data, ctx) => {
+    // Insurance validation
+    if (data.paymentMode === "INSURANCE") {
+      if (!data.insurance?.insuranceNumber) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Insurance number is required",
+          path: ["insurance", "insuranceNumber"],
+        });
+      }
+      if (!data.insurance?.insuranceCompany) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Insurance company is required",
+          path: ["insurance", "insuranceCompany"],
+        });
+      }
+      if (!data.insurance?.coveragePercentage) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Coverage percentage is required",
+          path: ["insurance", "coveragePercentage"],
+        });
+      }
+
+      // If relationship type is not PRINCIPAL, require principal name and phone
+      if (
+        data.insurance?.relationshipType &&
+        data.insurance.relationshipType !== "PRINCIPAL"
+      ) {
+        if (!data.insurance.principalName) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Principal name is required when patient is not the principal",
+            path: ["insurance", "principalName"],
+          });
+        }
+        if (!data.insurance.principalPhoneNumber) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Principal phone number is required when patient is not the principal",
+            path: ["insurance", "principalPhoneNumber"],
+          });
+        }
+      }
+    }
   })
   .superRefine((data, ctx) => {
     if (data.isLabOnly && data.requiresConsultation) {
@@ -318,11 +372,21 @@ export const addNurseTreatmentSchema = z.object({
     .nonempty("At least one treatment is required"),
 });
 
-export const addPaymentMethodSchema = z.object({
-  paymentMode: z.string().min(1, "Payment mode is required"),
-  allowPartial: z.boolean().optional().default(false),
-  insurance: z.union([insuranceSchema, z.object({}).strict(), z.undefined()]),
-});
+export const addPaymentMethodSchema = z
+  .object({
+    paymentMode: z.string().min(1, "Payment mode is required"),
+    allowPartial: z.boolean().optional().default(false),
+    insurance: insuranceSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.paymentMode === "INSURANCE" && !data.insurance?.insuranceNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Insurance number is required",
+        path: ["insurance", "insuranceNumber"],
+      });
+    }
+  });
 
 export const editChiefComplaintSchema = z.object({
   chiefComplaint: z.string().min(1, {

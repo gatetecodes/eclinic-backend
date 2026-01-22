@@ -127,7 +127,7 @@ export const createInitialCheckIn = async (c: Context) => {
         "../../../../helpers/visit-helper"
       );
       patientInsuranceId = await handleInsurance(
-        insurance as unknown as NonNullable<unknown>,
+        insurance as unknown as NonNullable<IUpdateInitialCheckIn["insurance"]>,
         patientId
       );
     }
@@ -264,7 +264,7 @@ async function resolvePatientInsurance(
   }
   const { handleInsurance } = await import("../../../../helpers/visit-helper");
   return await handleInsurance(
-    insurance as unknown as NonNullable<unknown>,
+    insurance as unknown as NonNullable<IUpdateInitialCheckIn["insurance"]>,
     patientId
   );
 }
@@ -851,7 +851,7 @@ export const addPaymentMethod = async (c: Context) => {
         "../../../../helpers/visit-helper"
       );
       patientInsuranceId = await handleInsurance(
-        insurance as unknown as NonNullable<unknown>,
+        insurance as unknown as NonNullable<IUpdateInitialCheckIn["insurance"]>,
         visit.patientId
       );
     }

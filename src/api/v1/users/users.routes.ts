@@ -5,7 +5,9 @@ import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
   addDoctorAvailability,
+  addNewUser,
   assignDepartmentsToDoctor,
+  createDoctor,
   deactivateUser,
   editDoctor,
   editUser,
@@ -27,6 +29,8 @@ import {
 import {
   addDoctorAvailabilitySchema,
   assignDepartmentsToDoctorSchema,
+  createDoctorSchema,
+  createUserSchema,
   editDoctorSchema,
   getAvailableDoctorsByDepartmentIdSchema,
   updateUserSchema,
@@ -35,6 +39,18 @@ import {
 
 const router = new Hono<AppEnv>();
 
+router.post(
+  "/",
+  crudAccess("users"),
+  validate(createUserSchema, "json"),
+  addNewUser
+);
+router.post(
+  "/doctors",
+  crudAccess("users"),
+  validate(createDoctorSchema, "json"),
+  createDoctor
+);
 router.get("/clinic", crudAccess("users"), getClinicUsers);
 router.get("/clinic/doctors", crudAccess("users"), getClinicDoctors);
 router.get("/clinic/timesheets", crudAccess("users"), getClinicTimesheets);

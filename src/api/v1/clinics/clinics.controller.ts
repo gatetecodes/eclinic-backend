@@ -243,29 +243,33 @@ export const updateClinicAdmin = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    const updatedClinicAdmin = await db.user.update({
-      where: { id: clinicAdmin.id },
-      data,
-    });
-
-    if (data.admin.email) {
-      await db.account.updateMany({
-        where: { userId: clinicAdmin.id },
-        data: { accountId: data.admin.email },
+    const updatedClinicAdmin = await db.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: clinicAdmin.id },
+        data,
       });
 
-      // Send verification email for new admin email
-      const emailResult = await createVerificationEmail(data.admin.email);
-      if (!emailResult.success) {
-        logger.warn(
-          "Clinic admin email updated but verification email failed",
-          {
-            email: data.admin.email,
-            error: emailResult.error,
-          }
-        );
+      if (data.admin.email) {
+        await tx.account.updateMany({
+          where: { userId: clinicAdmin.id },
+          data: { accountId: data.admin.email },
+        });
+
+        // Send verification email for new admin email
+        const emailResult = await createVerificationEmail(data.admin.email);
+        if (!emailResult.success) {
+          logger.warn(
+            "Clinic admin email updated but verification email failed",
+            {
+              email: data.admin.email,
+              error: emailResult.error,
+            }
+          );
+        }
       }
-    }
+
+      return updated;
+    });
 
     return c.json(
       {

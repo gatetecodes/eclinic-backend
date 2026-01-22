@@ -39,6 +39,12 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
       return { coerced: true, value: value ? new Date() : null };
     }
     if (
+      (key === "licenseExpiration" || key === "licenseNumber") &&
+      value === ""
+    ) {
+      return { coerced: true, value: null };
+    }
+    if (
       (key === "clinicId" || key === "branchId" || key === "id") &&
       isNumericString(value)
     ) {

@@ -99,7 +99,11 @@ export const QueuesController = {
   listConfigs: async (c: Context) => {
     const user = c.get("user");
     const clinicId = user.clinicId;
-    const configs = await QueueConfigService.listByClinic(clinicId);
+
+    const isStaff = user.role !== "CLINIC_ADMIN" && user.role !== "SUPER_ADMIN";
+    const doctorId = isStaff ? Number(user.id) : undefined;
+
+    const configs = await QueueConfigService.listByClinic(clinicId, doctorId);
     return c.json({ success: true, data: configs });
   },
 
@@ -259,7 +263,14 @@ export const QueuesController = {
   listActiveQueues: async (c: Context) => {
     const user = c.get("user");
     const clinicId = user.clinicId;
-    const queues = await QueueManagerService.listActiveQueues(clinicId);
+
+    const isStaff = user.role !== "CLINIC_ADMIN" && user.role !== "SUPER_ADMIN";
+    const doctorId = isStaff ? Number(user.id) : undefined;
+
+    const queues = await QueueManagerService.listActiveQueues(
+      clinicId,
+      doctorId
+    );
     return c.json({ success: true, data: queues });
   },
 

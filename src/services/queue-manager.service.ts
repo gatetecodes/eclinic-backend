@@ -59,11 +59,12 @@ export const QueueManagerService = {
     return queue;
   },
 
-  listActiveQueues: async (clinicId: number) => {
+  listActiveQueues: async (clinicId: number, doctorId?: number) => {
     const queues = await db.queue.findMany({
       where: {
         clinicId,
         status: { not: QueueStatus.CLOSED },
+        doctorId: doctorId !== undefined ? doctorId : undefined,
       },
       include: {
         queueConfig: true,
