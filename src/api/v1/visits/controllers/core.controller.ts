@@ -32,6 +32,7 @@ import {
 } from "../../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../../lib/common-validation";
 import { getScope } from "../../../../lib/request-scope";
+import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
@@ -90,6 +91,7 @@ async function maybeCreateConsultationBill({
   }
 }
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
 export const createInitialCheckIn = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -232,6 +234,19 @@ export const createInitialCheckIn = async (c: Context) => {
       visitId: visit.id,
     });
     await invalidateDashboardRelatedCaches(user.clinicId);
+
+    // Auto-join queue if doctor is assigned
+    if (doctorId && !isLabOnly) {
+      const docId = Number.parseInt(doctorId, 10);
+      if (Number.isFinite(docId)) {
+        await QueueIntegrationService.ensurePatientInDoctorQueue({
+          doctorId: docId,
+          patientId: visit.patientId,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
+        });
+      }
+    }
 
     return c.json(
       { success: "Patient checked in successfully", visit },
@@ -609,6 +624,19 @@ export const updateInitialCheckIn = async (c: Context) => {
       visitId,
     });
     await invalidateDashboardRelatedCaches(user.clinicId);
+
+    // Auto-join queue if doctor is assigned or changed
+    if (doctorId && !isLabOnly) {
+      const docId = Number.parseInt(doctorId, 10);
+      if (Number.isFinite(docId)) {
+        await QueueIntegrationService.ensurePatientInDoctorQueue({
+          doctorId: docId,
+          patientId: updatedVisit.patientId,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
+        });
+      }
+    }
 
     return c.json(
       { success: "Initial check-in updated successfully", visit: updatedVisit },

@@ -5,6 +5,7 @@ import { ActivityType, Role } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { invalidateVisitRelatedCaches } from "../../../../lib/cache-utils";
+import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import { handoffSchema, rejectHandoffBodySchema } from "../visits.validation";
 
 export const initiateHandoff = async (c: Context) => {
@@ -108,6 +109,7 @@ export const acceptHandoff = async (c: Context) => {
         visit: {
           select: {
             id: true,
+            patientId: true,
             clinicId: true,
             branchId: true,
             patient: { select: { firstName: true, lastName: true } },
@@ -157,6 +159,14 @@ export const acceptHandoff = async (c: Context) => {
       clinicId: handoff.visit.clinicId,
       branchId: Number(handoff.visit.branchId ?? 0),
       visitId: handoff.visitId,
+    });
+
+    // Auto-join queue for the accepting doctor
+    await QueueIntegrationService.ensurePatientInDoctorQueue({
+      doctorId: Number(user.id),
+      patientId: handoff.visit.patientId,
+      clinicId: handoff.visit.clinicId,
+      branchId: Number(handoff.visit.branchId ?? user.branchId),
     });
 
     return c.json({
@@ -291,6 +301,14 @@ export const transferVisitToDoctor = async (c: Context) => {
       clinicId: user.clinicId ?? user.clinic.id,
       branchId: user.branchId ?? user.branch.id,
       visitId: visit.id,
+    });
+
+    // Auto-join queue for the recipient doctor
+    await QueueIntegrationService.ensurePatientInDoctorQueue({
+      doctorId: doctor.id,
+      patientId: updatedVisit.patientId,
+      clinicId: user.clinicId ?? user.clinic.id,
+      branchId: user.branchId ?? user.branch.id,
     });
 
     return c.json(
