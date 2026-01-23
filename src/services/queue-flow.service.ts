@@ -20,7 +20,7 @@ export const QueueFlowService = {
     travelTimeEstimate?: number;
   }) => {
     return await db.$transaction(async (tx) => {
-      // Lock the queue to prevent concurrent position calculations for the same queue
+      // 1. Lock the queue to prevent concurrent position calculations for the same queue
       await tx.$executeRaw`SELECT id FROM "Queue" WHERE id = ${data.queueId} FOR UPDATE`;
 
       const queue = await tx.queue.findUnique({
@@ -41,6 +41,45 @@ export const QueueFlowService = {
           message: "Queue is not open",
           code: "QUEUE_CLOSED",
         });
+      }
+
+      // 2. Check if already in queue (WAITING or NOTIFIED)
+      const existingEntry = await tx.queueEntry.findFirst({
+        where: {
+          queueId: data.queueId,
+          OR: [
+            ...(data.patientId ? [{ patientId: data.patientId }] : []),
+            { phoneNumber: data.phoneNumber },
+          ],
+          status: {
+            in: [QueueEntryStatus.WAITING, QueueEntryStatus.NOTIFIED],
+          },
+        },
+      });
+
+      if (existingEntry) {
+        // If the entry was joined via another source but didn't have patientId linked, link it now
+        let entry = existingEntry;
+        if (data.patientId && !existingEntry.patientId) {
+          entry = await tx.queueEntry.update({
+            where: { id: existingEntry.id },
+            data: { patientId: data.patientId },
+          });
+        }
+
+        const waitingAhead = await tx.queueEntry.count({
+          where: {
+            queueId: data.queueId,
+            status: QueueEntryStatus.WAITING,
+            position: { lt: entry.position },
+          },
+        });
+
+        return {
+          ...entry,
+          waitingAhead,
+          alreadyExists: true,
+        };
       }
 
       // Calculate next position by finding the current maximum position

@@ -1,6 +1,6 @@
 import { db } from "@/database/db";
 import { logger } from "@/lib/logger";
-import { QueueEntryStatus, QueueSource } from "../../generated/prisma/client";
+import { QueueSource } from "../../generated/prisma/client";
 import { QueueFlowService } from "./queue-flow.service";
 import { WhatsAppService } from "./whatsapp.service";
 
@@ -52,35 +52,7 @@ export const QueueIntegrationService = {
         return;
       }
 
-      // 3. Check if patient is already in this queue (WAITING or NOTIFIED)
-      const existingEntry = await db.queueEntry.findFirst({
-        where: {
-          queueId: activeQueue.id,
-          OR: [{ patientId }, { phoneNumber: patient.phoneNumber }],
-          status: {
-            in: [QueueEntryStatus.WAITING, QueueEntryStatus.NOTIFIED],
-          },
-        },
-      });
-
-      if (existingEntry) {
-        logger.info("Auto-queue: Patient already in queue", {
-          patientId,
-          queueId: activeQueue.id,
-          entryId: existingEntry.id,
-        });
-
-        // If the entry was joined via WhatsApp but didn't have patientId linked, link it now
-        if (!existingEntry.patientId) {
-          await db.queueEntry.update({
-            where: { id: existingEntry.id },
-            data: { patientId },
-          });
-        }
-        return;
-      }
-
-      // 4. Join the queue
+      // 3. Join the queue (thread-safe and idempotent)
       const displayName = [patient.firstName, patient.lastName]
         .filter(Boolean)
         .join(" ");
@@ -93,12 +65,21 @@ export const QueueIntegrationService = {
         source: QueueSource.STAFF, // Source is STAFF because it's triggered by clinic check-in
       });
 
+      if ("alreadyExists" in entry && entry.alreadyExists) {
+        logger.info("Auto-queue: Patient already in queue", {
+          patientId,
+          queueId: activeQueue.id,
+          entryId: entry.id,
+        });
+        return;
+      }
+
       logger.info("Auto-queue: Patient joined queue successfully", {
         patientId,
         queueId: activeQueue.id,
       });
 
-      // 5. Notify the patient
+      // 4. Notify the patient
       const positionInQueue = (entry.waitingAhead ?? 0) + 1;
       const waitTime = entry.estimatedWaitTime ?? 0;
 
