@@ -79,13 +79,26 @@ export const QueueIntegrationService = {
         queueId: activeQueue.id,
       });
 
-      // 4. Notify the patient
+      // 4. Notify the patient via Template (required for unprompted messages)
       const positionInQueue = (entry.waitingAhead ?? 0) + 1;
       const waitTime = entry.estimatedWaitTime ?? 0;
 
-      const message = `Hello ${patient.firstName || "there"}! You've been successfully added to the queue for ${activeQueue.name}.\n\nTicket #${entry.position}\nYou are #${positionInQueue} in line.\nEstimated wait: ${waitTime} mins.\n\nWe will notify you when it's your turn. 🏥`;
-
-      await WhatsAppService.sendMessage(patient.phoneNumber, message);
+      await WhatsAppService.sendTemplate({
+        to: patient.phoneNumber,
+        templateName: "patient_queue_joined", // Template must be created in Meta Business Suite
+        components: [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: patient.firstName || "there" },
+              { type: "text", text: activeQueue.name },
+              { type: "text", text: entry.position.toString() },
+              { type: "text", text: positionInQueue.toString() },
+              { type: "text", text: waitTime.toString() },
+            ],
+          },
+        ],
+      });
     } catch (error) {
       logger.error("Auto-queue: Failed to ensure patient in queue", {
         error: error instanceof Error ? error.message : error,
