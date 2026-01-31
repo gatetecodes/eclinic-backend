@@ -61,8 +61,8 @@ async function findExistingPatient(
 
   // 0. If selectedPatientId is provided, use it directly
   if (selectedPatientId) {
-    const patient = await db.patient.findUnique({
-      where: { id: selectedPatientId },
+    const patient = await db.patient.findFirst({
+      where: { id: selectedPatientId, clinics: { some: { id: clinicId } } },
       select: { id: true },
     });
     if (patient) {
