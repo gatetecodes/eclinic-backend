@@ -184,6 +184,7 @@ export const initialCheckInSchema = z
     chiefComplaint: z.string().optional(),
     departmentId: z.string().optional(),
     priority: z.nativeEnum(Priority),
+    selectedPatientId: z.string().optional(),
     isLabOnly: z.boolean().optional().default(false),
     // Step 2: new fields
     doctorId: z.string().optional(),

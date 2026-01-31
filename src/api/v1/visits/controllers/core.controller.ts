@@ -114,9 +114,14 @@ export const createInitialCheckIn = async (c: Context) => {
       paymentMode,
       allowPartial,
       insurance,
+      selectedPatientId,
     } = parsed.data as z.infer<typeof initialCheckInSchema>;
 
-    const { patientId, isNewPatient } = await getOrCreatePatient(patient, user);
+    const { patientId, isNewPatient } = await getOrCreatePatient(
+      patient,
+      user,
+      selectedPatientId ? Number.parseInt(selectedPatientId, 10) : undefined
+    );
 
     // Resolve patient insurance if provided
     let patientInsuranceId: number | undefined;
