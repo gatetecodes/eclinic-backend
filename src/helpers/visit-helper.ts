@@ -51,11 +51,23 @@ function safelyParseDateOrUndefined(
 
 async function findExistingPatient(
   patientData: VisitSchemaType["patient"],
-  user: User
+  user: User,
+  selectedPatientId?: number
 ): Promise<{ id: number } | null> {
   const clinicId = user.clinicId ?? user.clinic?.id;
   if (!clinicId) {
     return null;
+  }
+
+  // 0. If selectedPatientId is provided, use it directly
+  if (selectedPatientId) {
+    const patient = await db.patient.findFirst({
+      where: { id: selectedPatientId, clinics: { some: { id: clinicId } } },
+      select: { id: true },
+    });
+    if (patient) {
+      return patient;
+    }
   }
 
   if (patientData.isChild === true) {
@@ -117,9 +129,14 @@ function deriveNationalityAndForeigner(
  */
 export async function getOrCreatePatient(
   patientData: VisitSchemaType["patient"],
-  user: User
+  user: User,
+  selectedPatientId?: number
 ): Promise<{ patientId: number; isNewPatient: boolean }> {
-  const existingPatient = await findExistingPatient(patientData, user);
+  const existingPatient = await findExistingPatient(
+    patientData,
+    user,
+    selectedPatientId
+  );
   if (existingPatient) {
     await updateMedicalInfoIfProvided(
       existingPatient.id,
@@ -191,8 +208,11 @@ export async function handleInsurance(
     employerId = await getOrCreateEntity("employer", insuranceData.employer);
   }
 
-  const existingInsurance = await db.patientInsurance.findUnique({
-    where: { insuranceNumber: insuranceData.insuranceNumber },
+  const existingInsurance = await db.patientInsurance.findFirst({
+    where: {
+      insuranceNumber: insuranceData.insuranceNumber,
+      patientId,
+    },
     select: { id: true },
   });
 
