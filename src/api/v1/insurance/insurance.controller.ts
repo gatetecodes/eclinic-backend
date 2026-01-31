@@ -6,7 +6,7 @@ import { httpCodes } from "../../../lib/constants";
 export const getInsuranceByNumber = async (c: Context) => {
   try {
     const insuranceNumber = c.req.param("insuranceNumber");
-    const insurance = await db.patientInsurance.findFirst({
+    const insuranceRecords = await db.patientInsurance.findMany({
       where: {
         insuranceNumber: {
           equals: insuranceNumber,
@@ -28,15 +28,21 @@ export const getInsuranceByNumber = async (c: Context) => {
             employerName: true,
           },
         },
+        patient: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+          },
+        },
       },
     });
-    if (!insurance) {
-      return c.json(
-        { error: "Insurance not found" },
-        httpCodes.NOT_FOUND as ContentfulStatusCode
-      );
-    }
-    return c.json({ data: insurance }, httpCodes.OK as ContentfulStatusCode);
+
+    return c.json(
+      { data: insuranceRecords },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     return c.json(
       {

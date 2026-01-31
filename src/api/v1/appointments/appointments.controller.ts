@@ -201,7 +201,12 @@ export const createEvent = async (c: Context) => {
       branch: { connect: { id: user.branchId } },
     };
     if (type === EventType.APPOINTMENT) {
-      const { patientId } = await getOrCreatePatient(payload.patient, user);
+      const { selectedPatientId } = payload;
+      const { patientId } = await getOrCreatePatient(
+        payload.patient,
+        user,
+        selectedPatientId ? Number(selectedPatientId) : undefined
+      );
 
       data = {
         ...data,
