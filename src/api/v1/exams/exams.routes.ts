@@ -7,6 +7,8 @@ import {
   createExamResult,
   createExamTest,
   getExamById,
+  getExamConsumption,
+  getExamConsumptionDetails,
   getExamResultById,
   getExamResults,
   getExams,
@@ -161,6 +163,19 @@ router.patch(
   validate(updateExamTestConsumablesSchema, "json"),
   ...withAccess({ resource: "exams", action: "update", feature: "lab" }),
   updateExamTestConsumables
+);
+
+// Consumption routes
+router.get(
+  "/consumption",
+  ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
+  getExamConsumption
+);
+
+router.get(
+  "/consumption/:examName/visits",
+  ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
+  getExamConsumptionDetails
 );
 
 export default router;

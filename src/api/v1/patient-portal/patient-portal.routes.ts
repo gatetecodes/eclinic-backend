@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 // import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AppEnv } from "@/middlewares/auth.middleware.ts";
+import { verifyRecaptcha } from "@/middlewares/recaptcha.middleware.ts";
 import { validate } from "@/middlewares/validation.middleware.ts";
 import {
   bookPatientAppointment,
@@ -61,6 +62,7 @@ router.get(
 );
 router.post(
   "/appointments",
+  verifyRecaptcha({ expectedAction: "eclinic_patient_booking" }),
   validate(bookPatientAppointmentSchema, "json"),
   bookPatientAppointment
 );
