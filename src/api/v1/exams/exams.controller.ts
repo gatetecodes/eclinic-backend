@@ -1,3 +1,4 @@
+import { isValid, parseISO } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -641,6 +642,18 @@ type ExamResultData = {
   notes?: string;
 };
 
+type ExamResultsPayload = {
+  productName: string;
+  parameters?: {
+    name?: string;
+    value?: string;
+    unit?: string;
+    referenceRange?: string;
+  }[];
+  conclusion?: string;
+  notes?: string;
+};
+
 // Helper function to create exam result record
 const createExamResultRecord = async (data: ExamResultData) => {
   const { user, visitId, examId, examDate, results, notes } = data;
@@ -728,6 +741,169 @@ const handleExamResultError = (error: Error, c: Context) => {
   ];
 
   return c.json({ error: message }, status as ContentfulStatusCode);
+};
+
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
+export const getExamConsumption = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (
+      user.role !== Role.LAB_TECHNICIAN &&
+      user.role !== Role.DOCTOR &&
+      user.role !== Role.CLINIC_ADMIN &&
+      user.role !== Role.SUPER_ADMIN
+    ) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId } = getScope(user, params);
+    const { from, to } = params;
+
+    const dateFilter: Prisma.ExamResultWhereInput = {};
+    if (from || to) {
+      const fromDate = from ? parseISO(from) : null;
+      const toDate = to ? parseISO(to) : null;
+
+      if ((fromDate && isValid(fromDate)) || (toDate && isValid(toDate))) {
+        dateFilter.examDate = {
+          ...(fromDate && isValid(fromDate) ? { gte: fromDate } : {}),
+          ...(toDate && isValid(toDate) ? { lte: toDate } : {}),
+        };
+      }
+    }
+
+    const [exams, totalVisits] = await Promise.all([
+      db.examResult.groupBy({
+        by: ["results"],
+        where: {
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...dateFilter,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+      db.examResult.groupBy({
+        by: ["visitId"],
+        where: {
+          ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...dateFilter,
+        },
+      }),
+    ]);
+
+    const totalVisitCount = totalVisits.length;
+
+    const consumption = exams.map((exam) => {
+      const results = exam.results as unknown as ExamResultsPayload;
+      return {
+        examName: results?.productName || "Unknown",
+        visitCount: exam._count.id,
+      };
+    });
+
+    const aggregated = consumption.reduce(
+      (acc, curr) => {
+        const existing = acc.find((a) => a.examName === curr.examName);
+        if (existing) {
+          existing.visitCount += curr.visitCount;
+        } else {
+          acc.push(curr);
+        }
+        return acc;
+      },
+      [] as { examName: string; visitCount: number }[]
+    );
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Exam consumption fetched successfully",
+      data: aggregated,
+      totalCount: aggregated.length,
+      totalVisits: totalVisitCount,
+      pageCount: 1,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
+export const getExamConsumptionDetails = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (
+      user.role !== Role.LAB_TECHNICIAN &&
+      user.role !== Role.DOCTOR &&
+      user.role !== Role.CLINIC_ADMIN &&
+      user.role !== Role.SUPER_ADMIN
+    ) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const { examName } = c.req.param();
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId } = getScope(user, params);
+    const { from, to } = params;
+
+    const dateFilter: Prisma.ExamResultWhereInput = {};
+    if (from || to) {
+      const fromDate = from ? parseISO(from) : null;
+      const toDate = to ? parseISO(to) : null;
+
+      if ((fromDate && isValid(fromDate)) || (toDate && isValid(toDate))) {
+        dateFilter.examDate = {
+          ...(fromDate && isValid(fromDate) ? { gte: fromDate } : {}),
+          ...(toDate && isValid(toDate) ? { lte: toDate } : {}),
+        };
+      }
+    }
+
+    const results = await db.examResult.findMany({
+      where: {
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        results: {
+          path: ["productName"],
+          equals: examName,
+        },
+        ...dateFilter,
+      } as Prisma.ExamResultWhereInput,
+      include: {
+        visit: {
+          include: {
+            patient: true,
+            doctor: true,
+          },
+        },
+      },
+      orderBy: {
+        examDate: "desc",
+      },
+    });
+
+    return c.json({
+      status: httpCodes.OK,
+      message: "Exam consumption details fetched successfully",
+      data: results,
+      totalCount: results.length,
+      pageCount: 1,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
 };
 
 // Removed legacy NormalizedCreateExamPayload; we accept frontend-only flattened payload now
