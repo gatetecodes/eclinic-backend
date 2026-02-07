@@ -13,6 +13,7 @@ export type RecaptchaVerificationResult = {
 };
 
 const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
+const RECAPTCHA_VERIFY_TIMEOUT_MS = 5000;
 
 export const verifyRecaptchaToken = async (
   token: string,
@@ -33,10 +34,17 @@ export const verifyRecaptchaToken = async (
     params.set("remoteip", remoteIp);
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    RECAPTCHA_VERIFY_TIMEOUT_MS
+  );
+
   try {
     const response = await fetch(RECAPTCHA_VERIFY_URL, {
       method: "POST",
       body: params,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -54,10 +62,13 @@ export const verifyRecaptchaToken = async (
       action: data.action,
       errors: data["error-codes"],
     };
-  } catch {
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === "AbortError";
     return {
       success: false,
-      errors: ["recaptcha_error"],
+      errors: [isAbort ? "recaptcha_timeout" : "recaptcha_error"],
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
