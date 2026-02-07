@@ -76,8 +76,7 @@ export const verifyRecaptcha = (options?: VerifyRecaptchaOptions) =>
 
     if (
       options?.expectedAction &&
-      result.action &&
-      result.action !== options.expectedAction
+      (result.action === undefined || result.action !== options.expectedAction)
     ) {
       return c.json(
         {

@@ -760,7 +760,7 @@ export const getExamConsumption = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
-    const { clinicId } = getScope(user, params);
+    const { clinicId, branchId } = getScope(user, params);
     const { from, to } = params;
 
     const dateFilter: Prisma.ExamResultWhereInput = {};
@@ -781,6 +781,7 @@ export const getExamConsumption = async (c: Context) => {
         by: ["results"],
         where: {
           ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
           ...dateFilter,
         },
         _count: {
@@ -791,6 +792,7 @@ export const getExamConsumption = async (c: Context) => {
         by: ["visitId"],
         where: {
           ...(typeof clinicId === "number" ? { clinicId } : {}),
+          ...(typeof branchId === "number" ? { branchId } : {}),
           ...dateFilter,
         },
       }),
@@ -853,7 +855,7 @@ export const getExamConsumptionDetails = async (c: Context) => {
 
     const { examName } = c.req.param();
     const params = searchParamsSchema.parse(c.req.query());
-    const { clinicId } = getScope(user, params);
+    const { clinicId, branchId } = getScope(user, params);
     const { from, to } = params;
 
     const dateFilter: Prisma.ExamResultWhereInput = {};
@@ -872,6 +874,7 @@ export const getExamConsumptionDetails = async (c: Context) => {
     const results = await db.examResult.findMany({
       where: {
         ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
         results: {
           path: ["productName"],
           equals: examName,
@@ -1331,8 +1334,11 @@ export const getExamTests = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
-    const { clinicId } = getScope(user, params);
-    const queryOptions = buildQueryOptions<ExamTest>(params);
+    const { clinicId, branchId } = getScope(user, params);
+    const queryOptions = buildQueryOptions<ExamTest>(params, {
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    });
     const { where, orderBy, ...restOptions } = queryOptions;
 
     const whereInputFind: Prisma.ExamTestWhereInput = {
