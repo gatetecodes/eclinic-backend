@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { ExamStatus } from "../../../../generated/prisma/client";
 
-export const getExamParamsSchema = z.object({ id: z.string() });
-export const getExamResultParamsSchema = z.object({ id: z.string() });
-export const getExamTestParamsSchema = z.object({ id: z.string() });
+export const getExamParamsSchema = z.object({
+  id: z.string().regex(/^\d+$/, "ID must be a number"),
+});
+export const getExamResultParamsSchema = z.object({
+  id: z.string().regex(/^\d+$/, "ID must be a number"),
+});
+export const getExamTestParamsSchema = z.object({
+  id: z.string().regex(/^\d+$/, "ID must be a number"),
+});
 export const getVisitIdParamsSchema = z.object({ visitId: z.string() });
 
 export type GetExamParams = z.infer<typeof getExamParamsSchema>;
