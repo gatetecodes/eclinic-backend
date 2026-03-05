@@ -39,45 +39,17 @@ import {
 
 const router = new Hono<AppEnv>();
 
-// Exam routes
-// Get all exams (with filtering and pagination)
+// Consumption routes
 router.get(
-  "/",
+  "/consumption",
   ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
-  getExams
+  getExamConsumption
 );
 
-// Create a new exam
-router.post(
-  "/",
-  ...withAccess({ resource: "exams", action: "create", feature: "lab" }),
-  validate(createExamSchema, "json"),
-  createExam
-);
-
-// Get exam by ID
 router.get(
-  "/:id",
-  validate(getExamParamsSchema, "param"),
+  "/consumption/:examName/visits",
   ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
-  getExamById
-);
-
-// Update exam
-router.put(
-  "/:id",
-  validate(getExamParamsSchema, "param"),
-  validate(updateExamSchema, "json"),
-  ...withAccess({ resource: "exams", action: "update", feature: "lab" }),
-  updateExam
-);
-
-// Get exams by visit ID
-router.get(
-  "/visit/:visitId",
-  validate(getVisitIdParamsSchema, "param"),
-  ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
-  getExamsByVisitId
+  getExamConsumptionDetails
 );
 
 // Exam Results routes
@@ -165,17 +137,45 @@ router.patch(
   updateExamTestConsumables
 );
 
-// Consumption routes
+// Exam routes
+// Get all exams (with filtering and pagination)
 router.get(
-  "/consumption",
+  "/",
   ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
-  getExamConsumption
+  getExams
 );
 
+// Create a new exam
+router.post(
+  "/",
+  ...withAccess({ resource: "exams", action: "create", feature: "lab" }),
+  validate(createExamSchema, "json"),
+  createExam
+);
+
+// Get exam by ID
 router.get(
-  "/consumption/:examName/visits",
+  "/:id",
+  validate(getExamParamsSchema, "param"),
   ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
-  getExamConsumptionDetails
+  getExamById
+);
+
+// Update exam
+router.put(
+  "/:id",
+  validate(getExamParamsSchema, "param"),
+  validate(updateExamSchema, "json"),
+  ...withAccess({ resource: "exams", action: "update", feature: "lab" }),
+  updateExam
+);
+
+// Get exams by visit ID
+router.get(
+  "/visit/:visitId",
+  validate(getVisitIdParamsSchema, "param"),
+  ...withAccess({ resource: "exams", action: "read", feature: "lab" }),
+  getExamsByVisitId
 );
 
 export default router;
