@@ -10,6 +10,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     // SUPER_ADMIN has implicit allow via hasPermission; matrix here can remain sparse
   },
   CLINIC_ADMIN: {
+    exams: { read: true, create: true, update: true },
     visits: {
       read: true,
       create: true,
@@ -38,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     performanceReports: { read: true },
   },
   BRANCH_ADMIN: {
+    exams: { read: true, create: true, update: true },
     visits: { read: true, create: true, update: true, readVisitDetails: true },
     patients: { read: true, create: true, update: true },
     inventory: { read: true, create: true, update: true },
