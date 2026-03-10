@@ -124,6 +124,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     payments: { read: true, create: true, update: true },
     approvals: { read: true },
     insurance: { read: true, create: true, update: true },
+    insuranceClaims: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     tariff: { read: true },
