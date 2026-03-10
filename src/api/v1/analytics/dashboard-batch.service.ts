@@ -206,7 +206,11 @@ export async function fetchPatientsByAge(
     select: {
       dateOfBirth: true,
       visits: {
-        where: { createdAt: { gte: startDate }, clinicId },
+        where: {
+          createdAt: { gte: startDate },
+          clinicId,
+          doctorId: doctorId ?? undefined,
+        },
         select: { createdAt: true },
       },
     },
@@ -261,31 +265,38 @@ export async function fetchCashFlow(
   const now = new Date();
   let startDate: Date;
   let previousStartDate: Date;
+  let previousEndDate: Date;
+
   // biome-ignore lint/nursery/noUnnecessaryConditions: switch on exhaustive union is valid, not a truthiness check
   switch (timeRange) {
     case "year":
       startDate = startOfYear(now);
       previousStartDate = subYears(startDate, 1);
+      previousEndDate = subYears(now, 1);
       break;
     case "6months":
       startDate = subMonths(now, MONTHS_IN_6_MONTHS);
       previousStartDate = subMonths(startDate, MONTHS_IN_6_MONTHS);
+      previousEndDate = startDate;
       break;
     default:
       startDate = subMonths(now, MONTHS_IN_3_MONTHS);
       previousStartDate = subMonths(startDate, MONTHS_IN_3_MONTHS);
+      previousEndDate = startDate;
       break;
   }
 
-  const endDate = endOfYear(now);
+  const endDate = now;
+  const chartEndDate = timeRange === "year" ? endOfYear(now) : endDate;
+
   const [currentData, previousData] = await Promise.all([
     getDataForRange(startDate, endDate, clinicId),
-    getDataForRange(previousStartDate, startDate, clinicId),
+    getDataForRange(previousStartDate, previousEndDate, clinicId),
   ]);
 
   const monthlyData = eachMonthOfInterval({
     start: startDate,
-    end: endDate,
+    end: chartEndDate,
   }).map((month) => {
     const monthStr = format(month, "MMM");
     return {
@@ -497,61 +508,83 @@ export async function fetchDoctorStats(doctorId: number) {
 
 export async function fetchNurseStats(nurseId: number) {
   const now = new Date();
-  const today = new Date(now.setHours(0, 0, 0, 0));
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const today = startOfDay(now);
+  const yesterday = startOfDay(subDays(now, 1));
 
-  const [currentDay, previousDay] = await Promise.all([
+  const [currentDay, previousDay, triagedTodayCount] = await Promise.all([
+    db.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: nurseId },
+        select: { clinicId: true },
+      });
+      const clinicId = user?.clinicId;
+      if (!clinicId) {
+        throw new Error("Clinic ID not found for nurse");
+      }
+
+      return [
+        await tx.visit.count({
+          where: { clinicId, status: VisitStatus.CHECKED_IN },
+        }),
+        await tx.visit.count({
+          where: {
+            status: {
+              in: [
+                VisitStatus.TRIAGE_COMPLETED,
+                VisitStatus.IN_PRE_CONSULTATION,
+                VisitStatus.IN_CONSULTATION,
+              ],
+            },
+          },
+        }),
+        await tx.visit.count({
+          where: {
+            status: VisitStatus.ADMITTED,
+          },
+        }),
+      ];
+    }),
     db.$transaction([
       db.visit.count({
-        where: { checkedInById: nurseId, createdAt: { gte: today } },
-      }),
-      db.visit.count({
         where: {
-          checkedInById: nurseId,
+          createdAt: { gte: yesterday, lt: today },
           status: VisitStatus.CHECKED_IN,
-          createdAt: { gte: today },
         },
       }),
       db.visit.count({
         where: {
-          checkedInById: nurseId,
+          createdAt: { gte: yesterday, lt: today },
+          status: {
+            in: [
+              VisitStatus.TRIAGE_COMPLETED,
+              VisitStatus.IN_PRE_CONSULTATION,
+              VisitStatus.IN_CONSULTATION,
+            ],
+          },
+        },
+      }),
+      db.visit.count({
+        where: {
+          createdAt: { gte: yesterday, lt: today },
           status: VisitStatus.ADMITTED,
-          createdAt: { gte: today },
         },
       }),
     ]),
-    db.$transaction([
-      db.visit.count({
-        where: {
-          checkedInById: nurseId,
-          createdAt: { gte: yesterday, lt: today },
-        },
-      }),
-      db.visit.count({
-        where: {
-          checkedInById: nurseId,
-          status: VisitStatus.CHECKED_IN,
-          createdAt: { gte: yesterday, lt: today },
-        },
-      }),
-      db.visit.count({
-        where: {
-          checkedInById: nurseId,
-          status: VisitStatus.ADMITTED,
-          createdAt: { gte: yesterday, lt: today },
-        },
-      }),
-    ]),
+    db.visit.count({
+      where: {
+        checkedInById: nurseId,
+        createdAt: { gte: today },
+      },
+    }),
   ]);
 
   return {
-    checkins: {
+    waitingForTriage: {
       count: currentDay[0],
       trend: calculateTrend(currentDay[0], previousDay[0]),
       trendText: calculateTrendText(currentDay[0], previousDay[0]),
     },
-    pendingConsultations: {
+    inProgress: {
       count: currentDay[1],
       trend: calculateTrend(currentDay[1], previousDay[1]),
       trendText: calculateTrendText(currentDay[1], previousDay[1]),
@@ -560,6 +593,9 @@ export async function fetchNurseStats(nurseId: number) {
       count: currentDay[2],
       trend: calculateTrend(currentDay[2], previousDay[2]),
       trendText: calculateTrendText(currentDay[2], previousDay[2]),
+    },
+    triagedToday: {
+      count: triagedTodayCount,
     },
   };
 }
@@ -806,7 +842,7 @@ export async function fetchStockManagerStats(stockManagerId: number) {
   const thirtyDaysFromNow = new Date(today);
   thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-  const [currentDay, previousDay] = await Promise.all([
+  const [currentDay, previousDayCount] = await Promise.all([
     db.$transaction([
       db.inventoryItem.count({ where: { clinicId } }),
       db.inventoryItem.count({
@@ -826,68 +862,31 @@ export async function fetchStockManagerStats(stockManagerId: number) {
         where: { item: { clinicId } },
       }),
     ]),
-    db.$transaction([
-      db.inventoryItem.count({
-        where: { clinicId, createdAt: { gte: yesterday, lt: today } },
-      }),
-      db.inventoryItem.count({
-        where: {
-          clinicId,
-          status: InventoryStatus.LOW_STOCK,
-          createdAt: { gte: yesterday, lt: today },
-        },
-      }),
-      db.inventoryBatch.count({
-        where: {
-          item: { clinicId },
-          createdAt: { gte: yesterday, lt: today },
-          expiryDate: { lte: thirtyDaysFromNow, gte: today },
-        },
-      }),
-      db.transaction.count({
-        where: {
-          item: { clinicId },
-          createdAt: { gte: yesterday, lt: today },
-        },
-      }),
-      db.inventoryStock.aggregate({
-        _sum: { quantity: true },
-        where: { item: { clinicId } },
-      }),
-    ]),
+    db.transaction.count({
+      where: {
+        item: { clinicId },
+        createdAt: { gte: yesterday, lt: today },
+      },
+    }),
   ]);
 
   return {
     totalItems: {
       count: currentDay[0],
-      trend: calculateTrend(currentDay[0], previousDay[0]),
-      trendText: calculateTrendText(currentDay[0], previousDay[0]),
     },
     lowStockItems: {
       count: currentDay[1],
-      trend: calculateTrend(currentDay[1], previousDay[1]),
-      trendText: calculateTrendText(currentDay[1], previousDay[1]),
     },
     expiringItems: {
       count: currentDay[2],
-      trend: calculateTrend(currentDay[2], previousDay[2]),
-      trendText: calculateTrendText(currentDay[2], previousDay[2]),
     },
     recentTransactions: {
       count: currentDay[3],
-      trend: calculateTrend(currentDay[3], previousDay[3]),
-      trendText: calculateTrendText(currentDay[3], previousDay[3]),
+      trend: calculateTrend(currentDay[3], previousDayCount),
+      trendText: calculateTrendText(currentDay[3], previousDayCount),
     },
     totalValue: {
       count: currentDay[4]._sum.quantity || 0,
-      trend: calculateTrend(
-        currentDay[4]._sum.quantity || 0,
-        previousDay[4]._sum.quantity || 0
-      ),
-      trendText: calculateTrendText(
-        currentDay[4]._sum.quantity || 0,
-        previousDay[4]._sum.quantity || 0
-      ),
     },
   };
 }
