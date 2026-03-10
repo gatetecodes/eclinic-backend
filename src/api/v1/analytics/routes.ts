@@ -23,6 +23,7 @@ import {
   getTopPerformingClinics,
   getVisitGrowth,
 } from "./analytics.controller.ts";
+import { getDashboardBatch } from "./dashboard-batch.controller";
 
 const router = new Hono<AppEnv>();
 
@@ -30,6 +31,11 @@ router.get(
   "/dashboard",
   ...withAccess({ resource: "analytics", action: "read" }),
   getDashboard
+);
+router.get(
+  "/dashboard-batch",
+  ...withAccess({ resource: "analytics", action: "read" }),
+  getDashboardBatch
 );
 router.get(
   "/dashboard-overview",
