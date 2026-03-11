@@ -102,7 +102,10 @@ async function ensureLabQueueReady(
   departmentId?: number | null
 ): Promise<{ id: number; name: string } | null> {
   const labDept = await db.clinicalDepartment.findFirst({
-    where: { name: DefaultDepartments.LABORATOIRE },
+    where: {
+      name: DefaultDepartments.LABORATOIRE,
+      clinics: { some: { id: clinicId } },
+    },
     select: { id: true },
   });
   const labDeptId = labDept?.id ?? departmentId;
@@ -275,12 +278,17 @@ export const QueueIntegrationService = {
         queueId: activeQueue.id,
       });
 
-      await sendQueueJoinedWhatsApp(
+      sendQueueJoinedWhatsApp(
         patient.phoneNumber,
         patient.firstName,
         activeQueue.name,
         entry
-      );
+      ).catch((err) => {
+        logger.error("Auto-queue: WhatsApp notification failed", {
+          error: err instanceof Error ? err.message : String(err),
+          patientId,
+        });
+      });
     } catch (error) {
       logger.error("Auto-queue: Failed to ensure patient in queue", {
         error: error instanceof Error ? error.message : String(error),
@@ -292,15 +300,15 @@ export const QueueIntegrationService = {
 
   /**
    * Ensures that a patient joins the nurse pre-consultation queue when consultation is paid.
+   * Pre-consultation queues are cross-department; departmentId is not required.
    */
   ensurePatientInNursePreConsultationQueue: async (params: {
-    departmentId: number;
     patientId: number;
     clinicId: number;
     branchId: number;
     visitId: number;
   }) => {
-    const { departmentId, patientId, clinicId, branchId, visitId } = params;
+    const { patientId, clinicId, branchId, visitId } = params;
 
     try {
       const activeQueue = await ensurePreConsultationQueueReady(
@@ -350,18 +358,23 @@ export const QueueIntegrationService = {
         queueId: activeQueue.id,
       });
 
-      await sendQueueJoinedWhatsApp(
+      sendQueueJoinedWhatsApp(
         patient.phoneNumber,
         patient.firstName,
         activeQueue.name,
         entry
-      );
+      ).catch((err) => {
+        logger.error("Auto-queue: WhatsApp notification failed", {
+          error: err instanceof Error ? err.message : String(err),
+          patientId,
+        });
+      });
     } catch (error) {
       logger.error(
         "Auto-queue: Failed to ensure patient in pre-consultation queue",
         {
           error: error instanceof Error ? error.message : String(error),
-          departmentId,
+          visitId,
           patientId,
         }
       );
@@ -436,12 +449,17 @@ export const QueueIntegrationService = {
         queueId: activeQueue.id,
       });
 
-      await sendQueueJoinedWhatsApp(
+      sendQueueJoinedWhatsApp(
         patient.phoneNumber,
         patient.firstName,
         activeQueue.name,
         entry
-      );
+      ).catch((err) => {
+        logger.error("Auto-queue: WhatsApp notification failed", {
+          error: err instanceof Error ? err.message : String(err),
+          patientId,
+        });
+      });
     } catch (error) {
       logger.error("Auto-queue: Failed to ensure patient in lab queue", {
         error: error instanceof Error ? error.message : String(error),
@@ -452,29 +470,39 @@ export const QueueIntegrationService = {
   },
 
   /**
-   * Marks the queue entry for a visit as SERVED when the patient is seen
-   * (e.g. nurse completes pre-consultation, doctor starts consultation).
+   * Marks queue entries for a visit and queue purpose as SERVED when the
+   * patient is seen in that specific stage.
    */
-  markQueueEntryServedForVisit: async (visitId: number) => {
+  markQueueEntryServedForVisit: async (
+    visitId: number,
+    purpose: QueuePurpose
+  ) => {
     try {
       const entries = await db.queueEntry.findMany({
         where: {
           visitId,
           status: { in: [QueueEntryStatus.WAITING, QueueEntryStatus.NOTIFIED] },
+          queue: {
+            queueConfig: {
+              purpose,
+            },
+          },
         },
         select: { id: true },
       });
 
       for (const entry of entries) {
         await QueueFlowService.updateStatus(entry.id, QueueEntryStatus.SERVED);
-        logger.info("Auto-queue: Marked entry as served for visit", {
+        logger.info("Auto-queue: Marked entry as served for visit purpose", {
           visitId,
+          purpose,
           entryId: entry.id,
         });
       }
     } catch (error) {
       logger.error("Auto-queue: Failed to mark entry served", {
         visitId,
+        purpose,
         error: error instanceof Error ? error.message : String(error),
       });
     }

@@ -13,6 +13,7 @@ import type {
 import {
   ActivityType,
   PaymentType,
+  QueuePurpose,
   Role,
   VisitStatus,
 } from "../../../../../generated/prisma/client";
@@ -719,7 +720,10 @@ export const addPreConsultation = async (c: Context) => {
     });
 
     // Mark pre-consultation queue entry as SERVED (best-effort)
-    QueueIntegrationService.markQueueEntryServedForVisit(visitId).catch(() => {
+    QueueIntegrationService.markQueueEntryServedForVisit(
+      visitId,
+      QueuePurpose.PRE_CONSULTATION
+    ).catch(() => {
       /* Queue integration is best-effort; do not fail pre-consultation flow */
     });
 
@@ -1338,7 +1342,10 @@ export const createConsultationNote = async (c: Context) => {
     });
 
     // Mark doctor queue entry as SERVED when consultation starts (best-effort)
-    QueueIntegrationService.markQueueEntryServedForVisit(visitId).catch(() => {
+    QueueIntegrationService.markQueueEntryServedForVisit(
+      visitId,
+      QueuePurpose.DOCTOR
+    ).catch(() => {
       /* Queue integration is best-effort; do not fail consultation note flow */
     });
 

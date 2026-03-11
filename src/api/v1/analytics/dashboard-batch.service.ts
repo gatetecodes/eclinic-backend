@@ -944,15 +944,9 @@ async function fetchNursePreConsultationQueueSummary(baseWhere: {
     },
   });
 
-  const crossDept = rawQueues.find((q) => q.queueConfig?.departmentId === null);
-  let sourceQueues: typeof rawQueues;
-  if (crossDept) {
-    sourceQueues = [crossDept];
-  } else if (rawQueues.length > 0) {
-    sourceQueues = rawQueues;
-  } else {
-    sourceQueues = [];
-  }
+  // Merge all active PRE_CONSULTATION queues. Do not hide department queues when
+  // a cross-department queue exists — during migration both may have waiting patients.
+  const sourceQueues = rawQueues;
 
   if (sourceQueues.length === 0) {
     return [];
@@ -1034,7 +1028,10 @@ export async function fetchRoleScopedQueueSummary(
     queues = await fetchNursePreConsultationQueueSummary(baseWhere);
   } else if (role === "LAB_TECHNICIAN") {
     const labDept = await db.clinicalDepartment.findFirst({
-      where: { name: DefaultDepartments.LABORATOIRE },
+      where: {
+        name: DefaultDepartments.LABORATOIRE,
+        clinics: { some: { id: clinicId } },
+      },
       select: { id: true },
     });
     queues = await db.queue.findMany({
