@@ -175,11 +175,10 @@ const logFullPaymentFlow = async ({
 
   if (
     nextVisitStatus === VisitStatus.IN_PRE_CONSULTATION &&
-    visit.departmentId &&
+    visit.clinicId &&
     visit.branchId
   ) {
     QueueIntegrationService.ensurePatientInNursePreConsultationQueue({
-      departmentId: visit.departmentId,
       patientId: visit.patientId,
       clinicId: visit.clinicId,
       branchId: visit.branchId,

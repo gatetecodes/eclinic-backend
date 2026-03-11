@@ -26,5 +26,5 @@ export const nextPatientSchema = z.object({
 });
 
 export const setupDefaultsSchema = z.object({
-  branchId: z.number().optional(),
+  branchId: z.number().int().positive().optional(),
 });
