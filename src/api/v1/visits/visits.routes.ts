@@ -83,6 +83,8 @@ import {
 const router = new Hono<AppEnv>();
 
 router.get("/", listVisits);
+router.get("/today", getTodaysVisits);
+router.get("/todays", getTodaysVisits);
 router.post(
   "/patient-by-phone",
   validate(getPatientByPhoneSchema, "json"),
@@ -165,9 +167,6 @@ router.put(
 
 // Visits with prescriptions
 router.get("/with-prescriptions", getVisitsWithPrescriptions);
-
-// Today's visits
-router.get("/today", getTodaysVisits);
 
 // Export visits
 router.get("/export", exportVisits);

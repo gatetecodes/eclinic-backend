@@ -12,6 +12,7 @@ import {
   subYears,
 } from "date-fns";
 import { calculateTrend, calculateTrendText } from "@/helpers/analytics-helper";
+import { DefaultDepartments } from "@/lib/constants";
 import {
   EventType,
   ExamStatus,
@@ -19,6 +20,7 @@ import {
   PaymentMode,
   PaymentStatus,
   type Prisma,
+  QueuePurpose,
   VisitStatus,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
@@ -889,4 +891,185 @@ export async function fetchStockManagerStats(stockManagerId: number) {
       count: currentDay[4]._sum.quantity || 0,
     },
   };
+}
+
+export type QueueSummaryEntry = {
+  id: number;
+  position: number;
+  name: string | null;
+  phoneNumber: string;
+  status: string;
+  visitId: number | null;
+  departmentName?: string | null;
+};
+
+export type QueueSummaryItem = {
+  id: number;
+  name: string;
+  queueConfigId?: number | null;
+  waitingCount: number;
+  entries: QueueSummaryEntry[];
+  /** For merged views (e.g. pre-consultation), IDs of all source queues for socket subscription */
+  queueIds?: number[];
+};
+
+async function fetchNursePreConsultationQueueSummary(baseWhere: {
+  clinicId: number;
+  status: "OPEN";
+  branchId?: number;
+}) {
+  const rawQueues = await db.queue.findMany({
+    where: {
+      ...baseWhere,
+      doctorId: null,
+      queueConfig: { purpose: QueuePurpose.PRE_CONSULTATION },
+    },
+    include: {
+      queueConfig: { select: { departmentId: true } },
+      entries: {
+        where: { status: { in: ["WAITING", "NOTIFIED"] } },
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          position: true,
+          name: true,
+          phoneNumber: true,
+          status: true,
+          visitId: true,
+          visit: {
+            select: { department: { select: { name: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  const crossDept = rawQueues.find((q) => q.queueConfig?.departmentId === null);
+  let sourceQueues: typeof rawQueues;
+  if (crossDept) {
+    sourceQueues = [crossDept];
+  } else if (rawQueues.length > 0) {
+    sourceQueues = rawQueues;
+  } else {
+    sourceQueues = [];
+  }
+
+  if (sourceQueues.length === 0) {
+    return [];
+  }
+
+  const mergedEntries = sourceQueues.flatMap((q) =>
+    q.entries.map((e) => ({
+      id: e.id,
+      position: e.position,
+      name: e.name,
+      phoneNumber: e.phoneNumber,
+      status: e.status,
+      visitId: e.visitId,
+      departmentName: e.visit?.department?.name ?? null,
+    }))
+  );
+  for (let i = 0; i < mergedEntries.length; i++) {
+    mergedEntries[i].position = i + 1;
+  }
+  const first = sourceQueues[0];
+  return [
+    {
+      id: first.id,
+      name: "Pre-consultation",
+      queueConfigId: first.queueConfigId,
+      entries: mergedEntries,
+      queueIds: sourceQueues.map((q) => q.id),
+    },
+  ];
+}
+
+export async function fetchRoleScopedQueueSummary(
+  role: string,
+  clinicId: number,
+  userId: number,
+  branchId?: number | null
+) {
+  const baseWhere = {
+    clinicId,
+    status: "OPEN" as const,
+    ...(branchId != null ? { branchId } : {}),
+  };
+
+  let queues: Array<{
+    id: number;
+    name: string;
+    queueConfigId: number | null;
+    entries: Array<{
+      id: number;
+      position: number;
+      name: string | null;
+      phoneNumber: string;
+      status: string;
+      visitId: number | null;
+      departmentName?: string | null;
+    }>;
+    queueIds?: number[];
+  }>;
+
+  if (role === "DOCTOR") {
+    queues = await db.queue.findMany({
+      where: { ...baseWhere, doctorId: userId },
+      include: {
+        entries: {
+          where: { status: { in: ["WAITING", "NOTIFIED"] } },
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            position: true,
+            name: true,
+            phoneNumber: true,
+            status: true,
+            visitId: true,
+          },
+        },
+      },
+    });
+  } else if (role === "NURSE") {
+    queues = await fetchNursePreConsultationQueueSummary(baseWhere);
+  } else if (role === "LAB_TECHNICIAN") {
+    const labDept = await db.clinicalDepartment.findFirst({
+      where: { name: DefaultDepartments.LABORATOIRE },
+      select: { id: true },
+    });
+    queues = await db.queue.findMany({
+      where: {
+        ...baseWhere,
+        OR: [
+          { queueConfig: { purpose: QueuePurpose.LAB } },
+          ...(labDept ? [{ departmentId: labDept.id, doctorId: null }] : []),
+        ],
+      },
+      include: {
+        entries: {
+          where: { status: { in: ["WAITING", "NOTIFIED"] } },
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            position: true,
+            name: true,
+            phoneNumber: true,
+            status: true,
+            visitId: true,
+          },
+        },
+      },
+    });
+  } else {
+    return null;
+  }
+
+  return queues.map((q) => ({
+    id: q.id,
+    name: q.name,
+    queueConfigId: q.queueConfigId,
+    waitingCount: q.entries.length,
+    entries: q.entries,
+    ...(q.queueIds && { queueIds: q.queueIds }),
+  }));
 }

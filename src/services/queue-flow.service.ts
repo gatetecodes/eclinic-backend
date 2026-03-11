@@ -1,12 +1,14 @@
 import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import { notifyEntryUpdate, notifyQueueUpdate } from "@/lib/socket";
 import {
   QueueEntryStatus,
   QueueEventType,
   type QueueSource,
 } from "../../generated/prisma/client";
+import { WhatsAppService } from "./whatsapp.service";
 
 export const QueueFlowService = {
   joinQueue: async (data: {
@@ -14,11 +16,13 @@ export const QueueFlowService = {
     phoneNumber: string;
     name?: string;
     patientId?: number;
+    visitId?: number;
     source: QueueSource;
     patientLat?: number;
     patientLng?: number;
     travelTimeEstimate?: number;
   }) => {
+    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     return await db.$transaction(async (tx) => {
       // 1. Lock the queue to prevent concurrent position calculations for the same queue
       await tx.$executeRaw`SELECT id FROM "Queue" WHERE id = ${data.queueId} FOR UPDATE`;
@@ -48,6 +52,7 @@ export const QueueFlowService = {
         where: {
           queueId: data.queueId,
           OR: [
+            ...(data.visitId ? [{ visitId: data.visitId }] : []),
             ...(data.patientId ? [{ patientId: data.patientId }] : []),
             { phoneNumber: data.phoneNumber },
           ],
@@ -58,12 +63,19 @@ export const QueueFlowService = {
       });
 
       if (existingEntry) {
-        // If the entry was joined via another source but didn't have patientId linked, link it now
-        let entry = existingEntry;
+        // If the entry was joined via another source but didn't have patientId/visitId linked, link it now
+        const updateData: { patientId?: number; visitId?: number } = {};
         if (data.patientId && !existingEntry.patientId) {
+          updateData.patientId = data.patientId;
+        }
+        if (data.visitId && !existingEntry.visitId) {
+          updateData.visitId = data.visitId;
+        }
+        let entry = existingEntry;
+        if (Object.keys(updateData).length > 0) {
           entry = await tx.queueEntry.update({
             where: { id: existingEntry.id },
-            data: { patientId: data.patientId },
+            data: updateData,
           });
         }
 
@@ -108,6 +120,7 @@ export const QueueFlowService = {
         data: {
           queueId: data.queueId,
           patientId: data.patientId,
+          visitId: data.visitId,
           phoneNumber: data.phoneNumber,
           name: data.name,
           position: nextPosition,
@@ -150,7 +163,10 @@ export const QueueFlowService = {
   updateStatus: async (entryId: number, status: QueueEntryStatus) => {
     const entry = await db.queueEntry.findUnique({
       where: { id: entryId },
-      include: { queue: true },
+      include: {
+        queue: true,
+        patient: { select: { firstName: true } },
+      },
     });
 
     if (!entry) {
@@ -201,6 +217,30 @@ export const QueueFlowService = {
       entryId,
       status,
     });
+
+    // Send WhatsApp "your turn has arrived" when patient is notified
+    if (status === QueueEntryStatus.NOTIFIED && entry.phoneNumber) {
+      const firstName =
+        entry.name?.split(" ")[0] ?? entry.patient?.firstName ?? "there";
+      WhatsAppService.sendTemplate({
+        to: entry.phoneNumber,
+        templateName: "patient_turn_arrived",
+        components: [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: firstName },
+              { type: "text", text: entry.queue.name },
+            ],
+          },
+        ],
+      }).catch((err) => {
+        logger.error("WhatsApp turn notification failed", {
+          entryId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
 
     // Whenever a patient is served or skipped, check if other waiting patients need to leave home
     if (

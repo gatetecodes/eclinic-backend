@@ -28,6 +28,14 @@ enum QueueEventType {
     DELAYED
 }
 
+enum QueuePurpose {
+    DOCTOR // doctorId required
+    PRE_CONSULTATION // departmentId required
+    LAB // branch-scoped, optional departmentId for Lab dept
+    CASHIER // branch-scoped
+    RECEPTION // branch-scoped
+}
+
 model QueueConfig {
     id       Int    @id @default(autoincrement())
     clinicId Int
@@ -56,6 +64,8 @@ model QueueConfig {
     defaultAvgTime   Int  @default(10) // Minutes
     maxCapacity      Int? // Max patients per session
     travelTimeBuffer Int  @default(15) // Minutes before travel time to alert
+
+    purpose QueuePurpose? // null = legacy/custom
 
     queues Queue[]
 
@@ -107,6 +117,8 @@ model QueueEntry {
     queue       Queue            @relation(fields: [queueId], references: [id])
     patientId   Int? //Optional - first-time patients
     patient     Patient?         @relation(fields: [patientId], references: [id])
+    visitId     Int?
+    visit       Visit?           @relation(fields: [visitId], references: [id])
     phoneNumber String //Required for identity
     name        String?
     position    Int //Stored explicitly to avoid re-calculating it
@@ -137,6 +149,7 @@ model QueueEntry {
     @@index([queueId])
     @@index([phoneNumber])
     @@index([status])
+    @@index([visitId])
 }
 
 model QueueEvent {
