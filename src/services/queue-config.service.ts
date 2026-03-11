@@ -2,7 +2,7 @@ import { db } from "@/database/db";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import { generateSlug } from "@/lib/utils";
-import type { QueueConfig } from "../../generated/prisma/client";
+import type { QueueConfig, QueuePurpose } from "../../generated/prisma/client";
 
 const resolveUniqueSlug = async (
   name: string,
@@ -76,6 +76,7 @@ export const QueueConfigService = {
     isPublic?: boolean;
     departmentId?: number;
     doctorId?: number;
+    purpose?: QueuePurpose;
     autoOpenTime?: string;
     autoCloseTime?: string;
     isAutoOpenEnabled?: boolean;

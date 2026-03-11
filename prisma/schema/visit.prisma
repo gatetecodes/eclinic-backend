@@ -55,6 +55,7 @@ model Visit {
     spectaclePrescription   SpectaclePrescription?
     notifications           Notification[]
     handoffs                Handoff[]
+    queueEntries            QueueEntry[]
 
     @@index([patientId])
     @@index([clinicId])

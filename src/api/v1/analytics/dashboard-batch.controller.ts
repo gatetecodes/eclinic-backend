@@ -11,6 +11,7 @@ import {
   fetchLabTechnicianStats,
   fetchNurseStats,
   fetchPatientsByAge,
+  fetchRoleScopedQueueSummary,
   fetchStockManagerStats,
   fetchVisitsByDepartments,
 } from "./dashboard-batch.service";
@@ -21,9 +22,11 @@ export async function getDashboardBatch(c: Context) {
       id: string | number;
       role: string;
       clinicId?: number;
+      branchId?: number | null;
     };
     const userId = typeof user.id === "string" ? Number(user.id) : user.id;
     const clinicId = c.get("clinicId") as number | undefined;
+    const branchId = user.branchId ?? undefined;
     const entitlements = c.get("entitlements") as
       | { features: Record<string, boolean> }
       | undefined;
@@ -63,10 +66,11 @@ export async function getDashboardBatch(c: Context) {
           userId,
           clinicId: clinicIdNum,
           patientsFilter,
+          branchId,
         });
 
       case "NURSE":
-        return await handleNurseDashboard(c, userId, clinicIdNum);
+        return await handleNurseDashboard(c, userId, clinicIdNum, branchId);
 
       case "CASHIER":
         return await handleCashierDashboard({
@@ -78,7 +82,7 @@ export async function getDashboardBatch(c: Context) {
         });
 
       case "LAB_TECHNICIAN":
-        return await handleLabDashboard(c, userId, clinicIdNum);
+        return await handleLabDashboard(c, userId, clinicIdNum, branchId);
 
       case "STOCK_MANAGER":
         return await handleStockDashboard(c, userId);
@@ -142,13 +146,16 @@ async function handleDoctorDashboard(options: {
   userId: number;
   clinicId: number;
   patientsFilter: "week" | "month" | "3months";
+  branchId?: number | null;
 }) {
-  const { c, userId, clinicId, patientsFilter } = options;
-  const [doctorStats, patientsByAge, departments] = await Promise.all([
-    fetchDoctorStats(userId),
-    fetchPatientsByAge(clinicId, patientsFilter, userId),
-    fetchVisitsByDepartments(clinicId, userId),
-  ]);
+  const { c, userId, clinicId, patientsFilter, branchId } = options;
+  const [doctorStats, patientsByAge, departments, queueSummary] =
+    await Promise.all([
+      fetchDoctorStats(userId),
+      fetchPatientsByAge(clinicId, patientsFilter, userId),
+      fetchVisitsByDepartments(clinicId, userId),
+      fetchRoleScopedQueueSummary("DOCTOR", clinicId, userId, branchId),
+    ]);
 
   return c.json(
     {
@@ -157,6 +164,7 @@ async function handleDoctorDashboard(options: {
         doctorStats,
         patientsByAge,
         departments,
+        queueSummary,
       },
     },
     httpCodes.OK as ContentfulStatusCode
@@ -166,11 +174,13 @@ async function handleDoctorDashboard(options: {
 async function handleNurseDashboard(
   c: Context,
   userId: number,
-  clinicId: number
+  clinicId: number,
+  branchId?: number | null
 ) {
-  const [nurseStats, departments] = await Promise.all([
+  const [nurseStats, departments, queueSummary] = await Promise.all([
     fetchNurseStats(userId),
     fetchVisitsByDepartments(clinicId, null),
+    fetchRoleScopedQueueSummary("NURSE", clinicId, userId, branchId),
   ]);
 
   return c.json(
@@ -179,6 +189,7 @@ async function handleNurseDashboard(
         role: "NURSE",
         nurseStats,
         departments,
+        queueSummary,
       },
     },
     httpCodes.OK as ContentfulStatusCode
@@ -217,11 +228,13 @@ async function handleCashierDashboard(options: {
 async function handleLabDashboard(
   c: Context,
   userId: number,
-  clinicId: number
+  clinicId: number,
+  branchId?: number | null
 ) {
-  const [labStats, departments] = await Promise.all([
+  const [labStats, departments, queueSummary] = await Promise.all([
     fetchLabTechnicianStats(userId),
     fetchVisitsByDepartments(clinicId, null),
+    fetchRoleScopedQueueSummary("LAB_TECHNICIAN", clinicId, userId, branchId),
   ]);
 
   return c.json(
@@ -230,6 +243,7 @@ async function handleLabDashboard(
         role: "LAB_TECHNICIAN",
         labStats,
         departments,
+        queueSummary,
       },
     },
     httpCodes.OK as ContentfulStatusCode

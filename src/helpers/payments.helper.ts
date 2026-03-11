@@ -14,6 +14,7 @@ import {
   invalidatePaymentRelatedCaches,
   invalidateVisitRelatedCaches,
 } from "../lib/cache-utils";
+import { QueueIntegrationService } from "../services/queue-integration.service";
 import { logActivity } from "./activity-helpers";
 
 export const visitSelection = {
@@ -21,6 +22,9 @@ export const visitSelection = {
     id: true,
     status: true,
     isLabOnly: true,
+    patientId: true,
+    departmentId: true,
+    doctorId: true,
     patient: {
       select: {
         firstName: true,
@@ -168,6 +172,32 @@ const logFullPaymentFlow = async ({
     where: { id: visit.id },
     data: { status: nextVisitStatus },
   });
+
+  if (
+    nextVisitStatus === VisitStatus.IN_PRE_CONSULTATION &&
+    visit.departmentId &&
+    visit.branchId
+  ) {
+    QueueIntegrationService.ensurePatientInNursePreConsultationQueue({
+      departmentId: visit.departmentId,
+      patientId: visit.patientId,
+      clinicId: visit.clinicId,
+      branchId: visit.branchId,
+      visitId: visit.id,
+    }).catch(() => {
+      /* Queue integration is best-effort; do not fail payment flow */
+    });
+  } else if (nextVisitStatus === VisitStatus.PENDING_TESTS && visit.branchId) {
+    QueueIntegrationService.ensurePatientInLabQueue({
+      patientId: visit.patientId,
+      clinicId: visit.clinicId,
+      branchId: visit.branchId,
+      visitId: visit.id,
+      departmentId: visit.departmentId,
+    }).catch(() => {
+      /* Queue integration is best-effort; do not fail payment flow */
+    });
+  }
 
   if (nextVisitStatus === VisitStatus.IN_CONSULTATION) {
     await logActivity({

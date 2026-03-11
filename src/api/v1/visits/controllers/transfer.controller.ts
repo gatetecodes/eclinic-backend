@@ -167,6 +167,7 @@ export const acceptHandoff = async (c: Context) => {
       patientId: handoff.visit.patientId,
       clinicId: handoff.visit.clinicId,
       branchId: Number(handoff.visit.branchId ?? user.branchId),
+      visitId: handoff.visitId,
     });
 
     return c.json({
@@ -309,6 +310,7 @@ export const transferVisitToDoctor = async (c: Context) => {
       patientId: updatedVisit.patientId,
       clinicId: user.clinicId ?? user.clinic.id,
       branchId: user.branchId ?? user.branch.id,
+      visitId: visit.id,
     });
 
     return c.json(
