@@ -11,6 +11,26 @@ import {
 import { WhatsAppService } from "./whatsapp.service";
 
 export const QueueFlowService = {
+  notifyNextWaitingPatient: async (queueId: number) => {
+    const nextEntry = await db.queueEntry.findFirst({
+      where: {
+        queueId,
+        status: QueueEntryStatus.WAITING,
+      },
+      orderBy: { position: "asc" },
+      select: { id: true },
+    });
+
+    if (!nextEntry) {
+      return null;
+    }
+
+    return await QueueFlowService.updateStatus(
+      nextEntry.id,
+      QueueEntryStatus.NOTIFIED
+    );
+  },
+
   joinQueue: async (data: {
     queueId: number;
     phoneNumber: string;
@@ -177,6 +197,11 @@ export const QueueFlowService = {
       });
     }
 
+    // Avoid duplicate events/messages when the entry is already in the target status.
+    if (entry.status === status) {
+      return entry;
+    }
+
     let eventType: QueueEventType;
     if (status === QueueEntryStatus.SERVED) {
       eventType = QueueEventType.SERVED;
@@ -247,6 +272,7 @@ export const QueueFlowService = {
       status === QueueEntryStatus.SERVED ||
       status === QueueEntryStatus.SKIPPED
     ) {
+      await QueueFlowService.notifyNextWaitingPatient(entry.queueId);
       await QueueFlowService.checkProactiveAlerts(entry.queueId);
     }
 

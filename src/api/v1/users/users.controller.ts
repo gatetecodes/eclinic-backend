@@ -292,7 +292,7 @@ export const addNewUser = async (c: Context) => {
             email,
             password: hashedPassword,
             role: role as Role,
-            emailVerified: new Date(),
+            emailVerified: null,
             phone_number,
             clinicId: authUser.clinicId,
             branchId: authUser.branchId,
@@ -752,7 +752,7 @@ export const createDoctor = async (c: Context) => {
           password: hashedPassword,
           clinicId: authUser.clinicId,
           branchId: authUser.branchId,
-          emailVerified: new Date(),
+          emailVerified: null,
           consultationFee: doctorData.consultationFee,
           licenseNumber: doctorData.licenseNumber,
           licenseExpiration: formatLicenseExpiration(
