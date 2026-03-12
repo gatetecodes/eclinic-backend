@@ -10,7 +10,8 @@ export const validate = <T>(
     try {
       let body: unknown;
       if (target === "json") {
-        body = await c.req.json();
+        const text = await c.req.text();
+        body = text.trim() === "" ? {} : JSON.parse(text);
       } else if (target === "query") {
         body = await c.req.query();
       } else {

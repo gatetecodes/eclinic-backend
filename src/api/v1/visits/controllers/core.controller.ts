@@ -13,6 +13,7 @@ import type {
 import {
   ActivityType,
   PaymentType,
+  QueuePurpose,
   Role,
   VisitStatus,
 } from "../../../../../generated/prisma/client";
@@ -249,6 +250,7 @@ export const createInitialCheckIn = async (c: Context) => {
           patientId: visit.patientId,
           clinicId: user.clinicId,
           branchId: user.branchId,
+          visitId: visit.id,
         });
       }
     }
@@ -639,6 +641,7 @@ export const updateInitialCheckIn = async (c: Context) => {
           patientId: updatedVisit.patientId,
           clinicId: user.clinicId,
           branchId: user.branchId,
+          visitId: updatedVisit.id,
         });
       }
     }
@@ -674,7 +677,7 @@ export const addPreConsultation = async (c: Context) => {
     >;
 
     const result = await db.$transaction(async (tx) => {
-      const updatedVisit = await tx.visit.update({
+      const visitRecord = await tx.visit.update({
         data: {
           notes,
           status: VisitStatus.IN_CONSULTATION,
@@ -684,6 +687,9 @@ export const addPreConsultation = async (c: Context) => {
         select: {
           id: true,
           patientId: true,
+          doctorId: true,
+          clinicId: true,
+          branchId: true,
         },
       });
 
@@ -693,11 +699,11 @@ export const addPreConsultation = async (c: Context) => {
             ...(vitals as unknown as Prisma.InputJsonObject),
           },
         },
-        where: { id: updatedVisit.patientId },
+        where: { id: visitRecord.patientId },
         select: { firstName: true, lastName: true },
       });
 
-      return { updatedVisit, updatedPatient };
+      return { updatedVisit: visitRecord, updatedPatient };
     });
 
     await logActivity({
@@ -712,6 +718,32 @@ export const addPreConsultation = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
+
+    // Mark pre-consultation queue entry as SERVED (best-effort)
+    QueueIntegrationService.markQueueEntryServedForVisit(
+      visitId,
+      QueuePurpose.PRE_CONSULTATION
+    ).catch(() => {
+      /* Queue integration is best-effort; do not fail pre-consultation flow */
+    });
+
+    // Auto-join doctor queue when pre-consultation completes (doctor may have been assigned at check-in or during pre-consultation)
+    const { updatedVisit } = result;
+    if (
+      updatedVisit.doctorId &&
+      updatedVisit.clinicId &&
+      updatedVisit.branchId
+    ) {
+      QueueIntegrationService.ensurePatientInDoctorQueue({
+        doctorId: updatedVisit.doctorId,
+        patientId: updatedVisit.patientId,
+        clinicId: updatedVisit.clinicId,
+        branchId: updatedVisit.branchId,
+        visitId: updatedVisit.id,
+      }).catch(() => {
+        /* Queue integration is best-effort; do not fail pre-consultation flow */
+      });
+    }
 
     return c.json({
       success: "Pre-consultation details updated",
@@ -1308,6 +1340,15 @@ export const createConsultationNote = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
+
+    // Mark doctor queue entry as SERVED when consultation starts (best-effort)
+    QueueIntegrationService.markQueueEntryServedForVisit(
+      visitId,
+      QueuePurpose.DOCTOR
+    ).catch(() => {
+      /* Queue integration is best-effort; do not fail consultation note flow */
+    });
+
     return c.json(
       { success: true, message: "Consultation note added successfully", visit },
       httpCodes.OK as ContentfulStatusCode

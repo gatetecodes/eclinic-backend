@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import { QueueConfigService } from "@/services/queue-config.service";
 import { QueueFlowService } from "@/services/queue-flow.service";
 import { QueueManagerService } from "@/services/queue-manager.service";
+import { QueueSetupService } from "@/services/queue-setup.service";
 import {
   QueueEntryStatus,
   QueueSource,
@@ -40,6 +41,53 @@ function getFrontendBaseUrl(origin: string | undefined): string | null {
 export const QueuesController = {
   // --- Configuration (Protected) ---
 
+  setupDefaults: async (c: Context) => {
+    const user = c.get("user");
+    const clinicId = user.clinicId;
+    const validated = c.get("validatedJson") as { branchId?: number };
+    const branchId = validated.branchId ?? user.branchId;
+
+    if (!clinicId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Clinic ID missing",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    if (!branchId) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        message: "Branch ID required (user context or body)",
+        code: "CONTEXT_ERROR",
+      });
+    }
+
+    const branch = await db.branch.findFirst({
+      where: { id: branchId, clinicId },
+    });
+
+    if (!branch) {
+      throw new AppError({
+        status: httpCodes.NOT_FOUND,
+        message: "Branch not found",
+        code: "NOT_FOUND",
+      });
+    }
+
+    const result = await QueueSetupService.createDefaultConfigs(
+      clinicId,
+      branchId
+    );
+    return c.json(
+      {
+        success: true,
+        data: { created: result.created, configs: result.configs },
+      },
+      result.created > 0 ? (httpCodes.CREATED as ContentfulStatusCode) : 200
+    );
+  },
+
   createConfig: async (c: Context) => {
     const user = c.get("user");
     const clinicId = user.clinicId; // Provided by tenant middleware
@@ -52,6 +100,7 @@ export const QueuesController = {
       isPublic,
       departmentId,
       doctorId,
+      purpose,
       autoOpenTime,
       autoCloseTime,
       isAutoOpenEnabled,
@@ -82,6 +131,7 @@ export const QueuesController = {
       isPublic,
       departmentId,
       doctorId,
+      purpose,
       autoOpenTime,
       autoCloseTime,
       isAutoOpenEnabled,

@@ -97,6 +97,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     users: { read: true, update: true, readMyProfile: true },
     analytics: { read: true },
+    appointments: { read: true, create: true, update: true, delete: true },
     tariff: { read: true },
   },
   LAB_TECHNICIAN: {

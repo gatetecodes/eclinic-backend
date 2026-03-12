@@ -19,6 +19,7 @@ import {
   invalidatePaymentRelatedCaches,
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
+import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 
 export const addExams = async (c: Context) => {
   try {
@@ -236,6 +237,19 @@ export const markResultsReady = async (c: Context) => {
       branchId: Number(visit.branchId ?? 0),
       visitId,
     });
+
+    // Auto-join doctor queue so patient re-joins for results review
+    if (visit.doctorId != null && visit.branchId != null) {
+      QueueIntegrationService.ensurePatientInDoctorQueue({
+        doctorId: visit.doctorId,
+        patientId: visit.patient.id,
+        clinicId: visit.clinicId,
+        branchId: visit.branchId,
+        visitId: visit.id,
+      }).catch(() => {
+        /* Queue integration is best-effort; do not fail results ready flow */
+      });
+    }
 
     return c.json({ success: "Visit marked as results ready", data: updated });
   } catch (_error) {
