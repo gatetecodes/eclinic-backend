@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { db } from "@/database/db";
+import { logger } from "@/lib/logger";
+import { sendEmail } from "@/services/email.service";
 import type {
   Branch,
   Clinic,
@@ -189,6 +191,23 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: false,
     requireEmailVerification: true,
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    sendVerificationEmail: ({ user, url }) => {
+      return sendEmail({
+        to: user.email,
+        subject: "Verify your account",
+        template: "verification",
+        context: { verificationLink: url },
+      }).catch((err) => {
+        logger.error("Better Auth: failed to send verification email", {
+          email: user.email,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    },
   },
   socialProviders: {
     // google: {

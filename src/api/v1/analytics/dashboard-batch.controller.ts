@@ -16,6 +16,43 @@ import {
   fetchVisitsByDepartments,
 } from "./dashboard-batch.service";
 
+export async function getQueueSummary(c: Context) {
+  try {
+    const user = c.get("user") as {
+      id: string | number;
+      role: string;
+      clinicId?: number;
+      branchId?: number | null;
+    };
+    const userId = typeof user.id === "string" ? Number(user.id) : user.id;
+    const clinicId = c.get("clinicId") as number | undefined;
+    const branchId = user.branchId ?? undefined;
+
+    if (!clinicId && user.role !== "SUPER_ADMIN") {
+      return c.json(
+        { error: "Clinic context required" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const queueSummary = await fetchRoleScopedQueueSummary(
+      user.role,
+      clinicId as number,
+      userId,
+      branchId
+    );
+
+    return c.json({ data: queueSummary }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+}
+
 export async function getDashboardBatch(c: Context) {
   try {
     const user = c.get("user") as {
