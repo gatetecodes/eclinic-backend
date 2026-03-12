@@ -37,15 +37,30 @@ type WhatsAppSession = {
   pendingTravelTime?: number;
 };
 
+type WhatsAppStatusError = {
+  code: number;
+  title?: string;
+  message?: string;
+};
+
+type WhatsAppStatus = {
+  id: string;
+  status: "sent" | "delivered" | "read" | "failed";
+  timestamp: string;
+  recipient_id?: string;
+  errors?: WhatsAppStatusError[];
+};
+
 type WhatsAppPayload = {
   object: string;
   entry: Array<{
     changes: Array<{
       value: {
-        messages: Array<{
+        messages?: Array<{
           from: string;
-          text: { body: string };
+          text?: { body: string };
         }>;
+        statuses?: WhatsAppStatus[];
       };
     }>;
   }>;
@@ -100,8 +115,34 @@ export const webhook = async (c: Context) => {
     return c.json({ success: false }, 404);
   }
 
-  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  const value = body.entry?.[0]?.changes?.[0]?.value;
 
+  // Handle message status updates (sent, delivered, read, failed)
+  const statuses = value?.statuses;
+  if (statuses?.length) {
+    for (const s of statuses) {
+      if (s.status === "failed") {
+        logger.error("WhatsApp message delivery failed", {
+          messageId: s.id,
+          recipientId: s.recipient_id,
+          status: s.status,
+          errors: s.errors?.map((e) => ({
+            code: e.code,
+            title: e.title,
+            message: e.message,
+          })),
+        });
+      } else {
+        logger.debug("WhatsApp message status update", {
+          messageId: s.id,
+          recipientId: s.recipient_id,
+          status: s.status,
+        });
+      }
+    }
+  }
+
+  const message = value?.messages?.[0];
   if (!message) {
     return c.json({ success: true });
   }
