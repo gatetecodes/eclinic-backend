@@ -337,6 +337,12 @@ export const editVisitExams = async (c: Context) => {
       visitId,
     });
 
+    await invalidatePaymentRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+
     return c.json({
       success: "Visit exams updated successfully",
       data: updatedVisit,
