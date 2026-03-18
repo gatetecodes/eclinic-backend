@@ -37,6 +37,37 @@ const createResetPasswordToken = async (userId: number) => {
   return token;
 };
 
+const ALLOWED_VERIFICATION_CALLBACK_PATHS = new Set([
+  "/auth/login",
+  "/patient-portal/auth/login",
+  "/auth/set-password",
+]);
+
+const resolveVerificationCallbackPath = (
+  callbackURL: string | null,
+  frontendOrigin: string
+): { path: string; isSetPassword: boolean } | null => {
+  if (!callbackURL) {
+    return null;
+  }
+  try {
+    const base = new URL(frontendOrigin);
+    const resolved = new URL(callbackURL, base);
+    if (resolved.origin !== base.origin) {
+      return null;
+    }
+    if (!ALLOWED_VERIFICATION_CALLBACK_PATHS.has(resolved.pathname)) {
+      return null;
+    }
+    return {
+      path: `${resolved.pathname}${resolved.search}`,
+      isSetPassword: resolved.pathname === "/auth/set-password",
+    };
+  } catch {
+    return null;
+  }
+};
+
 const IS_NUMERIC_STRING = /^-?\d+$/;
 
 // Wrap Prisma client to coerce string userId -> number for auth models
@@ -244,14 +275,18 @@ export const auth = betterAuth({
         }
       }
 
-      if (callbackURL) {
-        if (callbackURL.includes("/auth/set-password")) {
+      const resolvedCallback = resolveVerificationCallbackPath(
+        callbackURL,
+        frontendUrl
+      );
+      if (resolvedCallback) {
+        if (resolvedCallback.isSetPassword) {
           const resetToken = await createResetPasswordToken(Number(user.id));
-          const setPasswordUrl = new URL(callbackURL, frontendUrl);
+          const setPasswordUrl = new URL(resolvedCallback.path, frontendUrl);
           setPasswordUrl.searchParams.set("token", resetToken);
-          nextPath = setPasswordUrl.toString();
+          nextPath = `${setPasswordUrl.pathname}${setPasswordUrl.search}`;
         } else {
-          nextPath = callbackURL;
+          nextPath = resolvedCallback.path;
         }
       }
       const verificationUrl = new URL(verifyPath, frontendUrl);
