@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   addDays,
   addHours,
@@ -55,12 +55,33 @@ import {
 
 const EMAIL_RETRY_DELAY_MS = 1000;
 
+const generateTemporaryPassword = () => randomBytes(24).toString("base64url");
+
+const signUpUserWithBetterAuth = async (
+  requestUrl: string,
+  appUrl: string,
+  payload: Record<string, unknown>
+) => {
+  const signUpUrl = new URL("/api/v1/auth/sign-up/email", requestUrl);
+  const response = await fetch(signUpUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: appUrl,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+};
+
 const sendVerificationEmailSafe = async (
   email: string,
-  token: string
+  token: string,
+  nextPath?: string
 ): Promise<{ success: boolean; error?: unknown }> => {
   try {
-    const context = getVerificationTemplateContext(token);
+    const context = getVerificationTemplateContext(token, nextPath);
     await sendEmail({
       to: email,
       subject: "Verify your account",
@@ -77,10 +98,11 @@ const sendVerificationEmailSafe = async (
 const sendVerificationEmailWithRetry = async (
   email: string,
   token: string,
+  nextPath?: string,
   maxRetries = 3
 ): Promise<{ success: boolean; error?: unknown }> => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await sendVerificationEmailSafe(email, token);
+    const result = await sendVerificationEmailSafe(email, token, nextPath);
     if (result.success) {
       return result;
     }
@@ -112,19 +134,90 @@ const generateVerificationToken = async (email: string) => {
   });
 };
 
-const getVerificationTemplateContext = (token: string) => {
+const getVerificationTemplateContext = (token: string, nextPath?: string) => {
   const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
   if (!appUrl) {
     throw new Error("APP_URL is not configured");
   }
+  const verificationUrl = new URL("/auth/new-verification", appUrl);
+  verificationUrl.searchParams.set("token", token);
+  if (nextPath) {
+    verificationUrl.searchParams.set("next", nextPath);
+  }
   return {
-    verificationLink: `${appUrl}/auth/new-verification?token=${token}`,
+    verificationLink: verificationUrl.toString(),
   } as const;
 };
 
-export const createVerificationEmail = async (email: string) => {
+export const createVerificationEmail = async (
+  email: string,
+  options?: { nextPath?: string }
+) => {
   const token = await generateVerificationToken(email);
-  return sendVerificationEmailWithRetry(email, token.token);
+  return sendVerificationEmailWithRetry(email, token.token, options?.nextPath);
+};
+
+export const resendVerificationEmail = async (c: Context) => {
+  try {
+    const body = await c.get("validatedJson");
+    const { email } = body as { email: string };
+
+    const user = await db.user.findUnique({ where: { email } });
+    if (!user || user.role === "PATIENT" || user.emailVerified) {
+      return c.json(
+        {
+          success:
+            "If this email exists, a new verification link has been sent.",
+        },
+        httpCodes.OK as ContentfulStatusCode
+      );
+    }
+
+    const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
+    if (!appUrl) {
+      logger.error("APP_URL is not configured");
+      return c.json(
+        {
+          success:
+            "If this email exists, a new verification link has been sent.",
+        },
+        httpCodes.OK as ContentfulStatusCode
+      );
+    }
+
+    const callbackURL = `${appUrl}/auth/set-password`;
+    const resendUrl = new URL(
+      "/api/v1/auth/send-verification-email",
+      c.req.url
+    );
+    const response = await fetch(resendUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: appUrl,
+      },
+      body: JSON.stringify({ email, callbackURL }),
+    });
+
+    if (!response.ok) {
+      logger.warn("Resend verification email failed", { email });
+    }
+
+    return c.json(
+      {
+        success: "If this email exists, a new verification link has been sent.",
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("Failed to resend verification email", { error });
+    return c.json(
+      {
+        success: "If this email exists, a new verification link has been sent.",
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  }
 };
 
 // helper functions moved to services/users.service.ts
@@ -230,6 +323,7 @@ export const getClinicUsers = async (c: Context) => {
   }
 };
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const addNewUser = async (c: Context) => {
   try {
     const authUser = c.get("user") as AuthenticatedUser | undefined;
@@ -278,112 +372,116 @@ export const addNewUser = async (c: Context) => {
       );
     }
 
-    const hashedPassword = hashCredentialPassword(password);
+    const providedPassword =
+      typeof password === "string" && password.length > 0;
+    const rawPassword = providedPassword
+      ? password
+      : generateTemporaryPassword();
     const isDoctor = role === "DOCTOR";
 
-    let createdUser: User;
+    const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
+    if (!appUrl) {
+      throw new Error("APP_URL is not configured");
+    }
+
+    const callbackURL = providedPassword
+      ? `${appUrl}/auth/login?verified=1`
+      : `${appUrl}/auth/set-password`;
+
+    const signUpPayload: Record<string, unknown> = {
+      email,
+      password: rawPassword,
+      name,
+      role,
+      phone_number,
+      clinicId: authUser.clinicId,
+      branchId: authUser.branchId,
+      callbackURL,
+      highestEducation,
+      licenseNumber,
+      license_document,
+      diploma_document,
+      licenseExpiration: formatLicenseExpiration(licenseExpiration),
+    };
+
+    const { response, data } = await signUpUserWithBetterAuth(
+      c.req.url,
+      appUrl,
+      signUpPayload
+    );
+
+    if (
+      !response.ok ||
+      (data && typeof data === "object" && data !== null && "error" in data)
+    ) {
+      const message =
+        (data as { error?: { message?: string } | string })?.error &&
+        typeof (data as { error?: { message?: string } | string }).error ===
+          "string"
+          ? (data as { error?: string }).error
+          : (data as { error?: { message?: string } })?.error?.message;
+      return c.json(
+        { error: message || "Failed to create user" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const createdUser = await db.user.findUnique({ where: { email } });
+    if (!createdUser) {
+      return c.json(
+        { error: "User created but could not be retrieved" },
+        httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      );
+    }
+
+    const updateData: Prisma.UserUpdateInput = {
+      highestEducation: highestEducation as EducationLevel | undefined,
+      licenseNumber: licenseNumber || null,
+      licenseExpiration: formatLicenseExpiration(licenseExpiration),
+      license_document: license_document || null,
+      diploma_document: diploma_document || null,
+      clinicalDepartments:
+        isDoctor && departments && departments.length > 0
+          ? {
+              connect: departments.map((departmentId) => ({
+                id: departmentId,
+              })),
+            }
+          : undefined,
+    };
 
     if (isDoctor) {
-      // Handle doctor creation with departments, availability, and license fields
-      createdUser = await db.$transaction(async (tx) => {
-        const doctor = await tx.user.create({
-          data: {
-            name,
-            email,
-            password: hashedPassword,
-            role: role as Role,
-            emailVerified: null,
-            phone_number,
-            clinicId: authUser.clinicId,
-            branchId: authUser.branchId,
-            highestEducation: highestEducation as EducationLevel | undefined,
-            licenseNumber: licenseNumber || null,
-            licenseExpiration: formatLicenseExpiration(licenseExpiration),
-            license_document: license_document || null,
-            diploma_document: diploma_document || null,
-            clinicalDepartments:
-              departments && departments.length > 0
-                ? {
-                    connect: departments.map((departmentId) => ({
-                      id: departmentId,
-                    })),
-                  }
-                : undefined,
-          },
+      await db.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: createdUser.id },
+          data: updateData,
         });
-
-        // 2. Create Authentication Account (Better-Auth)
-        await tx.account.create({
-          data: {
-            providerId: "credential",
-            accountId: doctor.id.toString(),
-            userId: doctor.id,
-            password: hashedPassword,
-          },
-        });
-
-        // Create availability if provided
         if (weeklyAvailability && weeklyAvailability.length > 0) {
           const availabilityData = filterValidAvailability(
             weeklyAvailability
           ).map((slot) => ({
-            doctorId: doctor.id,
+            doctorId: createdUser.id,
             startDayOfWeek: slot.startDayOfWeek,
             startTime: slot.startTime,
             endDayOfWeek: slot.endDayOfWeek,
             endTime: slot.endTime,
           }));
-
           if (availabilityData.length > 0) {
             await tx.doctorAvailability.createMany({ data: availabilityData });
           }
         }
-
-        return doctor;
       });
-    } else {
-      // Handle regular staff creation
-      createdUser = await db.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            name,
-            email,
-            password: hashedPassword,
-            role: role as Role,
-            emailVerified: null, // Force verification
-            phone_number,
-            clinicId: authUser.clinicId,
-            branchId: authUser.branchId,
-            highestEducation: highestEducation as EducationLevel | undefined,
-          },
-        });
-
-        await tx.account.create({
-          data: {
-            providerId: "credential",
-            accountId: user.id.toString(),
-            userId: user.id,
-            password: hashedPassword,
-          },
-        });
-
-        return user;
+    } else if (
+      updateData.highestEducation ||
+      updateData.licenseNumber ||
+      updateData.licenseExpiration ||
+      updateData.license_document ||
+      updateData.diploma_document
+    ) {
+      await db.user.update({
+        where: { id: createdUser.id },
+        data: updateData,
       });
-    }
-
-    const emailResult = await createVerificationEmail(email);
-    if (!emailResult.success) {
-      logger.warn("User created but verification email failed", {
-        email,
-        error: emailResult.error,
-      });
-      return c.json(
-        {
-          success: "User created successfully, verification email pending",
-          user: { id: createdUser.id },
-        },
-        httpCodes.CREATED as ContentfulStatusCode
-      );
     }
 
     return c.json(
@@ -702,6 +800,7 @@ export const getClinicDoctors = async (c: Context) => {
   }
 };
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const createDoctor = async (c: Context) => {
   try {
     const authUser = c.get("user") as AuthenticatedUser | undefined;
@@ -740,19 +839,75 @@ export const createDoctor = async (c: Context) => {
       );
     }
 
-    const hashedPassword = hashCredentialPassword(doctorData.password);
+    const providedPassword =
+      typeof doctorData.password === "string" && doctorData.password.length > 0;
+    const rawPassword = providedPassword
+      ? doctorData.password
+      : generateTemporaryPassword();
 
-    const newDoctor = await db.$transaction(async (tx) => {
-      const doctor = await tx.user.create({
+    const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
+    if (!appUrl) {
+      throw new Error("app url is not configured");
+    }
+
+    const callbackURL = providedPassword
+      ? `${appUrl}/auth/login?verified=1`
+      : `${appUrl}/auth/set-password`;
+
+    const signUpPayload: Record<string, unknown> = {
+      email: doctorData.email,
+      password: rawPassword,
+      name: doctorData.name,
+      role: doctorData.role,
+      phone_number: doctorData.phone_number,
+      clinicId: authUser.clinicId,
+      branchId: authUser.branchId,
+      callbackURL,
+      highestEducation: doctorData.highestEducation,
+      licenseNumber: doctorData.licenseNumber,
+      license_document: doctorData.license_document,
+      diploma_document: doctorData.diploma_document,
+      licenseExpiration: formatLicenseExpiration(doctorData.licenseExpiration),
+      consultationFee: doctorData.consultationFee,
+    };
+
+    const { response, data } = await signUpUserWithBetterAuth(
+      c.req.url,
+      appUrl,
+      signUpPayload
+    );
+
+    if (
+      !response.ok ||
+      (data && typeof data === "object" && data !== null && "error" in data)
+    ) {
+      const message =
+        (data as { error?: { message?: string } | string })?.error &&
+        typeof (data as { error?: { message?: string } | string }).error ===
+          "string"
+          ? (data as { error?: string }).error
+          : (data as { error?: { message?: string } })?.error?.message;
+      return c.json(
+        { error: message || "Failed to create doctor" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const newDoctor = await db.user.findUnique({
+      where: { email: doctorData.email },
+    });
+
+    if (!newDoctor) {
+      return c.json(
+        { error: "Doctor created but could not be retrieved" },
+        httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      );
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: newDoctor.id },
         data: {
-          name: doctorData.name,
-          email: doctorData.email,
-          phone_number: doctorData.phone_number,
-          role: doctorData.role as Role,
-          password: hashedPassword,
-          clinicId: authUser.clinicId,
-          branchId: authUser.branchId,
-          emailVerified: null,
           consultationFee: doctorData.consultationFee,
           licenseNumber: doctorData.licenseNumber,
           licenseExpiration: formatLicenseExpiration(
@@ -769,19 +924,9 @@ export const createDoctor = async (c: Context) => {
         },
       });
 
-      // 2. Create Authentication Account (Better-Auth)
-      await tx.account.create({
-        data: {
-          providerId: "credential",
-          accountId: doctor.id.toString(),
-          userId: doctor.id,
-          password: hashedPassword,
-        },
-      });
-
       const availabilityData = filterValidAvailability(weeklyAvailability).map(
         (slot) => ({
-          doctorId: doctor.id,
+          doctorId: newDoctor.id,
           startDayOfWeek: slot.startDayOfWeek,
           startTime: slot.startTime,
           endDayOfWeek: slot.endDayOfWeek,
@@ -792,29 +937,7 @@ export const createDoctor = async (c: Context) => {
       if (availabilityData.length > 0) {
         await tx.doctorAvailability.createMany({ data: availabilityData });
       }
-
-      return doctor;
     });
-
-    const emailResult = await createVerificationEmail(doctorData.email);
-    if (!emailResult.success) {
-      logger.warn("Doctor created but verification email failed", {
-        email: doctorData.email,
-        error: emailResult.error,
-      });
-      return c.json(
-        {
-          success: "Doctor created successfully",
-          message: "Verification email will be retried",
-          doctor: {
-            id: newDoctor.id,
-            name: newDoctor.name,
-            email: newDoctor.email,
-          },
-        },
-        httpCodes.CREATED as ContentfulStatusCode
-      );
-    }
 
     return c.json(
       {

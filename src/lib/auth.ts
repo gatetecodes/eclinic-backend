@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { addHours } from "date-fns";
 import { db } from "@/database/db";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/services/email.service";
@@ -14,6 +16,26 @@ const prisma = db;
 const SESSION_EXPIRES_IN_DAYS = 7;
 const SESSION_EXPIRES_IN = 60 * 60 * 24 * SESSION_EXPIRES_IN_DAYS; // 7 days
 const SESSION_UPDATE_AGE = 60 * 60 * 24; // 1 day
+const RESET_PASSWORD_TOKEN_TTL_HOURS = 1;
+
+const createResetPasswordToken = async (userId: number) => {
+  await db.verification.deleteMany({
+    where: {
+      value: String(userId),
+      identifier: { startsWith: "reset-password:" },
+    },
+  });
+  const token = randomUUID();
+  const expiresAt = addHours(new Date(), RESET_PASSWORD_TOKEN_TTL_HOURS);
+  await db.verification.create({
+    data: {
+      identifier: `reset-password:${token}`,
+      value: String(userId),
+      expiresAt,
+    },
+  });
+  return token;
+};
 
 const IS_NUMERIC_STRING = /^-?\d+$/;
 
@@ -195,12 +217,52 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     sendOnSignIn: true,
-    sendVerificationEmail: ({ user, url }) => {
+    sendVerificationEmail: async ({ user, url, token }) => {
+      const userId = Number(user.id);
+      const dbUserRole =
+        Number.isFinite(userId) && userId > 0
+          ? await prisma.user.findUnique({
+              where: { id: userId },
+              select: { role: true },
+            })
+          : null;
+      const isPatient = dbUserRole?.role === "PATIENT";
+      const verifyPath = isPatient
+        ? "/patient-portal/auth/verify-email"
+        : "/auth/verify-email";
+      const defaultNextPath = isPatient
+        ? "/patient-portal/auth/login?verified=1"
+        : "/auth/login?verified=1";
+      let nextPath = defaultNextPath;
+
+      let callbackURL: string | null = null;
+      if (url) {
+        try {
+          callbackURL = new URL(url).searchParams.get("callbackURL");
+        } catch {
+          callbackURL = null;
+        }
+      }
+
+      if (callbackURL) {
+        if (callbackURL.includes("/auth/set-password")) {
+          const resetToken = await createResetPasswordToken(Number(user.id));
+          const setPasswordUrl = new URL(callbackURL, frontendUrl);
+          setPasswordUrl.searchParams.set("token", resetToken);
+          nextPath = setPasswordUrl.toString();
+        } else {
+          nextPath = callbackURL;
+        }
+      }
+      const verificationUrl = new URL(verifyPath, frontendUrl);
+      verificationUrl.searchParams.set("token", token);
+      verificationUrl.searchParams.set("next", nextPath);
+
       return sendEmail({
         to: user.email,
         subject: "Verify your account",
         template: "verification",
-        context: { verificationLink: url },
+        context: { verificationLink: verificationUrl.toString() },
       }).catch((err) => {
         logger.error("Better Auth: failed to send verification email", {
           email: user.email,
