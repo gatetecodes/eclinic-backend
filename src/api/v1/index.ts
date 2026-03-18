@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { validate } from "@/middlewares/validation.middleware.ts";
 import { auth } from "../../lib/auth";
 import { requireAuth } from "../../middlewares/auth.middleware.ts";
 import { entitlementsContext } from "../../middlewares/entitlements.middleware.ts";
@@ -27,8 +28,10 @@ import performanceReportsRouter from "./performance-reports/performance-reports.
 import publicQueuesRouter from "./queues/public.routes.ts";
 import queuesRouter from "./queues/routes.ts";
 import tariffRouter from "./tariff/tariff.routes.ts";
+import { resendVerificationEmail } from "./users/users.controller.ts";
 // Resource routers
 import usersRouter from "./users/users.routes.ts";
+import { resendVerificationSchema } from "./users/users.validation.ts";
 import visitsRouter from "./visits/visits.routes.ts";
 import whatsappRouter from "./whatsapp/whatsapp.routes";
 
@@ -49,6 +52,18 @@ v1.all("/auth/*", (c) => {
   });
   return auth.handler(request);
 });
+
+v1.post(
+  "/users/resend-verification",
+  validate(resendVerificationSchema, "json"),
+  resendVerificationEmail
+);
+
+v1.post(
+  "/users/resend-verification",
+  validate(resendVerificationSchema, "json"),
+  resendVerificationEmail
+);
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);

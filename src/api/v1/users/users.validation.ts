@@ -72,7 +72,7 @@ export const createUserSchema = z
   .object({
     name: z.string().min(1),
     email: z.string().email(),
-    password: z.string().min(8),
+    password: z.string().min(8).optional(),
     role: z.enum(staffRoles),
     phone_number: z.string().min(10),
     highestEducation: z.enum(["A0", "A1", "A2"]).optional(),
@@ -98,7 +98,7 @@ export const createDoctorSchema = z
   .object({
     name: z.string().min(1),
     email: z.email(),
-    password: z.string().min(8),
+    password: z.string().min(8).optional(),
     role: z.enum(["DOCTOR", "NURSE"]),
     phone_number: z.string().min(10),
     departments: z.array(z.coerce.number()).nonempty(),
@@ -340,6 +340,10 @@ export const upsertTimesheetSchema = z
       shifts: expandedShifts,
     };
   });
+
+export const resendVerificationSchema = z.object({
+  email: z.string().email(),
+});
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type CreateDoctorInput = z.infer<typeof createDoctorSchema>;
