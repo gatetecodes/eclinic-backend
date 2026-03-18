@@ -58,11 +58,11 @@ const EMAIL_RETRY_DELAY_MS = 1000;
 const generateTemporaryPassword = () => randomBytes(24).toString("base64url");
 
 const signUpUserWithBetterAuth = async (
-  requestUrl: string,
+  backendUrl: string,
   appUrl: string,
   payload: Record<string, unknown>
 ) => {
-  const signUpUrl = new URL("/api/v1/auth/sign-up/email", requestUrl);
+  const signUpUrl = new URL("/api/v1/auth/sign-up/email", backendUrl);
   const response = await fetch(signUpUrl, {
     method: "POST",
     headers: {
@@ -73,6 +73,67 @@ const signUpUserWithBetterAuth = async (
   });
   const data = await response.json().catch(() => ({}));
   return { response, data };
+};
+
+const cleanupFailedStaffUser = async (
+  userId: number,
+  email: string,
+  context: string
+) => {
+  try {
+    await db.doctorAvailability.deleteMany({
+      where: { doctorId: userId },
+    });
+  } catch (error) {
+    logger.warn("Cleanup: failed to delete doctor availability", {
+      userId,
+      email,
+      context,
+      error,
+    });
+  }
+
+  try {
+    await db.user.update({
+      where: { id: userId },
+      data: {
+        clinicalDepartments: { set: [] },
+      },
+    });
+  } catch (error) {
+    logger.warn("Cleanup: failed to clear clinical departments", {
+      userId,
+      email,
+      context,
+      error,
+    });
+  }
+
+  try {
+    await db.user.delete({ where: { id: userId } });
+  } catch (error) {
+    logger.warn("Cleanup: failed to delete user", {
+      userId,
+      email,
+      context,
+      error,
+    });
+  }
+
+  try {
+    await db.verification.deleteMany({
+      where: {
+        OR: [{ value: String(userId) }, { identifier: { contains: email } }],
+      },
+    });
+  } catch (error) {
+    logger.warn("Cleanup: failed to delete verification records", {
+      userId,
+      email,
+      context,
+      error,
+    });
+  }
 };
 
 const sendVerificationEmailSafe = async (
@@ -185,10 +246,22 @@ export const resendVerificationEmail = async (c: Context) => {
       );
     }
 
+    const backendUrl = process.env.BACKEND_URL;
+    if (!backendUrl) {
+      logger.error("BACKEND_URL is not configured");
+      return c.json(
+        {
+          success:
+            "If this email exists, a new verification link has been sent.",
+        },
+        httpCodes.OK as ContentfulStatusCode
+      );
+    }
+
     const callbackURL = `${appUrl}/auth/set-password`;
     const resendUrl = new URL(
       "/api/v1/auth/send-verification-email",
-      c.req.url
+      backendUrl
     );
     const response = await fetch(resendUrl, {
       method: "POST",
@@ -384,6 +457,11 @@ export const addNewUser = async (c: Context) => {
       throw new Error("APP_URL is not configured");
     }
 
+    const backendUrl = process.env.BACKEND_URL;
+    if (!backendUrl) {
+      throw new Error("BACKEND_URL is not configured");
+    }
+
     const callbackURL = providedPassword
       ? `${appUrl}/auth/login?verified=1`
       : `${appUrl}/auth/set-password`;
@@ -405,7 +483,7 @@ export const addNewUser = async (c: Context) => {
     };
 
     const { response, data } = await signUpUserWithBetterAuth(
-      c.req.url,
+      backendUrl,
       appUrl,
       signUpPayload
     );
@@ -450,38 +528,57 @@ export const addNewUser = async (c: Context) => {
           : undefined,
     };
 
-    if (isDoctor) {
-      await db.$transaction(async (tx) => {
-        await tx.user.update({
+    try {
+      if (isDoctor) {
+        await db.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: createdUser.id },
+            data: updateData,
+          });
+          if (weeklyAvailability && weeklyAvailability.length > 0) {
+            const availabilityData = filterValidAvailability(
+              weeklyAvailability
+            ).map((slot) => ({
+              doctorId: createdUser.id,
+              startDayOfWeek: slot.startDayOfWeek,
+              startTime: slot.startTime,
+              endDayOfWeek: slot.endDayOfWeek,
+              endTime: slot.endTime,
+            }));
+            if (availabilityData.length > 0) {
+              await tx.doctorAvailability.createMany({
+                data: availabilityData,
+              });
+            }
+          }
+        });
+      } else if (
+        updateData.highestEducation ||
+        updateData.licenseNumber ||
+        updateData.licenseExpiration ||
+        updateData.license_document ||
+        updateData.diploma_document
+      ) {
+        await db.user.update({
           where: { id: createdUser.id },
           data: updateData,
         });
-        if (weeklyAvailability && weeklyAvailability.length > 0) {
-          const availabilityData = filterValidAvailability(
-            weeklyAvailability
-          ).map((slot) => ({
-            doctorId: createdUser.id,
-            startDayOfWeek: slot.startDayOfWeek,
-            startTime: slot.startTime,
-            endDayOfWeek: slot.endDayOfWeek,
-            endTime: slot.endTime,
-          }));
-          if (availabilityData.length > 0) {
-            await tx.doctorAvailability.createMany({ data: availabilityData });
-          }
-        }
+      }
+    } catch (error) {
+      await cleanupFailedStaffUser(
+        createdUser.id,
+        createdUser.email,
+        "addNewUser"
+      );
+      logger.error("Failed to enrich created user", {
+        error,
+        userId: createdUser.id,
+        email: createdUser.email,
       });
-    } else if (
-      updateData.highestEducation ||
-      updateData.licenseNumber ||
-      updateData.licenseExpiration ||
-      updateData.license_document ||
-      updateData.diploma_document
-    ) {
-      await db.user.update({
-        where: { id: createdUser.id },
-        data: updateData,
-      });
+      return c.json(
+        { error: "Failed to create user" },
+        httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      );
     }
 
     return c.json(
@@ -850,6 +947,11 @@ export const createDoctor = async (c: Context) => {
       throw new Error("app url is not configured");
     }
 
+    const backendUrl = process.env.BACKEND_URL;
+    if (!backendUrl) {
+      throw new Error("BACKEND_URL is not configured");
+    }
+
     const callbackURL = providedPassword
       ? `${appUrl}/auth/login?verified=1`
       : `${appUrl}/auth/set-password`;
@@ -872,7 +974,7 @@ export const createDoctor = async (c: Context) => {
     };
 
     const { response, data } = await signUpUserWithBetterAuth(
-      c.req.url,
+      backendUrl,
       appUrl,
       signUpPayload
     );
@@ -904,40 +1006,59 @@ export const createDoctor = async (c: Context) => {
       );
     }
 
-    await db.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: newDoctor.id },
-        data: {
-          consultationFee: doctorData.consultationFee,
-          licenseNumber: doctorData.licenseNumber,
-          licenseExpiration: formatLicenseExpiration(
-            doctorData.licenseExpiration
-          ),
-          license_document: doctorData.license_document,
-          diploma_document: doctorData.diploma_document,
-          highestEducation: doctorData.highestEducation as
-            | EducationLevel
-            | undefined,
-          clinicalDepartments: {
-            connect: departments.map((departmentId) => ({ id: departmentId })),
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: newDoctor.id },
+          data: {
+            consultationFee: doctorData.consultationFee,
+            licenseNumber: doctorData.licenseNumber,
+            licenseExpiration: formatLicenseExpiration(
+              doctorData.licenseExpiration
+            ),
+            license_document: doctorData.license_document,
+            diploma_document: doctorData.diploma_document,
+            highestEducation: doctorData.highestEducation as
+              | EducationLevel
+              | undefined,
+            clinicalDepartments: {
+              connect: departments.map((departmentId) => ({
+                id: departmentId,
+              })),
+            },
           },
-        },
-      });
+        });
 
-      const availabilityData = filterValidAvailability(weeklyAvailability).map(
-        (slot) => ({
+        const availabilityData = filterValidAvailability(
+          weeklyAvailability
+        ).map((slot) => ({
           doctorId: newDoctor.id,
           startDayOfWeek: slot.startDayOfWeek,
           startTime: slot.startTime,
           endDayOfWeek: slot.endDayOfWeek,
           endTime: slot.endTime,
-        })
-      );
+        }));
 
-      if (availabilityData.length > 0) {
-        await tx.doctorAvailability.createMany({ data: availabilityData });
-      }
-    });
+        if (availabilityData.length > 0) {
+          await tx.doctorAvailability.createMany({ data: availabilityData });
+        }
+      });
+    } catch (error) {
+      await cleanupFailedStaffUser(
+        newDoctor.id,
+        newDoctor.email,
+        "createDoctor"
+      );
+      logger.error("Failed to enrich created doctor", {
+        error,
+        userId: newDoctor.id,
+        email: newDoctor.email,
+      });
+      return c.json(
+        { error: "Failed to create doctor" },
+        httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+      );
+    }
 
     return c.json(
       {
