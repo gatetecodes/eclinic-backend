@@ -6,6 +6,7 @@ import {
 
 export type PaymentDetailLike = {
   productId?: number;
+  examResultId?: number;
   inventoryItemId?: number;
   batchId?: number;
   batchNumber?: string;
@@ -76,31 +77,46 @@ export const getRefundTotals = (refunds: RefundLike[] = []) =>
     { patient: 0, insurance: 0, total: 0 }
   );
 
+const getGroupingKey = (item: {
+  examResultId?: number | null;
+  productId?: number | null;
+}): string | null => {
+  if (item.examResultId) {
+    return `exam:${item.examResultId}`;
+  }
+  if (item.productId) {
+    return `prod:${item.productId}`;
+  }
+  return null;
+};
+
 export const buildNetPaymentLineItems = (
   paymentDetails: PaymentDetailLike[] = [],
   refunds: RefundLike[] = []
 ): NetPaymentLineItem[] => {
-  const refundMap = new Map<number, RefundLike[]>();
+  const refundMap = new Map<string, RefundLike[]>();
   const approvedRefunds = refunds.filter(isApprovedRefund);
 
   for (const refund of approvedRefunds) {
-    if (!refund.productId) {
+    const key = getGroupingKey(refund);
+    if (!key) {
       continue;
     }
-    const current = refundMap.get(refund.productId) || [];
+    const current = refundMap.get(key) || [];
     current.push(refund);
-    refundMap.set(refund.productId, current);
+    refundMap.set(key, current);
   }
 
-  const sumOriginalByProduct = new Map<
-    number,
+  const sumOriginalByKey = new Map<
+    string,
     { amount: number; patientAmount: number; insuranceAmount: number }
   >();
   for (const detail of paymentDetails) {
-    if (!detail.productId) {
+    const key = getGroupingKey(detail);
+    if (!key) {
       continue;
     }
-    const current = sumOriginalByProduct.get(detail.productId) ?? {
+    const current = sumOriginalByKey.get(key) ?? {
       amount: 0,
       patientAmount: 0,
       insuranceAmount: 0,
@@ -108,14 +124,14 @@ export const buildNetPaymentLineItems = (
     current.amount += toCurrencyNumber(detail.amount);
     current.patientAmount += toCurrencyNumber(detail.patientAmount);
     current.insuranceAmount += toCurrencyNumber(detail.insuranceAmount);
-    sumOriginalByProduct.set(detail.productId, current);
+    sumOriginalByKey.set(key, current);
   }
 
-  const totalRefundedByProduct = new Map<
-    number,
+  const totalRefundedByKey = new Map<
+    string,
     { total: number; patient: number; insurance: number }
   >();
-  refundMap.forEach((refundList, productId) => {
+  refundMap.forEach((refundList, key) => {
     const total = refundList.reduce(
       (s, r) => s + toCurrencyNumber(r.totalAdjustmentAmount),
       0
@@ -128,16 +144,13 @@ export const buildNetPaymentLineItems = (
       (s, r) => s + toCurrencyNumber(r.insuranceAdjustmentAmount),
       0
     );
-    totalRefundedByProduct.set(productId, { total, patient, insurance });
+    totalRefundedByKey.set(key, { total, patient, insurance });
   });
 
   return paymentDetails.map((detail) => {
-    const sums = detail.productId
-      ? sumOriginalByProduct.get(detail.productId)
-      : null;
-    const totals = detail.productId
-      ? totalRefundedByProduct.get(detail.productId)
-      : null;
+    const key = getGroupingKey(detail);
+    const sums = key ? sumOriginalByKey.get(key) : null;
+    const totals = key ? totalRefundedByKey.get(key) : null;
 
     let refundedAmount = 0;
     let refundedPatientAmount = 0;

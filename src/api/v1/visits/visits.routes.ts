@@ -26,7 +26,6 @@ import {
   addExams,
   addNurseTreatment,
   addTreatment,
-  editVisitExams,
   getVisitExam,
   markResultsReady,
   requestVisitExamEdit,
@@ -63,7 +62,6 @@ import {
   createPrescriptionSchema,
   createSpectaclePrescriptionSchema,
   editChiefComplaintSchema,
-  editVisitExamsBodySchema,
   finalizeVisitSchema,
   getHandoffParamsSchema,
   getPatientByPhoneSchema,
@@ -158,19 +156,12 @@ router.post(
   validate(transferVisitToDoctorSchema, "json"),
   transferVisitToDoctor
 );
-
-// Edit exams (direct - deprecated in favor of request exam edit approval)
-router.put(
-  "/:id/exams",
-  validate(getVisitParamsSchema, "param"),
-  validate(editVisitExamsBodySchema, "json"),
-  editVisitExams
-);
 // Request exam edit (creates approval, preferred)
 router.post(
   "/:id/exams/request-edit",
   validate(getVisitParamsSchema, "param"),
   validate(requestVisitExamEditBodySchema, "json"),
+  ...withAccess({ resource: "visits", action: "update" }),
   requestVisitExamEdit
 );
 

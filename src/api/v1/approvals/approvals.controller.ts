@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { invalidatePaymentRelatedCaches } from "@/lib/cache-utils.ts";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger.ts";
 import { getScope } from "@/lib/request-scope.ts";
 import type { Prisma } from "../../../../generated/prisma/client";
 import { PaymentType } from "../../../../generated/prisma/client";
@@ -25,28 +26,22 @@ export const createApprovalRequest = async (c: Context) => {
       );
     }
 
-    const { type, reason, discountId } = parsed.data;
     const data = parsed.data;
 
     const approval = await db.approval.create({
       data: {
-        type,
-        clinicId: Number(user.clinic.id),
-        ...(user.branchId != null ? { branchId: Number(user.branchId) } : {}),
-        ...(user.branchId != null ? { branchId: Number(user.branchId) } : {}),
+        type: data.type,
+        clinicId: Number(user.clinicId || user.clinic.id),
+        branchId: user.branchId != null ? Number(user.branchId) : undefined,
         requestedById: Number(user.id),
-        reason,
-        ...(discountId ? { discountId } : {}),
-        ...(data.examId != null ? { examId: data.examId } : {}),
-        ...(data.treatmentId != null ? { treatmentId: data.treatmentId } : {}),
-        ...(data.payload != null
-          ? { payload: data.payload as Prisma.InputJsonValue }
-          : {}),
-        ...(data.examId != null ? { examId: data.examId } : {}),
-        ...(data.treatmentId != null ? { treatmentId: data.treatmentId } : {}),
-        ...(data.payload != null
-          ? { payload: data.payload as Prisma.InputJsonValue }
-          : {}),
+        reason: data.reason,
+        discountId: "discountId" in data ? data.discountId : undefined,
+        examId: "examId" in data ? data.examId : undefined,
+        treatmentId: "treatmentId" in data ? data.treatmentId : undefined,
+        payload:
+          "payload" in data
+            ? (data.payload as Prisma.InputJsonValue)
+            : undefined,
       },
     });
 
@@ -54,7 +49,10 @@ export const createApprovalRequest = async (c: Context) => {
       { success: true, data: approval },
       httpCodes.CREATED as ContentfulStatusCode
     );
-  } catch (_error) {
+  } catch (error) {
+    logger.error("Error creating approval request:", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return c.json(
       { error: "Internal Server Error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
@@ -106,7 +104,7 @@ export const processApprovalRequest = async (c: Context) => {
 
       await db.$transaction(async (tx) => {
         await tx.approval.update({
-          where: { id: approvalId },
+          where: { id: approvalId, status: "PENDING" },
           data: {
             status: "APPROVED",
             approvedById: Number(user.id),
@@ -139,7 +137,7 @@ export const processApprovalRequest = async (c: Context) => {
 
     if (approve && approval.type === "EXAM_EDIT") {
       const fullApproval = await db.approval.findUnique({
-        where: { id: approvalId },
+        where: { id: approvalId, status: "PENDING" },
         select: { id: true, payload: true, examId: true },
       });
 
@@ -176,8 +174,16 @@ export const processApprovalRequest = async (c: Context) => {
         );
       }
 
+      const payloadData = (fullApproval.payload ?? {}) as {
+        paymentId?: number;
+        requested?: { exams?: number[]; allowPartial?: boolean };
+        exams?: number[];
+        allowPartial?: boolean;
+      };
+
       const existingPayment = await db.payment.findFirst({
         where: {
+          id: payloadData.paymentId,
           visitId: exam.visitId,
           paymentType: PaymentType.ADDITIONAL_EXAM,
           paymentStatus: "PENDING",
@@ -187,16 +193,12 @@ export const processApprovalRequest = async (c: Context) => {
 
       if (!existingPayment) {
         return c.json(
-          { error: "No existing pending bill found for these exams" },
+          {
+            error: `No existing pending bill found for payment ID: ${payloadData.paymentId}`,
+          },
           httpCodes.BAD_REQUEST as ContentfulStatusCode
         );
       }
-
-      const payloadData = (fullApproval.payload ?? {}) as {
-        requested?: { exams?: number[]; allowPartial?: boolean };
-        exams?: number[];
-        allowPartial?: boolean;
-      };
       const requested = payloadData?.requested ?? payloadData;
       let exams: number[] = [];
       if (Array.isArray(requested?.exams)) {
@@ -243,7 +245,7 @@ export const processApprovalRequest = async (c: Context) => {
         );
 
         await tx.approval.update({
-          where: { id: approvalId },
+          where: { id: approvalId, status: "PENDING" },
           data: {
             status: "APPROVED",
             approvedById: Number(user.id),
@@ -263,7 +265,7 @@ export const processApprovalRequest = async (c: Context) => {
     }
 
     await db.approval.update({
-      where: { id: approvalId },
+      where: { id: approvalId, status: "PENDING" },
       data: {
         status: approve ? "APPROVED" : "REJECTED",
         approvedById: Number(user.id),

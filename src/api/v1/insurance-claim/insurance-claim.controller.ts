@@ -10,6 +10,7 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
+import { invalidateInsuranceClaimRelatedCaches } from "../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
@@ -17,7 +18,6 @@ import { getScope } from "../../../lib/request-scope";
 import {
   DEFAULT_CACHE_TTL,
   getCachedData,
-  invalidateCache,
 } from "../../../services/redis.service";
 
 function visitPatientWhereFromSearch(patient: string): Prisma.VisitWhereInput {
@@ -28,21 +28,31 @@ function visitPatientWhereFromSearch(patient: string): Prisma.VisitWhereInput {
   if (searchTerms.length === 0) {
     return {};
   }
+
+  const queryMode: Prisma.QueryMode = "insensitive";
+
   if (searchTerms.length === 1) {
     const term = searchTerms[0] as string;
     return {
-      OR: [
-        { patient: { firstName: { contains: term, mode: "insensitive" } } },
-        { patient: { lastName: { contains: term, mode: "insensitive" } } },
-      ],
+      patient: {
+        OR: [
+          { firstName: { contains: term, mode: queryMode } },
+          { lastName: { contains: term, mode: queryMode } },
+        ],
+      },
     };
   }
-  const multiTermConditions = searchTerms.map((term) => ({
-    OR: [
-      { patient: { firstName: { contains: term, mode: "insensitive" } } },
-      { patient: { lastName: { contains: term, mode: "insensitive" } } },
-    ],
-  }));
+
+  const multiTermConditions: Prisma.VisitWhereInput[] = searchTerms.map(
+    (term) => ({
+      patient: {
+        OR: [
+          { firstName: { contains: term, mode: queryMode } },
+          { lastName: { contains: term, mode: queryMode } },
+        ],
+      },
+    })
+  );
   return { AND: multiTermConditions };
 }
 
@@ -50,10 +60,10 @@ function insuranceClaimListExtraWhere(args: {
   doctorId?: string;
   patient?: string;
   claimStatus?: string;
-  deductedOnly?: string;
+  deductedOnly?: boolean;
 }): Prisma.InsuranceClaimWhereInput {
   const clauses: Prisma.InsuranceClaimWhereInput[] = [];
-  if (args.deductedOnly === "true") {
+  if (args.deductedOnly) {
     clauses.push({ deductedAmount: { gt: 0 } });
   }
   if (args.claimStatus) {
@@ -377,26 +387,10 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
     // Invalidate cache after transaction commits successfully
     // Handle cache errors without affecting the DB transaction
     try {
-      const clinicKey = insuranceClaim.clinicId ?? "ALL";
-      const branchKey = insuranceClaim.branchId ?? "ALL";
-
-      // Invalidate all insurance claim caches for this clinic/branch combination
-      // Pattern matches: insurance-claims:${clinicId}:${branchId}:*
-      await invalidateCache(`insurance-claims:${clinicKey}:${branchKey}:*`);
-
-      // Also invalidate broader patterns to ensure all variants are cleared
-      if (insuranceClaim.clinicId) {
-        await invalidateCache(
-          `insurance-claims:${insuranceClaim.clinicId}:ALL:*`
-        );
-      }
-      if (insuranceClaim.branchId) {
-        await invalidateCache(
-          `insurance-claims:ALL:${insuranceClaim.branchId}:*`
-        );
-      }
-      // Invalidate the most general pattern as fallback
-      await invalidateCache("insurance-claims:ALL:ALL:*");
+      await invalidateInsuranceClaimRelatedCaches({
+        clinicId: insuranceClaim.clinicId,
+        branchId: insuranceClaim.branchId,
+      });
     } catch (cacheError) {
       // Log cache invalidation errors but don't fail the request
       logger.error("Failed to invalidate insurance claims cache", {
@@ -472,9 +466,10 @@ export const recordInsuranceDeduction = async (c: Context) => {
     });
 
     try {
-      const clinicKey = insuranceClaim.clinicId ?? "ALL";
-      const branchKey = insuranceClaim.branchId ?? "ALL";
-      await invalidateCache(`insurance-claims:${clinicKey}:${branchKey}:*`);
+      await invalidateInsuranceClaimRelatedCaches({
+        clinicId: insuranceClaim.clinicId,
+        branchId: insuranceClaim.branchId,
+      });
     } catch {
       // Ignore cache errors
     }
