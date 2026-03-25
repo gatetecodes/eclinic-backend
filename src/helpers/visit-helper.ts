@@ -164,6 +164,9 @@ export async function getOrCreatePatient(
       gender: patientData.gender as Gender,
       nationality,
       ...(isForeigner !== undefined ? { isAForeigner: isForeigner } : {}),
+      ...(patientData.foreignerRegion != null
+        ? { foreignerRegion: patientData.foreignerRegion }
+        : {}),
       clinics: clinicId ? { connect: { id: clinicId } } : undefined,
       branches: branchId ? { connect: { id: branchId } } : undefined,
     },

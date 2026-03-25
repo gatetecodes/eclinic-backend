@@ -49,6 +49,7 @@ model Visit {
     isLabOnly               Boolean                  @default(false)
     requiresConsultation    Boolean                  @default(true)
     insuranceClaims         InsuranceClaim[]
+    refunds                 Refund[]
     consultation            Product?                 @relation(fields: [consultationId], references: [id])
     consultationId          Int?
     consultations           Product[]                @relation("ConsultationProducts")

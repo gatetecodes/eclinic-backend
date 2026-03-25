@@ -30,6 +30,8 @@ export const getPatientsByPhone = async (c: Context) => {
             phoneNumber: true,
             isChild: true,
             guardianPhoneNumber: true,
+            isAForeigner: true,
+            foreignerRegion: true,
             medicalInfo: true,
             email: true,
             address: true,

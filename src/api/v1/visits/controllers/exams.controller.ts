@@ -48,7 +48,8 @@ export const addExams = async (c: Context) => {
       payment = await createPaymentForProducts(
         productIds,
         visitId,
-        PaymentType.ADDITIONAL_EXAM
+        PaymentType.ADDITIONAL_EXAM,
+        {}
       );
     } catch (error) {
       const message = (error as Error).message;
@@ -260,6 +261,129 @@ export const markResultsReady = async (c: Context) => {
   }
 };
 
+export const requestVisitExamEdit = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { id } = c.req.param();
+    const visitId = Number.parseInt(id, 10);
+    const data = c.get("validatedJson");
+    const { exams, reason } = data;
+
+    const visit = await db.visit.findUnique({
+      where: { id: visitId },
+      select: {
+        id: true,
+        clinicId: true,
+        patient: { select: { firstName: true, lastName: true } },
+        exams: {
+          orderBy: { createdAt: "desc" as const },
+          take: 1,
+          select: {
+            id: true,
+            products: { select: { id: true } },
+            results: { select: { id: true } },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return c.json(
+        { error: "Visit not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const examToEdit = visit.exams[0];
+    if (!examToEdit) {
+      return c.json(
+        { error: "No exam request found to edit" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    if (examToEdit.results.length > 0) {
+      return c.json(
+        {
+          error:
+            "Exam results already exist for this request. Exam edits can no longer be applied.",
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const payment = await db.payment.findFirst({
+      where: {
+        visitId,
+        paymentType: PaymentType.ADDITIONAL_EXAM,
+        paymentStatus: "PENDING",
+      },
+      orderBy: { createdAt: "desc" as const },
+      select: { id: true, allowPartial: true },
+    });
+
+    if (!payment) {
+      return c.json(
+        {
+          error:
+            "Bill is not pending. Editing is only allowed while the bill is pending.",
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const productIds = (exams as string[]).map((e) => Number.parseInt(e, 10));
+
+    const approval = await db.approval.create({
+      data: {
+        type: "EXAM_EDIT",
+        clinicId: visit.clinicId,
+        branchId: user.branchId ?? undefined,
+        requestedById: Number(user.id),
+        reason,
+        examId: examToEdit.id,
+        payload: {
+          paymentId: payment.id,
+          original: {
+            exams: examToEdit.products.map((p) => p.id),
+            allowPartial: Boolean(payment.allowPartial),
+          },
+          requested: {
+            exams: productIds,
+            allowPartial: Boolean(payment.allowPartial),
+          },
+        },
+      },
+    });
+
+    await logActivity({
+      userId: Number(user.id),
+      visitId,
+      type: ActivityType.TASK,
+      action: `Dr. ${user.name} requested approval to update additional lab exams for ${visit.patient.firstName} ${visit.patient.lastName}`,
+    });
+
+    await invalidateVisitRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+
+    return c.json({
+      success: true,
+      message: "Submitted for approval",
+      data: approval,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+    return c.json(
+      { error: message },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
 export const editVisitExams = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -297,7 +421,8 @@ export const editVisitExams = async (c: Context) => {
     const newPayment = await createPaymentForProducts(
       productIds,
       visitId,
-      PaymentType.ADDITIONAL_EXAM
+      PaymentType.ADDITIONAL_EXAM,
+      {}
     );
     if (!newPayment) {
       return c.json(
@@ -383,7 +508,8 @@ export const addTreatment = async (c: Context) => {
       payment = await createPaymentForProducts(
         productIds,
         visitId,
-        PaymentType.TREATMENT
+        PaymentType.TREATMENT,
+        {}
       );
     } catch (error) {
       return c.json(

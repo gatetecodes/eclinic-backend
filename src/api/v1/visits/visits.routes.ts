@@ -29,6 +29,7 @@ import {
   editVisitExams,
   getVisitExam,
   markResultsReady,
+  requestVisitExamEdit,
 } from "./controllers/exams.controller.ts";
 //Patient controllers
 import { getPatientsByPhone } from "./controllers/patient.controller.ts";
@@ -73,6 +74,7 @@ import {
   initialCheckInSchema,
   preConsultationSchema,
   rejectHandoffBodySchema,
+  requestVisitExamEditBodySchema,
   transferVisitToDoctorSchema,
   updatePreConsultationRequestSchema,
   updatePrescriptionSchema,
@@ -157,12 +159,19 @@ router.post(
   transferVisitToDoctor
 );
 
-// Edit exams
+// Edit exams (direct - deprecated in favor of request exam edit approval)
 router.put(
   "/:id/exams",
   validate(getVisitParamsSchema, "param"),
   validate(editVisitExamsBodySchema, "json"),
   editVisitExams
+);
+// Request exam edit (creates approval, preferred)
+router.post(
+  "/:id/exams/request-edit",
+  validate(getVisitParamsSchema, "param"),
+  validate(requestVisitExamEditBodySchema, "json"),
+  requestVisitExamEdit
 );
 
 // Visits with prescriptions

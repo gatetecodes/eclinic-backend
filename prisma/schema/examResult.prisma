@@ -14,6 +14,7 @@ model Exam {
     clinicId    Int?
     branch      Branch?      @relation(fields: [branchId], references: [id])
     branchId    Int?
+    approvals   Approval[]
 
     @@index([clinicId])
     @@index([branchId])
@@ -37,34 +38,48 @@ model ExamTest {
 }
 
 model ExamResult {
-    id          Int      @id @default(autoincrement())
-    clinic      Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId    Int
-    visit       Visit    @relation(fields: [visitId], references: [id])
-    visitId     Int
-    exam        Exam     @relation(fields: [examId], references: [id])
-    examId      Int
-    examDate    DateTime
-    results     Json
-    notes       String?
-    createdBy   User?    @relation("ExamResultCreatedBy", fields: [createdById], references: [id])
-    createdById Int?
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
-    branch      Branch?  @relation(fields: [branchId], references: [id])
-    branchId    Int?
+    id                 Int               @id @default(autoincrement())
+    clinic             Clinic            @relation(fields: [clinicId], references: [id])
+    clinicId           Int
+    visit              Visit             @relation(fields: [visitId], references: [id])
+    visitId            Int
+    exam               Exam              @relation(fields: [examId], references: [id])
+    examId             Int
+    product            Product?          @relation(fields: [productId], references: [id])
+    productId          Int?
+    status             ExamResultStatus  @default(COMPLETED)
+    examDate           DateTime
+    results            Json
+    notes              String?
+    notPerformedReason String?
+    createdBy          User?             @relation("ExamResultCreatedBy", fields: [createdById], references: [id])
+    createdById        Int?
+    refunds            Refund[]
+    createdAt          DateTime          @default(now())
+    updatedAt          DateTime          @updatedAt
+    branch             Branch?           @relation(fields: [branchId], references: [id])
+    branchId           Int?
 
     @@index([branchId])
+    @@index([productId])
+    @@index([status])
+}
+
+enum ExamResultStatus {
+    COMPLETED
+    NOT_PERFORMED
 }
 
 model Treatment {
-    id        Int       @id @default(autoincrement())
-    name      String?
-    visit     Visit     @relation(fields: [visitId], references: [id])
-    visitId   Int
-    products  Product[]
-    createdAt DateTime  @default(now())
-    updatedAt DateTime  @updatedAt
+    id         Int         @id @default(autoincrement())
+    name       String?
+    visit      Visit       @relation(fields: [visitId], references: [id])
+    visitId    Int
+    products   Product[]
+    payments   Payment[]
+    approvals  Approval[]
+    createdAt  DateTime    @default(now())
+    updatedAt  DateTime    @updatedAt
 }
 
 enum ExamStatus {

@@ -10,6 +10,8 @@ model InsuranceClaim {
     submissionDate     DateTime?
     processedDate      DateTime?
     rejectionReason    String?
+    deductedAmount     Decimal?                 @db.Decimal(10, 2)
+    deductionReason    String?
     items              InsuranceClaimItem[]
     documents          InsuranceClaimDocument[]
     createdAt          DateTime                 @default(now())

@@ -3,6 +3,12 @@ enum Gender {
     FEMALE
 }
 
+enum ForeignerRegion {
+    EAST_AFRICA
+    AFRICA
+    REST_OF_THE_WORLD
+}
+
 model Patient {
     id                  Int      @id @default(autoincrement())
     patientId           String?  @unique //A UNIQUE ID for the patient
@@ -17,8 +23,9 @@ model Patient {
     medicalInfo         Json? //Blood type, weight, height, heart rate, blood sugar, etc.
     address             String?
     nationality         String?
-    isAForeigner        Boolean? @default(false) // Flag for foreign patient who has a rwandan phone
-    createdAt           DateTime @default(now())
+    isAForeigner        Boolean?          @default(false) // Flag for foreign patient who has a rwandan phone
+    foreignerRegion     ForeignerRegion? // Required when isAForeigner is true
+    createdAt           DateTime         @default(now())
     updatedAt           DateTime @updatedAt
     user                User?
     clinics             Clinic[]
