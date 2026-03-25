@@ -26,8 +26,37 @@ export const searchParamsSchema = z.object({
   processedById: z.string().optional(),
   includeWeeklyTimesheet: z.string().optional(),
   weekStart: z.string().optional(),
-  deductedOnly: z.string().optional(),
-  claimStatus: z.string().optional(),
+  deductedOnly: z.preprocess((val) => {
+    if (val === "true") {
+      return true;
+    }
+    if (val === "false") {
+      return false;
+    }
+    return val;
+  }, z.boolean().optional()),
+  claimStatus: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val) {
+          return true;
+        }
+        const allowed = [
+          "PENDING",
+          "SUBMITTED",
+          "IN_REVIEW",
+          "APPROVED",
+          "PAID",
+          "PARTIALLY_APPROVED",
+          "REJECTED",
+          "RESUBMITTED",
+        ];
+        return val.split(".").every((v) => allowed.includes(v));
+      },
+      { message: "Invalid claim status" }
+    ),
 });
 
 export const validateIdParamsSchema = z.object({

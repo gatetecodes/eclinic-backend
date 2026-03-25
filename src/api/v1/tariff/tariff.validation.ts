@@ -63,21 +63,27 @@ export const updateProductSchema = z.object({
   code: z.string().min(1, "Product code is required").optional(),
   description: z.string().optional(),
   category: z.enum(["TREATMENT", "EXAM", "MEDICATION", "SUPPLY"]).optional(),
-  basePrice: z.coerce
-    .number()
-    .min(0, "Base price must be non-negative")
+  basePrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "Base price must be non-negative"))
     .optional(),
-  eastAfricaPrice: z.coerce
-    .number()
-    .min(0, "East Africa price must be non-negative")
+  eastAfricaPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "East Africa price must be non-negative"))
     .optional(),
-  africaPrice: z.coerce
-    .number()
-    .min(0, "Africa price must be non-negative")
+  africaPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "Africa price must be non-negative"))
     .optional(),
-  restOfWorldPrice: z.coerce
-    .number()
-    .min(0, "Rest of World price must be non-negative")
+  restOfWorldPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(
+      z.coerce.number().min(0, "Rest of the World price must be non-negative")
+    )
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),

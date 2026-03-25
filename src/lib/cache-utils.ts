@@ -219,6 +219,40 @@ export function invalidateAppointmentRelatedCaches({
   return Promise.all(cacheInvalidationPromises);
 }
 
+/**
+ * Invalidates cache related to insurance claims
+ * @param {number} clinicId - The clinic ID
+ * @param {number} branchId - The branch ID
+ */
+export function invalidateInsuranceClaimRelatedCaches({
+  clinicId,
+  branchId,
+}: {
+  clinicId?: number | null;
+  branchId?: number | null;
+}) {
+  const patterns: string[] = [];
+
+  const clinicKey = clinicId ?? "ALL";
+  const branchKey = branchId ?? "ALL";
+
+  // Invalidate all insurance claim caches for this clinic/branch combination
+  // Pattern matches: insurance-claims:${clinicId}:${branchId}:*
+  patterns.push(`insurance-claims:${clinicKey}:${branchKey}:*`);
+
+  // Also invalidate broader patterns to ensure all variants are cleared
+  if (clinicId) {
+    patterns.push(`insurance-claims:${clinicId}:ALL:*`);
+  }
+  if (branchId) {
+    patterns.push(`insurance-claims:ALL:${branchId}:*`);
+  }
+  // Invalidate the most general pattern as fallback
+  patterns.push("insurance-claims:ALL:ALL:*");
+
+  return Promise.all(patterns.map((pattern) => invalidateCache(pattern)));
+}
+
 export const invalidatePatientCache = async (patientId: number) => {
   // We need to get the patient's phone number first to invalidate the cache
   const patient = await db.patient.findUnique({

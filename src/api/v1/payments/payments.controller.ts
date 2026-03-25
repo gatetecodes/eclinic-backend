@@ -16,6 +16,7 @@ import {
   validatePaymentAmountInput,
 } from "../../../helpers/payments.helper";
 import { buildQueryOptions } from "../../../helpers/query-helper";
+import type { PaymentDetailLike } from "../../../helpers/refund-helpers";
 import { buildRefundApprovalPayload } from "../../../helpers/refund-workflow";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
@@ -351,7 +352,17 @@ export const requestExamRefundApproval = async (c: Context) => {
       },
     });
 
-    if (!examResult || examResult.visitId !== payment.visitId) {
+    const paymentDetails =
+      (payment.paymentDetails as unknown as PaymentDetailLike[]) || [];
+    const matchingLine = paymentDetails.find(
+      (line) => line.productId === examResult?.productId
+    );
+
+    if (
+      !examResult ||
+      examResult.visitId !== payment.visitId ||
+      !matchingLine
+    ) {
       return c.json(
         { error: "Exam result not found for this bill" },
         httpCodes.NOT_FOUND as ContentfulStatusCode
@@ -405,7 +416,7 @@ export const requestExamRefundApproval = async (c: Context) => {
         pl &&
         Number(pl.paymentId) === paymentId &&
         Number(pl.examResultId) === examResultId &&
-        Number(pl.productId) === examResult.productId
+        pl.productId === examResult.productId
       );
     });
 

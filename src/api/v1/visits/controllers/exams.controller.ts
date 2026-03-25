@@ -334,6 +334,21 @@ export const requestVisitExamEdit = async (c: Context) => {
 
     const productIds = (exams as string[]).map((e) => Number.parseInt(e, 10));
 
+    const existingPendingApproval = await db.approval.findFirst({
+      where: {
+        type: "EXAM_EDIT",
+        examId: examToEdit.id,
+        status: "PENDING",
+      },
+    });
+
+    if (existingPendingApproval) {
+      return c.json(
+        { error: "A pending edit request already exists for this exam" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const approval = await db.approval.create({
       data: {
         type: "EXAM_EDIT",

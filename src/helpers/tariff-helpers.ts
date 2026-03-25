@@ -133,20 +133,30 @@ export const getClinicProductPrice = async (
   });
 
   let basePrice: number | null = null;
-  if (clinicPrice?.basePrice) {
+  if (clinicPrice?.basePrice != null) {
     basePrice = Number(clinicPrice.basePrice);
-  } else if (product?.basePrice) {
+  } else if (product?.basePrice != null) {
     basePrice = Number(product.basePrice);
   }
 
   let eastAfricaPrice: number | null = null;
-  let africaPrice: number | null = null;
-  let restOfWorldPrice: number | null = null;
-  if (product?.eastAfricaPrice) {
+  if (clinicPrice?.eastAfricaPrice != null) {
+    eastAfricaPrice = Number(clinicPrice.eastAfricaPrice);
+  } else if (product?.eastAfricaPrice != null) {
     eastAfricaPrice = Number(product.eastAfricaPrice);
-  } else if (product?.africaPrice) {
+  }
+
+  let africaPrice: number | null = null;
+  if (clinicPrice?.africaPrice != null) {
+    africaPrice = Number(clinicPrice.africaPrice);
+  } else if (product?.africaPrice != null) {
     africaPrice = Number(product.africaPrice);
-  } else if (product?.restOfWorldPrice) {
+  }
+
+  let restOfWorldPrice: number | null = null;
+  if (clinicPrice?.restOfWorldPrice != null) {
+    restOfWorldPrice = Number(clinicPrice.restOfWorldPrice);
+  } else if (product?.restOfWorldPrice != null) {
     restOfWorldPrice = Number(product.restOfWorldPrice);
   }
 
