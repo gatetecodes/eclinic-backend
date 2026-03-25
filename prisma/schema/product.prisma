@@ -12,7 +12,9 @@ model Product {
     name                    String
     description             String?
     basePrice               Decimal?                 @db.Decimal(10, 2) //Default price if no insurance is present
-    foreignersPrice         Decimal?                 @db.Decimal(10, 2) //Price for foreigners
+    eastAfricaPrice         Decimal?                 @db.Decimal(10, 2) //Price for East African foreigners
+    africaPrice             Decimal?                 @db.Decimal(10, 2) //Price for other African foreigners
+    restOfWorldPrice        Decimal?                 @db.Decimal(10, 2) //Price for rest of world foreigners
     unit                    String?
     normalRange             String?
     consumables             Json? // Json array of consumable items, each item has a name and quantity
@@ -31,6 +33,8 @@ model Product {
     visitConsultations      Visit[]                  @relation("ConsultationProducts")
     treatments              Treatment[]
     tests                   ExamTest[]
+    examResults             ExamResult[]
+    refunds                 Refund[]
     createdAt               DateTime                 @default(now())
     updatedAt               DateTime                 @updatedAt
 }
@@ -53,13 +57,15 @@ model InsurancePrice {
 }
 
 model ClinicProductPrice {
-    id              Int      @id @default(autoincrement())
-    clinic          Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId        Int
-    product         Product  @relation(fields: [productId], references: [id])
-    productId       Int
-    basePrice       Decimal? @db.Decimal(10, 2)
-    foreignersPrice Decimal? @db.Decimal(10, 2)
+    id               Int      @id @default(autoincrement())
+    clinic           Clinic   @relation(fields: [clinicId], references: [id])
+    clinicId         Int
+    product          Product  @relation(fields: [productId], references: [id])
+    productId        Int
+    basePrice        Decimal? @db.Decimal(10, 2)
+    eastAfricaPrice  Decimal? @db.Decimal(10, 2)
+    africaPrice      Decimal? @db.Decimal(10, 2)
+    restOfWorldPrice Decimal? @db.Decimal(10, 2)
     createdAt       DateTime @default(now())
     updatedAt       DateTime @updatedAt
 

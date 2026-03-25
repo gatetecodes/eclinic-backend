@@ -11,4 +11,9 @@ export const createDiscountSchema = z.object({
   reason: z.string().min(1, { message: "Reason is required" }),
 });
 
+export const requestExamRefundApprovalSchema = z.object({
+  examResultId: z.coerce.number().int(),
+  reason: z.string().optional(),
+});
+
 export type MarkPaymentAsPaid = z.infer<typeof markPaymentAsPaidSchema>;

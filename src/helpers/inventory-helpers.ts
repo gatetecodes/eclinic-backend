@@ -281,13 +281,16 @@ function calculatePaymentAmounts(
   coveragePercentage: number | null = null
 ): { patientAmount: number; insuranceAmount: number } {
   if (!coveragePercentage) {
-    return { patientAmount: totalPrice, insuranceAmount: 0 };
+    return { patientAmount: Number(totalPrice.toFixed(2)), insuranceAmount: 0 };
   }
 
   const coverageDecimal = coveragePercentage / 100;
+  const insuranceAmount = Number((totalPrice * coverageDecimal).toFixed(2));
+  const patientAmount = Number((totalPrice - insuranceAmount).toFixed(2));
+
   return {
-    insuranceAmount: totalPrice * coverageDecimal,
-    patientAmount: totalPrice * (1 - coverageDecimal),
+    insuranceAmount,
+    patientAmount,
   };
 }
 
@@ -398,9 +401,9 @@ export const createPaymentForInventoryItems = async (
       paymentStatus: PaymentStatus.PENDING,
       paymentDetails: JSON.parse(JSON.stringify(paymentDetails)),
       paymentType,
-      amount: totalAmount,
-      patientAmount: totalPatientAmount,
-      insuranceAmount: totalInsuranceAmount,
+      amount: Number(totalAmount.toFixed(2)),
+      patientAmount: Number(totalPatientAmount.toFixed(2)),
+      insuranceAmount: Number(totalInsuranceAmount.toFixed(2)),
       allowPartial: options?.allowPartial ?? false,
     },
   });

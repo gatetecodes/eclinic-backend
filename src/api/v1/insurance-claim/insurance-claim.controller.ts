@@ -20,31 +20,126 @@ import {
   invalidateCache,
 } from "../../../services/redis.service";
 
+function visitPatientWhereFromSearch(patient: string): Prisma.VisitWhereInput {
+  const decodedPatient = patient.replace(/\+/g, " ");
+  const searchTerms = decodedPatient
+    .split(" ")
+    .filter((term) => term.length > 0);
+  if (searchTerms.length === 0) {
+    return {};
+  }
+  if (searchTerms.length === 1) {
+    const term = searchTerms[0] as string;
+    return {
+      OR: [
+        { patient: { firstName: { contains: term, mode: "insensitive" } } },
+        { patient: { lastName: { contains: term, mode: "insensitive" } } },
+      ],
+    };
+  }
+  const multiTermConditions = searchTerms.map((term) => ({
+    OR: [
+      { patient: { firstName: { contains: term, mode: "insensitive" } } },
+      { patient: { lastName: { contains: term, mode: "insensitive" } } },
+    ],
+  }));
+  return { AND: multiTermConditions };
+}
+
+function insuranceClaimListExtraWhere(args: {
+  doctorId?: string;
+  patient?: string;
+  claimStatus?: string;
+  deductedOnly?: string;
+}): Prisma.InsuranceClaimWhereInput {
+  const clauses: Prisma.InsuranceClaimWhereInput[] = [];
+  if (args.deductedOnly === "true") {
+    clauses.push({ deductedAmount: { gt: 0 } });
+  }
+  if (args.claimStatus) {
+    const statuses = args.claimStatus
+      .split(".")
+      .filter(Boolean) as ClaimStatus[];
+    if (statuses.length > 0) {
+      clauses.push({ claimStatus: { in: statuses } });
+    }
+  }
+  const visitClauses: Prisma.VisitWhereInput[] = [];
+  if (args.doctorId) {
+    visitClauses.push({ doctorId: Number(args.doctorId) });
+  }
+  if (args.patient) {
+    const patientWhere = visitPatientWhereFromSearch(args.patient);
+    if (Object.keys(patientWhere).length > 0) {
+      visitClauses.push(patientWhere);
+    }
+  }
+  if (visitClauses.length > 0) {
+    clauses.push({ visit: { AND: visitClauses } });
+  }
+  if (clauses.length === 0) {
+    return {};
+  }
+  if (clauses.length === 1) {
+    return clauses[0] as Prisma.InsuranceClaimWhereInput;
+  }
+  return { AND: clauses };
+}
+
+function mergeInsuranceClaimWhere(
+  base: Prisma.InsuranceClaimWhereInput,
+  extra: Prisma.InsuranceClaimWhereInput
+): Prisma.InsuranceClaimWhereInput {
+  if (Object.keys(extra).length === 0) {
+    return base;
+  }
+  if (Object.keys(base).length === 0) {
+    return extra;
+  }
+  return { AND: [base, extra] };
+}
+
 export const getInsuranceClaims = async (c: Context) => {
   try {
     const user = c.get("user");
     const params = searchParamsSchema.parse(c.req.query());
     const { clinicId, branchId } = getScope(user, params);
-    const queryOptions = buildQueryOptions<InsuranceClaim>(params, {
+    const { doctorId, patient, claimStatus, deductedOnly, ...restForQuery } =
+      params;
+    const queryOptions = buildQueryOptions<InsuranceClaim>(restForQuery, {
       ...(typeof clinicId === "number" ? { clinicId } : {}),
       ...(typeof branchId === "number" ? { branchId } : {}),
     });
-    const { where, orderBy, ...restOptions } = queryOptions;
+    const { where: baseWhere, orderBy, ...restOptions } = queryOptions;
+    const where = mergeInsuranceClaimWhere(
+      baseWhere as Prisma.InsuranceClaimWhereInput,
+      insuranceClaimListExtraWhere({
+        doctorId,
+        patient,
+        claimStatus,
+        deductedOnly,
+      })
+    );
     const cacheKey = `insurance-claims:${clinicId ?? "ALL"}:${branchId ?? "ALL"}:${JSON.stringify(params || {})}`;
 
     const insuranceClaimsData = await getCachedData(
       cacheKey,
       async () => {
         const claims = await db.insuranceClaim.findMany({
-          where: {
-            ...where,
-          } as Prisma.InsuranceClaimWhereInput,
+          where,
           orderBy: orderBy as Prisma.InsuranceClaimOrderByWithRelationInput,
           ...restOptions,
           include: {
             visit: {
               select: {
                 id: true,
+                doctorId: true,
+                doctor: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
                 prescriptions: {
                   select: {
                     id: true,
@@ -85,26 +180,21 @@ export const getInsuranceClaims = async (c: Context) => {
           },
         });
         const totalCount = await db.insuranceClaim.count({
-          where: {
-            ...where,
-          } as Prisma.InsuranceClaimWhereInput,
+          where,
         });
 
         const stats = await db.insuranceClaim.groupBy({
           by: ["claimStatus"],
-          where: {
-            ...where,
-          } as Prisma.InsuranceClaimWhereInput,
+          where,
           _sum: {
             totalAmount: true,
+            deductedAmount: true,
           },
           _count: true,
         });
 
         const companiesWithClaims = await db.insuranceClaim.findMany({
-          where: {
-            ...where,
-          } as Prisma.InsuranceClaimWhereInput,
+          where,
           select: {
             visit: {
               select: {
@@ -133,7 +223,9 @@ export const getInsuranceClaims = async (c: Context) => {
 
         const totalAmounts = stats.reduce(
           (acc, curr) => {
-            acc[curr.claimStatus] = Number(curr._sum.totalAmount || 0);
+            const gross = Number(curr._sum.totalAmount || 0);
+            const deduction = Number(curr._sum.deductedAmount || 0);
+            acc[curr.claimStatus] = gross - deduction;
             return acc;
           },
           {} as Record<ClaimStatus, number>
@@ -151,6 +243,11 @@ export const getInsuranceClaims = async (c: Context) => {
           ? Math.ceil(totalCount / queryOptions.take)
           : 0;
 
+        const totalDeductedAmount = stats.reduce(
+          (acc, curr) => acc + Number(curr._sum.deductedAmount || 0),
+          0
+        );
+
         return {
           data: claims,
           totalCount,
@@ -158,6 +255,7 @@ export const getInsuranceClaims = async (c: Context) => {
           stats: {
             totalCompanies: uniqueCompanies.size,
             totalAmount: Object.values(totalAmounts).reduce((a, b) => a + b, 0),
+            totalDeductedAmount,
             amountsByStatus: totalAmounts,
             countsByStatus,
           },
@@ -326,6 +424,66 @@ export const markInsuranceClaimAsPaid = async (c: Context) => {
       );
     }
 
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const recordInsuranceDeduction = async (c: Context) => {
+  try {
+    const claimId = Number.parseInt(c.req.param("claimId"), 10);
+    const data = c.get("validatedJson");
+    const user = c.get("user");
+
+    const insuranceClaim = await db.insuranceClaim.findUnique({
+      where: {
+        id: claimId,
+        ...(typeof user.clinicId === "number"
+          ? { clinicId: user.clinicId }
+          : {}),
+      },
+      select: { id: true, clinicId: true, branchId: true, totalAmount: true },
+    });
+
+    if (!insuranceClaim) {
+      return c.json(
+        { error: "Insurance claim not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    if (data.deductedAmount > Number(insuranceClaim.totalAmount)) {
+      return c.json(
+        { error: "Deducted amount cannot exceed total claim amount" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    await db.insuranceClaim.update({
+      where: { id: insuranceClaim.id },
+      data: {
+        deductedAmount: data.deductedAmount,
+        deductionReason: data.deductionReason,
+      },
+    });
+
+    try {
+      const clinicKey = insuranceClaim.clinicId ?? "ALL";
+      const branchKey = insuranceClaim.branchId ?? "ALL";
+      await invalidateCache(`insurance-claims:${clinicKey}:${branchKey}:*`);
+    } catch {
+      // Ignore cache errors
+    }
+
+    return c.json(
+      { success: "Insurance deduction recorded successfully" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal server error",

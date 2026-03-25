@@ -46,6 +46,7 @@ model Clinic {
     exams                    Exam[]
     hospitalizations         Hospitalization[]
     insuranceClaims          InsuranceClaim[]
+    refunds                  Refund[]
     branches                 Branch[]
     patientAppointments      PatientAppointment[]
     isPatientPortalEnabled   Boolean              @default(false)

@@ -26,6 +26,8 @@ export const searchParamsSchema = z.object({
   processedById: z.string().optional(),
   includeWeeklyTimesheet: z.string().optional(),
   weekStart: z.string().optional(),
+  deductedOnly: z.string().optional(),
+  claimStatus: z.string().optional(),
 });
 
 export const validateIdParamsSchema = z.object({

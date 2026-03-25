@@ -144,34 +144,46 @@ export const updateInventoryItem = async (c: Context) => {
   try {
     const user = c.get("user");
     const { id } = c.req.param();
+    const itemId = Number(id);
     const {
       itemName,
       itemType,
       unit,
+      unitPrice,
       reorderLevel,
       manufacturer,
       minOrderQuantity,
       notes,
     } = await c.req.json();
-    const updatedInventoryItem = await db.inventoryItem.update({
-      where: {
-        id: Number(id),
-        clinicId: user.clinicId,
-        branchId: user.branchId,
-      },
-      data: {
-        itemName,
-        itemType,
-        unit,
-        reorderLevel,
-        manufacturer,
-        minOrderQuantity,
-        notes,
-      },
-    });
 
-    await db.$transaction(async (tx) => {
-      await refreshItemStatus(tx as Prisma.TransactionClient, Number(id));
+    const updatedInventoryItem = await db.$transaction(async (tx) => {
+      const updated = await tx.inventoryItem.update({
+        where: {
+          id: itemId,
+          clinicId: user.clinicId,
+          branchId: user.branchId,
+        },
+        data: {
+          itemName,
+          itemType,
+          unit,
+          unitPrice,
+          reorderLevel,
+          manufacturer,
+          minOrderQuantity,
+          notes,
+        },
+      });
+
+      if (unitPrice !== undefined) {
+        await tx.inventoryBatch.updateMany({
+          where: { itemId },
+          data: { unitPrice, updatedAt: new Date() },
+        });
+      }
+
+      await refreshItemStatus(tx as Prisma.TransactionClient, itemId);
+      return updated;
     });
 
     await invalidateInventoryRelatedCaches({

@@ -1,4 +1,5 @@
 import {
+  type ForeignerRegion,
   ItemType,
   PaymentMode,
   PaymentStatus,
@@ -27,7 +28,9 @@ export type ProductCSVRow = {
   TARIFF_WITH_CO?: string;
   PRIVATE_TARIFF: string;
   CONSUMABLES?: string;
-  FOREIGNERS_TARIFF?: string;
+  EAST_AFRICA?: string;
+  AFRICA?: string;
+  REST_OF_THE_WORLD?: string;
 };
 
 type MinimalProduct = { id: number; name: string };
@@ -43,7 +46,9 @@ type ProductForPayment = {
   id: number;
   name: string;
   basePrice: unknown;
-  foreignersPrice: unknown;
+  eastAfricaPrice: unknown;
+  africaPrice: unknown;
+  restOfWorldPrice: unknown;
   insurancePrices: {
     price: unknown;
     clinicId: number | null;
@@ -52,7 +57,11 @@ type ProductForPayment = {
 };
 type VisitForPayment = {
   paymentMode: PaymentMode;
-  patient: { nationality: string; isAForeigner: boolean };
+  patient: {
+    nationality: string;
+    isAForeigner: boolean;
+    foreignerRegion: ForeignerRegion;
+  };
   patientInsurance: {
     coveragePercentage: unknown;
     insuranceCompany: { companyName: string };
@@ -64,7 +73,9 @@ export type IExistingProduct = {
   name: string;
   category: string | null;
   basePrice: number;
-  foreignersPrice: number;
+  eastAfricaPrice: number;
+  africaPrice: number;
+  restOfWorldPrice: number;
   insurancePrices: {
     id: number;
     price: number;
@@ -90,7 +101,12 @@ const LAB_TEST_REGEX = /^\((\d+)\)(.+)$/;
 export const getClinicProductPrice = async (
   productId: number,
   clinicId: number
-): Promise<{ basePrice: number | null; foreignersPrice: number | null }> => {
+): Promise<{
+  basePrice: number | null;
+  eastAfricaPrice: number | null;
+  africaPrice: number | null;
+  restOfWorldPrice: number | null;
+}> => {
   const clinicPrice = await db.clinicProductPrice.findUnique({
     where: {
       clinicId_productId: {
@@ -100,7 +116,9 @@ export const getClinicProductPrice = async (
     },
     select: {
       basePrice: true,
-      foreignersPrice: true,
+      eastAfricaPrice: true,
+      africaPrice: true,
+      restOfWorldPrice: true,
     },
   });
 
@@ -108,7 +126,9 @@ export const getClinicProductPrice = async (
     where: { id: productId },
     select: {
       basePrice: true,
-      foreignersPrice: true,
+      eastAfricaPrice: true,
+      africaPrice: true,
+      restOfWorldPrice: true,
     },
   });
 
@@ -119,16 +139,22 @@ export const getClinicProductPrice = async (
     basePrice = Number(product.basePrice);
   }
 
-  let foreignersPrice: number | null = null;
-  if (clinicPrice?.foreignersPrice) {
-    foreignersPrice = Number(clinicPrice.foreignersPrice);
-  } else if (product?.foreignersPrice) {
-    foreignersPrice = Number(product.foreignersPrice);
+  let eastAfricaPrice: number | null = null;
+  let africaPrice: number | null = null;
+  let restOfWorldPrice: number | null = null;
+  if (product?.eastAfricaPrice) {
+    eastAfricaPrice = Number(product.eastAfricaPrice);
+  } else if (product?.africaPrice) {
+    africaPrice = Number(product.africaPrice);
+  } else if (product?.restOfWorldPrice) {
+    restOfWorldPrice = Number(product.restOfWorldPrice);
   }
 
   return {
     basePrice,
-    foreignersPrice,
+    eastAfricaPrice,
+    africaPrice,
+    restOfWorldPrice,
   };
 };
 
@@ -368,7 +394,9 @@ export async function findExistingProductsByNames(
       unit: true,
       normalRange: true,
       basePrice: true,
-      foreignersPrice: true,
+      eastAfricaPrice: true,
+      africaPrice: true,
+      restOfWorldPrice: true,
       consumables: true,
       clinics: { select: { id: true } },
     },
@@ -377,7 +405,9 @@ export async function findExistingProductsByNames(
   return products.map((product) => ({
     ...product,
     basePrice: Number(product.basePrice) || 0,
-    foreignersPrice: Number(product.foreignersPrice) || 0,
+    eastAfricaPrice: Number(product.eastAfricaPrice) || 0,
+    africaPrice: Number(product.africaPrice) || 0,
+    restOfWorldPrice: Number(product.restOfWorldPrice) || 0,
     unit: product.unit || undefined,
     normalRange: product.normalRange || undefined,
     consumables:
@@ -460,35 +490,58 @@ const findGlobalInsurancePrice = (
 };
 
 // Helper functions to reduce complexity
-const updateProductPricing = async (
-  productId: number,
-  newPrivateTariff: number,
-  newForeignersTariff: number,
-  clinicId: number
-) => {
+const updateProductPricing = async ({
+  productId,
+  newPrivateTariff,
+  newEastAfricaTariff,
+  newAfricaTariff,
+  newRestOfWorldTariff,
+  clinicId,
+}: {
+  productId: number;
+  newPrivateTariff: number;
+  newEastAfricaTariff: number;
+  newAfricaTariff: number;
+  newRestOfWorldTariff: number;
+  clinicId: number;
+}) => {
   const updateData: {
     basePrice?: number | null;
-    foreignersPrice?: number | null;
+    eastAfricaPrice?: number | null;
+    africaPrice?: number | null;
+    restOfWorldPrice?: number | null;
   } = {};
   const createData: {
     clinicId: number;
     productId: number;
     basePrice: number | null;
-    foreignersPrice: number | null;
+    eastAfricaPrice: number | null;
+    africaPrice: number | null;
+    restOfWorldPrice: number | null;
   } = {
     clinicId,
     productId,
     basePrice: null,
-    foreignersPrice: null,
+    eastAfricaPrice: null,
+    africaPrice: null,
+    restOfWorldPrice: null,
   };
 
   if (Number.isFinite(newPrivateTariff)) {
     updateData.basePrice = newPrivateTariff;
     createData.basePrice = newPrivateTariff;
   }
-  if (Number.isFinite(newForeignersTariff)) {
-    updateData.foreignersPrice = newForeignersTariff;
-    createData.foreignersPrice = newForeignersTariff;
+  if (Number.isFinite(newEastAfricaTariff)) {
+    updateData.eastAfricaPrice = newEastAfricaTariff;
+    createData.eastAfricaPrice = newEastAfricaTariff;
+  }
+  if (Number.isFinite(newAfricaTariff)) {
+    updateData.africaPrice = newAfricaTariff;
+    createData.africaPrice = newAfricaTariff;
+  }
+  if (Number.isFinite(newRestOfWorldTariff)) {
+    updateData.restOfWorldPrice = newRestOfWorldTariff;
+    createData.restOfWorldPrice = newRestOfWorldTariff;
   }
 
   await db.clinicProductPrice.upsert({
@@ -861,8 +914,10 @@ export async function handleExistingProduct(
   const newGovTariff = Number.parseFloat(record.GOV_INSURANCE as string);
   const newTariffWithCo = Number.parseFloat(record.TARIFF_WITH_CO as string);
   const newPrivateTariff = Number.parseFloat(record.PRIVATE_TARIFF as string);
-  const newForeignersTariff = Number.parseFloat(
-    record.FOREIGNERS_TARIFF as string
+  const newEastAfricaTariff = Number.parseFloat(record.EAST_AFRICA as string);
+  const newAfricaTariff = Number.parseFloat(record.AFRICA as string);
+  const newRestOfWorldTariff = Number.parseFloat(
+    record.REST_OF_THE_WORLD as string
   );
   const newUnit = record.UNIT;
   const newNormalRange = record.NORMAL_RANGE;
@@ -917,12 +972,31 @@ export async function handleExistingProduct(
   );
 
   // 4. Update clinic-specific product pricing
-  await updateProductPricing(
-    existingProduct.id,
-    newPrivateTariff,
-    newForeignersTariff,
-    clinicId
-  );
+  try {
+    await updateProductPricing({
+      productId: existingProduct.id,
+      newPrivateTariff,
+      newEastAfricaTariff,
+      newAfricaTariff,
+      newRestOfWorldTariff,
+      clinicId,
+    });
+  } catch (error) {
+    logger.error(
+      `Error updating product pricing for product ${existingProduct.id}:`,
+      {
+        error,
+        input: {
+          newPrivateTariff,
+          newEastAfricaTariff,
+          newAfricaTariff,
+          newRestOfWorldTariff,
+          clinicId,
+        },
+      }
+    );
+    throw error;
+  }
 
   // 5. Handle lab test specific logic or update non-lab fields
   if (isLabTest) {
@@ -1149,34 +1223,66 @@ export async function createNewProduct(
           create: { name: department },
         })),
       },
-      // Keep basePrice/foreignersPrice on Product as fallback, but create ClinicProductPrice for clinic-specific pricing
+      // Keep basePrice and regional foreigner prices on Product as fallback, but create ClinicProductPrice for clinic-specific pricing
       basePrice: record.PRIVATE_TARIFF
         ? Number.parseFloat(record.PRIVATE_TARIFF)
         : undefined,
       consumables: isLabTest ? undefined : consumables,
       unit: record.UNIT || undefined,
       normalRange: record.NORMAL_RANGE || undefined,
-      foreignersPrice: record.FOREIGNERS_TARIFF
-        ? Number.parseFloat(record.FOREIGNERS_TARIFF)
+      eastAfricaPrice: record.EAST_AFRICA
+        ? Number.parseFloat(record.EAST_AFRICA)
+        : undefined,
+      africaPrice: record.AFRICA ? Number.parseFloat(record.AFRICA) : undefined,
+      restOfWorldPrice: record.REST_OF_THE_WORLD
+        ? Number.parseFloat(record.REST_OF_THE_WORLD)
         : undefined,
     },
     select: { id: true, name: true },
   });
 
   // Create clinic-specific pricing
-  if (record.PRIVATE_TARIFF || record.FOREIGNERS_TARIFF) {
-    await db.clinicProductPrice.create({
-      data: {
-        clinicId,
-        productId: createdProduct.id,
-        basePrice: record.PRIVATE_TARIFF
-          ? Number.parseFloat(record.PRIVATE_TARIFF)
-          : null,
-        foreignersPrice: record.FOREIGNERS_TARIFF
-          ? Number.parseFloat(record.FOREIGNERS_TARIFF)
-          : null,
-      },
-    });
+  if (
+    record.PRIVATE_TARIFF ||
+    record.EAST_AFRICA ||
+    record.AFRICA ||
+    record.REST_OF_THE_WORLD
+  ) {
+    const pricingData = {
+      clinicId,
+      productId: createdProduct.id,
+      basePrice: record.PRIVATE_TARIFF
+        ? Number.parseFloat(record.PRIVATE_TARIFF)
+        : null,
+      eastAfricaPrice: record.EAST_AFRICA
+        ? Number.parseFloat(record.EAST_AFRICA)
+        : null,
+      africaPrice: record.AFRICA ? Number.parseFloat(record.AFRICA) : null,
+      restOfWorldPrice: record.REST_OF_THE_WORLD
+        ? Number.parseFloat(record.REST_OF_THE_WORLD)
+        : null,
+    };
+
+    try {
+      await db.clinicProductPrice.create({
+        data: pricingData,
+      });
+    } catch (error) {
+      logger.error(
+        `Error creating clinic product price for product ${createdProduct.id}:`,
+        {
+          error,
+          pricingData,
+          record: {
+            PRIVATE_TARIFF: record.PRIVATE_TARIFF,
+            EAST_AFRICA: record.EAST_AFRICA,
+            AFRICA: record.AFRICA,
+            REST_OF_THE_WORLD: record.REST_OF_THE_WORLD,
+          },
+        }
+      );
+      throw error;
+    }
   }
 
   await handleParentOrStandaloneAfterCreation({
@@ -1195,8 +1301,12 @@ export const createPaymentForProducts = async (
   productIds: number[],
   visitId: number,
   paymentType: PaymentType,
-  allowPartial?: boolean
+  options?: boolean | { allowPartial?: boolean; tx?: Prisma.TransactionClient }
 ) => {
+  const allowPartial =
+    typeof options === "boolean" ? options : options?.allowPartial;
+  const txClient = typeof options === "object" ? (options?.tx ?? db) : db;
+
   type SimpleProductForPayment = ProductForPayment;
   type SimpleVisitForPayment = VisitForPayment;
 
@@ -1275,6 +1385,15 @@ export const createPaymentForProducts = async (
     const isRwandan =
       cashVisit.patient.nationality === "Rwanda" &&
       !cashVisit.patient.isAForeigner;
+    const region = cashVisit.patient.foreignerRegion;
+    let effectivePrice = 0;
+    if (region === "EAST_AFRICA") {
+      effectivePrice = Number(cashProduct.eastAfricaPrice);
+    } else if (region === "AFRICA") {
+      effectivePrice = Number(cashProduct.africaPrice);
+    } else {
+      effectivePrice = Number(cashProduct.restOfWorldPrice);
+    }
 
     // Get clinic-specific prices with fallback
     const clinicPrices = await getClinicProductPrice(
@@ -1284,7 +1403,7 @@ export const createPaymentForProducts = async (
 
     const basePrice = isRwandan
       ? Number(clinicPrices.basePrice ?? cashProduct.basePrice)
-      : Number(clinicPrices.foreignersPrice ?? cashProduct.foreignersPrice);
+      : effectivePrice;
 
     details.push({
       productName: cashProduct.name,
@@ -1302,7 +1421,7 @@ export const createPaymentForProducts = async (
     };
   };
   // First get the visit to know the clinicId
-  const visitForClinic = await db.visit.findUnique({
+  const visitForClinic = await txClient.visit.findUnique({
     where: {
       id: visitId,
     },
@@ -1317,7 +1436,7 @@ export const createPaymentForProducts = async (
 
   const clinicId = visitForClinic.clinicId;
 
-  const products = await db.product.findMany({
+  const products = await txClient.product.findMany({
     where: {
       id: {
         in: productIds,
@@ -1327,7 +1446,9 @@ export const createPaymentForProducts = async (
       id: true,
       name: true,
       basePrice: true,
-      foreignersPrice: true,
+      eastAfricaPrice: true,
+      africaPrice: true,
+      restOfWorldPrice: true,
       insurancePrices: {
         where: {
           OR: [{ clinicId }, { clinicId: null }],
@@ -1346,7 +1467,7 @@ export const createPaymentForProducts = async (
     },
   });
 
-  const visit = await db.visit.findUnique({
+  const visit = await txClient.visit.findUnique({
     where: {
       id: visitId,
     },
@@ -1359,6 +1480,7 @@ export const createPaymentForProducts = async (
         select: {
           nationality: true,
           isAForeigner: true,
+          foreignerRegion: true,
         },
       },
       patientInsurance: {
@@ -1386,7 +1508,7 @@ export const createPaymentForProducts = async (
 
   for (const productItem of products as SimpleProductForPayment[]) {
     if (visit.paymentMode === PaymentMode.INSURANCE) {
-      const d = await addInsurancePaymentDetailInner({
+      const d = addInsurancePaymentDetailInner({
         details: paymentDetails,
         product: productItem,
         visit: visit as SimpleVisitForPayment,
@@ -1398,33 +1520,21 @@ export const createPaymentForProducts = async (
       continue;
     }
 
-    // Get clinic-specific prices for cash payments
-    const clinicPrices = await getClinicProductPrice(productItem.id, clinicId);
-    const effectiveBasePrice = clinicPrices.basePrice ?? productItem.basePrice;
-    const effectiveForeignersPrice =
-      clinicPrices.foreignersPrice ?? productItem.foreignersPrice;
-
-    if (effectiveBasePrice === null && effectiveForeignersPrice === null) {
-      throw new Error(
-        `Base price not defined for product: ${productItem.name}`
-      );
-    }
-
     const d = await addCashPaymentDetailInner({
       details: paymentDetails,
       product: productItem,
       visit: visit as SimpleVisitForPayment,
       targetClinicId: clinicId,
     });
-    amount += d.amount;
-    patientAmount += d.patientAmount;
+    amount += Number(d.amount);
+    patientAmount += Number(d.patientAmount);
   }
 
   if (amount === 0) {
     throw new Error("Amount is 0");
   }
 
-  const payment = await db.payment.create({
+  const payment = await txClient.payment.create({
     data: {
       clinic: {
         connect: {
@@ -1445,7 +1555,9 @@ export const createPaymentForProducts = async (
       },
       paymentMode: visit.paymentMode as PaymentMode,
       products: {
-        connect: products.map((product) => ({ id: product.id })),
+        connect: products.map((product: { id: number }) => ({
+          id: product.id,
+        })),
       },
       paymentStatus: PaymentStatus.PENDING,
       paymentDetails,

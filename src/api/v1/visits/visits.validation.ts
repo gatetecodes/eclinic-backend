@@ -96,6 +96,9 @@ export const patientSchema = z.object({
   medicalInfo: vitalsSchema.optional(),
   nationality: z.string().optional(),
   isAForeigner: z.boolean().optional(),
+  foreignerRegion: z
+    .enum(["EAST_AFRICA", "AFRICA", "REST_OF_THE_WORLD"])
+    .optional(),
   isChild: z.boolean().optional().default(false),
 });
 
@@ -155,6 +158,9 @@ export const initialCheckInSchema = z
         phoneNumber: z.string().optional(),
         guardianPhoneNumber: z.string().optional(),
         isAForeigner: z.boolean().optional(),
+        foreignerRegion: z
+          .enum(["EAST_AFRICA", "AFRICA", "REST_OF_THE_WORLD"])
+          .optional(),
         address: z.string().optional(),
       })
       .superRefine((data, ctx) => {
@@ -351,6 +357,12 @@ export const editExamsSchema = z.object({
 // Body schema for editing exams via route param id
 export const editVisitExamsBodySchema = z.object({
   exams: z.array(z.string()).nonempty("At least one exam is required"),
+});
+
+// Body schema for requesting exam edit approval (replaces direct edit)
+export const requestVisitExamEditBodySchema = z.object({
+  exams: z.array(z.string()).nonempty("At least one exam is required"),
+  reason: z.string().min(1, "Reason for edit is required"),
 });
 
 export const addTreatmentSchema = z.object({

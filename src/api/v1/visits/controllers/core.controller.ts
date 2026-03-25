@@ -10,6 +10,34 @@ import type {
   Prisma,
   Visit,
 } from "../../../../../generated/prisma/client";
+
+type IInsurancePrice = {
+  id: number;
+  price: Prisma.Decimal;
+  priceWithCo?: Prisma.Decimal | null;
+  clinicId?: number | null;
+  insuranceCompany: {
+    id: number;
+    companyName: string;
+  };
+};
+
+type IProductWithPrices = {
+  id: number;
+  name: string;
+  basePrice?: Prisma.Decimal | null;
+  eastAfricaPrice?: Prisma.Decimal | null;
+  africaPrice?: Prisma.Decimal | null;
+  restOfWorldPrice?: Prisma.Decimal | null;
+  clinicProductPrices?: Array<{
+    basePrice?: Prisma.Decimal | null;
+    eastAfricaPrice?: Prisma.Decimal | null;
+    africaPrice?: Prisma.Decimal | null;
+    restOfWorldPrice?: Prisma.Decimal | null;
+  }>;
+  insurancePrices: IInsurancePrice[];
+};
+
 import {
   ActivityType,
   PaymentType,
@@ -74,7 +102,7 @@ async function maybeCreateConsultationBill({
     consultationIds,
     visit.id,
     PaymentType.CONSULTATION,
-    Boolean(allowPartial)
+    { allowPartial: Boolean(allowPartial) }
   );
   if (typeof branchId === "number") {
     const paymentCashier = await getCachier(branchId);
@@ -205,7 +233,7 @@ export const createInitialCheckIn = async (c: Context) => {
           labProductIdsNumbers,
           visit.id,
           PaymentType.ADDITIONAL_EXAM,
-          Boolean(allowPartial)
+          { allowPartial: Boolean(allowPartial) }
         );
 
         const paymentCashier = await getCachier(user.branchId);
@@ -372,7 +400,7 @@ async function handleConsultationPaymentUpdate(params: {
       consultationIds,
       visitId,
       PaymentType.CONSULTATION,
-      Boolean(allowPartial)
+      { allowPartial: Boolean(allowPartial) }
     );
 
     if (branchId && consultationPayment) {
@@ -460,7 +488,7 @@ async function handleLabProductsUpdate(params: {
       labProductIdsNumbers,
       visitId,
       PaymentType.ADDITIONAL_EXAM,
-      Boolean(allowPartial)
+      { allowPartial: Boolean(allowPartial) }
     );
 
     if (branchId && labPayment) {
@@ -546,6 +574,9 @@ export const updateInitialCheckIn = async (c: Context) => {
         phoneNumber: patient.phoneNumber,
         guardianPhoneNumber: patient.guardianPhoneNumber,
         isAForeigner: patient.isAForeigner,
+        ...(patient.foreignerRegion != null
+          ? { foreignerRegion: patient.foreignerRegion }
+          : {}),
       },
     });
 
@@ -939,7 +970,7 @@ export const addPaymentMethod = async (c: Context) => {
           consultationProductIds,
           updatedVisit.id,
           PaymentType.CONSULTATION,
-          allowPartial
+          { allowPartial }
         );
         const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
@@ -1069,6 +1100,10 @@ export const listVisits = async (c: Context) => {
                 gender: true,
                 address: true,
                 email: true,
+                isChild: true,
+                guardianPhoneNumber: true,
+                isAForeigner: true,
+                foreignerRegion: true,
               },
             },
             department: { select: { id: true, name: true } },
@@ -1169,6 +1204,7 @@ export const getVisitById = async (c: Context) => {
                 phoneNumber: true,
                 nationality: true,
                 isAForeigner: true,
+                foreignerRegion: true,
                 address: true,
                 medicalInfo: true,
                 email: true,
@@ -1229,7 +1265,56 @@ export const getVisitById = async (c: Context) => {
                 id: true,
                 name: true,
                 createdAt: true,
-                products: { select: { id: true, name: true } },
+                products: {
+                  select: {
+                    id: true,
+                    name: true,
+                    unit: true,
+                    normalRange: true,
+                    basePrice: true,
+                    eastAfricaPrice: true,
+                    africaPrice: true,
+                    restOfWorldPrice: true,
+                    clinicProductPrices: {
+                      where: {
+                        clinicId: user.clinicId,
+                      },
+                      select: {
+                        basePrice: true,
+                        eastAfricaPrice: true,
+                        africaPrice: true,
+                        restOfWorldPrice: true,
+                      },
+                      take: 1,
+                    },
+                    insurancePrices: {
+                      where: {
+                        OR: [{ clinicId: user.clinicId }, { clinicId: null }],
+                      },
+                      select: {
+                        id: true,
+                        price: true,
+                        priceWithCo: true,
+                        clinicId: true,
+                        insuranceCompany: {
+                          select: {
+                            id: true,
+                            companyName: true,
+                          },
+                        },
+                      },
+                    },
+                    tests: {
+                      select: {
+                        id: true,
+                        name: true,
+                        unit: true,
+                        normalRange: true,
+                        consumables: true,
+                      },
+                    },
+                  },
+                },
                 results: {
                   select: {
                     id: true,
@@ -1243,13 +1328,59 @@ export const getVisitById = async (c: Context) => {
               },
             },
             treatments: true,
+            examResults: {
+              select: {
+                id: true,
+                examDate: true,
+                results: true,
+                notes: true,
+                createdBy: { select: { id: true, name: true } },
+              },
+            },
           },
         });
 
         if (!visit) {
           return null;
         }
-        return { data: visit };
+
+        // Transform products in exams to include clinic-specific prices
+        const transformedExams = (visit.exams || []).map((exam) => ({
+          ...exam,
+          products: (exam.products || []).map((p) => {
+            const product = p as unknown as IProductWithPrices;
+            const clinicPrice = product.clinicProductPrices?.[0];
+            const insurancePrices = product.insurancePrices || [];
+
+            return {
+              ...product,
+              basePrice: clinicPrice?.basePrice ?? product.basePrice,
+              eastAfricaPrice:
+                clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+              africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+              restOfWorldPrice:
+                clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
+              insurancePrices: (() => {
+                const clinicSpecific = insurancePrices.filter(
+                  (ip) => ip.clinicId === user.clinicId
+                );
+                const global = insurancePrices.filter(
+                  (ip) => ip.clinicId === null
+                );
+                const clinicCompanyIds = new Set(
+                  clinicSpecific.map((ip) => ip.insuranceCompany.id)
+                );
+                const globalOnly = global.filter(
+                  (ip) => !clinicCompanyIds.has(ip.insuranceCompany.id)
+                );
+                return [...clinicSpecific, ...globalOnly];
+              })(),
+              clinicProductPrices: undefined,
+            };
+          }),
+        }));
+
+        return { data: { ...visit, exams: transformedExams } };
       },
       DEFAULT_CACHE_TTL.SHORT
     );
@@ -1264,6 +1395,7 @@ export const getVisitById = async (c: Context) => {
     const visit = data.data as {
       clinicId: number;
       branchId: number;
+      exams: unknown[];
     } & Record<string, unknown>;
 
     const notSuper = user.role !== Role.SUPER_ADMIN;
@@ -1291,6 +1423,7 @@ export const getVisitById = async (c: Context) => {
 
 export const getPatientVisits = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { patientId } = c.get("validatedParam");
     const pid = Number.parseInt(patientId, 10);
     const visits = await db.visit.findMany({
@@ -1300,7 +1433,24 @@ export const getPatientVisits = async (c: Context) => {
         department: true,
         doctor: true,
         exams: {
-          include: { products: { include: { tests: true } }, results: true },
+          include: {
+            products: {
+              include: {
+                tests: true,
+                clinicProductPrices: {
+                  where: { clinicId: user.clinicId },
+                  take: 1,
+                },
+                insurancePrices: {
+                  where: {
+                    OR: [{ clinicId: user.clinicId }, { clinicId: null }],
+                  },
+                  include: { insuranceCompany: true },
+                },
+              },
+            },
+            results: true,
+          },
         },
         examResults: { include: { createdBy: true } },
         prescriptions: { include: { items: true } },
@@ -1310,7 +1460,47 @@ export const getPatientVisits = async (c: Context) => {
       },
       orderBy: { updatedAt: "desc" },
     });
-    return c.json({ data: visits });
+
+    // Transform products in exams for all visits
+    const transformedVisits = visits.map((visit) => ({
+      ...visit,
+      exams: (visit.exams || []).map((exam) => ({
+        ...exam,
+        products: (exam.products || []).map((p) => {
+          const product = p as unknown as IProductWithPrices;
+          const clinicPrice = product.clinicProductPrices?.[0];
+          const insurancePrices = product.insurancePrices || [];
+
+          return {
+            ...product,
+            basePrice: clinicPrice?.basePrice ?? product.basePrice,
+            eastAfricaPrice:
+              clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+            africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+            restOfWorldPrice:
+              clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
+            insurancePrices: (() => {
+              const clinicSpecific = insurancePrices.filter(
+                (ip) => ip.clinicId === user.clinicId
+              );
+              const global = insurancePrices.filter(
+                (ip) => ip.clinicId === null
+              );
+              const clinicCompanyIds = new Set(
+                clinicSpecific.map((ip) => ip.insuranceCompany.id)
+              );
+              const globalOnly = global.filter(
+                (ip) => !clinicCompanyIds.has(ip.insuranceCompany.id)
+              );
+              return [...clinicSpecific, ...globalOnly];
+            })(),
+            clinicProductPrices: undefined,
+          };
+        }),
+      })),
+    }));
+
+    return c.json({ data: transformedVisits });
   } catch (_error) {
     return c.json(
       { error: "Failed to fetch patient visits" },
