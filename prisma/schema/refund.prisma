@@ -2,12 +2,12 @@ model Refund {
     id                        Int         @id @default(autoincrement())
     clinic                    Clinic      @relation(fields: [clinicId], references: [id])
     clinicId                  Int
-    payment                   Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+    payment                   Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
     paymentId                 Int
-    visit                     Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+    visit                     Visit       @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
     visitId                   Int
-    examResult                ExamResult  @relation(fields: [examResultId], references: [id], onDelete: Cascade)
-    examResultId              Int
+    examResult                ExamResult? @relation(fields: [examResultId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+    examResultId              Int?
     product                   Product     @relation(fields: [productId], references: [id])
     productId                 Int
     approval                  Approval?   @relation(fields: [approvalId], references: [id])

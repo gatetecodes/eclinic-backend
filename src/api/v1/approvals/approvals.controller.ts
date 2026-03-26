@@ -7,6 +7,7 @@ import { getScope } from "@/lib/request-scope.ts";
 import type { Prisma } from "../../../../generated/prisma/client";
 import { PaymentType } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { getPaymentStatusAfterAdjustment } from "../../../helpers/refund-helpers";
 import { applyApprovedRefund } from "../../../helpers/refund-workflow";
 import { createPaymentForProducts } from "../../../helpers/tariff-helpers";
 import {
@@ -98,6 +99,144 @@ export const processApprovalRequest = async (c: Context) => {
         );
       }
 
+      const rawPayload = fullApproval.payload as Record<string, unknown>;
+
+      if (rawPayload.examEditRefund === true) {
+        // Exam-edit refund path: consolidated refund for removed exam products
+        const editRefundPayload = rawPayload as {
+          paymentId: number;
+          visitId: number;
+          examId: number;
+          items: Array<{
+            productId: number;
+            productName: string;
+            patientRefundAmount: number;
+            insuranceAdjustmentAmount: number;
+            totalAdjustmentAmount: number;
+          }>;
+          requested: {
+            refund: {
+              patientRefundAmount: number;
+              insuranceAdjustmentAmount: number;
+              totalAdjustmentAmount: number;
+            };
+          };
+        };
+
+        const payment = await db.payment.findUnique({
+          where: { id: editRefundPayload.paymentId },
+          select: {
+            id: true,
+            clinicId: true,
+            visitId: true,
+            paymentMode: true,
+            amount: true,
+            patientAmount: true,
+            insuranceAmount: true,
+            paidAmount: true,
+          },
+        });
+
+        if (!payment || payment.clinicId !== fullApproval.clinicId) {
+          return c.json(
+            { error: "Payment not found" },
+            httpCodes.NOT_FOUND as ContentfulStatusCode
+          );
+        }
+
+        await db.$transaction(async (tx) => {
+          await tx.approval.update({
+            where: { id: approvalId, status: "PENDING" },
+            data: {
+              status: "APPROVED",
+              approvedById: Number(user.id),
+            },
+          });
+
+          // Create a refund record for each removed item
+          const items = editRefundPayload.items || [];
+          for (const item of items) {
+            if (item.productId) {
+              await tx.refund.create({
+                data: {
+                  clinic: { connect: { id: fullApproval.clinicId } },
+                  payment: { connect: { id: payment.id } },
+                  visit: { connect: { id: payment.visitId as number } },
+                  product: { connect: { id: item.productId } },
+                  approval: { connect: { id: approvalId } },
+                  refundedBy: { connect: { id: Number(user.id) } },
+                  patientRefundAmount: item.patientRefundAmount,
+                  insuranceAdjustmentAmount: item.insuranceAdjustmentAmount,
+                  totalAdjustmentAmount: item.totalAdjustmentAmount,
+                  reason:
+                    fullApproval.reason ??
+                    `Refund for removed exam: ${item.productName}`,
+                },
+              });
+            }
+          }
+
+          // Adjust payment totals
+          const { patientRefundAmount, insuranceAdjustmentAmount } =
+            editRefundPayload.requested.refund;
+          const totalLineAmount =
+            patientRefundAmount + insuranceAdjustmentAmount;
+
+          const nextAmount = Number(
+            Math.max(0, Number(payment.amount) - totalLineAmount).toFixed(2)
+          );
+          const nextPatientAmount = Number(
+            Math.max(
+              0,
+              Number(payment.patientAmount) - patientRefundAmount
+            ).toFixed(2)
+          );
+          const nextInsuranceAmount = Number(
+            Math.max(
+              0,
+              Number(payment.insuranceAmount ?? 0) - insuranceAdjustmentAmount
+            ).toFixed(2)
+          );
+          const nextPaidAmount = Number(
+            Math.max(
+              0,
+              Number(payment.paidAmount) - patientRefundAmount
+            ).toFixed(2)
+          );
+
+          const nextStatus = getPaymentStatusAfterAdjustment({
+            paymentMode: payment.paymentMode as "PRIVATE" | "INSURANCE",
+            patientAmount: nextPatientAmount,
+            paidAmount: nextPaidAmount,
+          });
+
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              amount: nextAmount,
+              patientAmount: nextPatientAmount,
+              insuranceAmount: nextInsuranceAmount,
+              paidAmount: nextPaidAmount,
+              paymentStatus: nextStatus,
+            },
+          });
+        });
+
+        await invalidatePaymentRelatedCaches({
+          clinicId: Number(user.clinicId),
+          branchId: Number(user.branchId),
+        });
+
+        return c.json(
+          {
+            success: true,
+            message: "Exam edit refund approved and applied successfully",
+          },
+          httpCodes.OK as ContentfulStatusCode
+        );
+      }
+
+      // Standard refund path (per-exam-result)
       const payload = fullApproval.payload as Parameters<
         typeof applyApprovedRefund
       >[0]["payload"];
@@ -176,37 +315,21 @@ export const processApprovalRequest = async (c: Context) => {
 
       const payloadData = (fullApproval.payload ?? {}) as {
         paymentId?: number;
+        paidBill?: boolean;
+        original?: { exams?: number[]; allowPartial?: boolean };
         requested?: { exams?: number[]; allowPartial?: boolean };
         exams?: number[];
         allowPartial?: boolean;
       };
 
-      const existingPayment = await db.payment.findFirst({
-        where: {
-          id: payloadData.paymentId,
-          visitId: exam.visitId,
-          paymentType: PaymentType.ADDITIONAL_EXAM,
-          paymentStatus: "PENDING",
-        },
-        select: { id: true, paymentStatus: true, allowPartial: true },
-      });
-
-      if (!existingPayment) {
-        return c.json(
-          {
-            error: `No existing pending bill found for payment ID: ${payloadData.paymentId}`,
-          },
-          httpCodes.BAD_REQUEST as ContentfulStatusCode
-        );
-      }
       const requested = payloadData?.requested ?? payloadData;
-      let exams: number[] = [];
+      let requestedExams: number[] = [];
       if (Array.isArray(requested?.exams)) {
-        exams = requested.exams;
+        requestedExams = requested.exams;
       } else if (Array.isArray(payloadData?.exams)) {
-        exams = payloadData.exams;
+        requestedExams = payloadData.exams;
       }
-      const productIds = exams
+      const productIds = requestedExams
         .map((eid: number) => Number(eid))
         .filter((n: number) => !Number.isNaN(n));
 
@@ -217,41 +340,99 @@ export const processApprovalRequest = async (c: Context) => {
         );
       }
 
-      await db.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { id: existingPayment.id },
-          data: { paymentStatus: "CANCELLED" },
-        });
-
-        await tx.exam.update({
-          where: { id: exam.id },
-          data: {
-            products: { set: productIds.map((pid) => ({ id: pid })) },
-          },
-        });
-
-        await createPaymentForProducts(
-          productIds,
-          exam.visitId,
-          PaymentType.ADDITIONAL_EXAM,
-          {
-            allowPartial:
-              requested?.allowPartial ??
-              payloadData?.allowPartial ??
-              existingPayment.allowPartial ??
-              false,
-            tx,
-          }
+      if (payloadData.paidBill) {
+        // Paid bill path: update exams and create payment only for newly added products
+        const originalExams = payloadData.original?.exams ?? [];
+        const newlyAddedExams = productIds.filter(
+          (pid) => !originalExams.includes(pid)
         );
 
-        await tx.approval.update({
-          where: { id: approvalId, status: "PENDING" },
-          data: {
-            status: "APPROVED",
-            approvedById: Number(user.id),
-          },
+        await db.$transaction(async (tx) => {
+          await tx.exam.update({
+            where: { id: exam.id },
+            data: {
+              products: { set: productIds.map((pid) => ({ id: pid })) },
+            },
+          });
+
+          if (newlyAddedExams.length > 0) {
+            await createPaymentForProducts(
+              newlyAddedExams,
+              exam.visitId,
+              PaymentType.ADDITIONAL_EXAM,
+              {
+                allowPartial:
+                  requested?.allowPartial ?? payloadData?.allowPartial ?? false,
+                tx,
+              }
+            );
+          }
+
+          await tx.approval.update({
+            where: { id: approvalId, status: "PENDING" },
+            data: {
+              status: "APPROVED",
+              approvedById: Number(user.id),
+            },
+          });
         });
-      });
+      } else {
+        // Pending bill path: cancel existing payment and recreate
+        const existingPayment = await db.payment.findFirst({
+          where: {
+            id: payloadData.paymentId,
+            visitId: exam.visitId,
+            paymentType: PaymentType.ADDITIONAL_EXAM,
+            paymentStatus: "PENDING",
+          },
+          select: { id: true, paymentStatus: true, allowPartial: true },
+        });
+
+        if (!existingPayment) {
+          return c.json(
+            {
+              error: `No existing pending bill found for payment ID: ${payloadData.paymentId}`,
+            },
+            httpCodes.BAD_REQUEST as ContentfulStatusCode
+          );
+        }
+
+        await db.$transaction(async (tx) => {
+          await tx.payment.update({
+            where: { id: existingPayment.id },
+            data: { paymentStatus: "CANCELLED" },
+          });
+
+          await tx.exam.update({
+            where: { id: exam.id },
+            data: {
+              products: { set: productIds.map((pid) => ({ id: pid })) },
+            },
+          });
+
+          await createPaymentForProducts(
+            productIds,
+            exam.visitId,
+            PaymentType.ADDITIONAL_EXAM,
+            {
+              allowPartial:
+                requested?.allowPartial ??
+                payloadData?.allowPartial ??
+                existingPayment.allowPartial ??
+                false,
+              tx,
+            }
+          );
+
+          await tx.approval.update({
+            where: { id: approvalId, status: "PENDING" },
+            data: {
+              status: "APPROVED",
+              approvedById: Number(user.id),
+            },
+          });
+        });
+      }
 
       await invalidatePaymentRelatedCaches({
         clinicId: Number(user.clinicId),
