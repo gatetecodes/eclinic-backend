@@ -261,6 +261,132 @@ export const markResultsReady = async (c: Context) => {
   }
 };
 
+const createConsolidatedRefundApproval = async (args: {
+  payment: {
+    id: number;
+    paidAmount: unknown;
+    patientAmount: unknown;
+    insuranceAmount: unknown;
+    amount: unknown;
+    paymentDetails: unknown;
+    insuranceClaimId: number | null;
+  };
+  examToEdit: {
+    id: number;
+    products: Array<{ id: number; name: string }>;
+  };
+  productIds: number[];
+  originalProductIds: number[];
+  visit: {
+    id: number;
+    clinicId: number;
+    patient: { firstName: string; lastName: string };
+  };
+  user: { id: number | string; branchId?: number | null };
+}) => {
+  const { payment, examToEdit, productIds, originalProductIds, visit, user } =
+    args;
+  const removedProductIds = originalProductIds.filter(
+    (pid) => !productIds.includes(pid)
+  );
+
+  if (removedProductIds.length === 0) {
+    return;
+  }
+
+  const paymentDetails = (payment.paymentDetails ?? []) as Array<{
+    productId?: number;
+    productName?: string;
+    amount: number;
+    patientAmount: number;
+    insuranceAmount: number;
+    quantity?: number;
+  }>;
+
+  const removedLines = paymentDetails.filter(
+    (line) =>
+      line.productId != null && removedProductIds.includes(line.productId)
+  );
+
+  const paidAmount = Number(payment.paidAmount ?? 0);
+  const totalPaymentPatientAmount = Number(payment.patientAmount ?? 0);
+  const paidRatio =
+    totalPaymentPatientAmount > 0
+      ? Math.min(paidAmount / totalPaymentPatientAmount, 1)
+      : 0;
+
+  const refundItems = removedLines.map((line) => {
+    const linePatientAmount = Number(line.patientAmount ?? 0);
+    const patientRefundAmount = Number(
+      (linePatientAmount * paidRatio).toFixed(2)
+    );
+    const lineInsuranceAmount = Number(line.insuranceAmount ?? 0);
+
+    return {
+      productId: line.productId,
+      productName:
+        line.productName ??
+        examToEdit.products.find((p) => p.id === line.productId)?.name ??
+        `Product #${line.productId}`,
+      quantity: line.quantity ?? 1,
+      amount: Number(line.amount ?? 0),
+      patientAmount: linePatientAmount,
+      insuranceAmount: lineInsuranceAmount,
+      patientRefundAmount,
+      insuranceAdjustmentAmount: lineInsuranceAmount,
+      totalAdjustmentAmount: patientRefundAmount + lineInsuranceAmount,
+    };
+  });
+
+  const totalPatientRefund = refundItems.reduce(
+    (sum, item) => sum + item.patientRefundAmount,
+    0
+  );
+  const totalInsuranceAdjustment = refundItems.reduce(
+    (sum, item) => sum + item.insuranceAdjustmentAmount,
+    0
+  );
+  const patientName = `${visit.patient.firstName} ${visit.patient.lastName}`;
+
+  await db.approval.create({
+    data: {
+      type: "REFUND",
+      clinicId: visit.clinicId,
+      branchId: user.branchId ?? undefined,
+      requestedById: Number(user.id),
+      reason: `Refund for removed exams — part of exam edit for ${patientName}`,
+      payload: {
+        paymentId: payment.id,
+        visitId: visit.id,
+        examId: examToEdit.id,
+        examEditRefund: true,
+        patient: { fullName: patientName },
+        items: refundItems,
+        requested: {
+          refund: {
+            patientRefundAmount: Number(totalPatientRefund.toFixed(2)),
+            insuranceAdjustmentAmount: Number(
+              totalInsuranceAdjustment.toFixed(2)
+            ),
+            totalAdjustmentAmount: Number(
+              (totalPatientRefund + totalInsuranceAdjustment).toFixed(2)
+            ),
+          },
+        },
+        original: {
+          payment: {
+            amount: Number(payment.amount),
+            patientAmount: Number(payment.patientAmount),
+            insuranceAmount: Number(payment.insuranceAmount ?? 0),
+            paidAmount: Number(payment.paidAmount),
+            insuranceClaimId: payment.insuranceClaimId,
+          },
+        },
+      },
+    },
+  });
+};
+
 export const requestVisitExamEdit = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -280,7 +406,7 @@ export const requestVisitExamEdit = async (c: Context) => {
           take: 1,
           select: {
             id: true,
-            products: { select: { id: true } },
+            products: { select: { id: true, name: true } },
             results: { select: { id: true } },
           },
         },
@@ -312,27 +438,52 @@ export const requestVisitExamEdit = async (c: Context) => {
       );
     }
 
+    // Find the most recent ADDITIONAL_EXAM payment (any status)
     const payment = await db.payment.findFirst({
       where: {
         visitId,
         paymentType: PaymentType.ADDITIONAL_EXAM,
-        paymentStatus: "PENDING",
       },
       orderBy: { createdAt: "desc" as const },
-      select: { id: true, allowPartial: true },
+      select: {
+        id: true,
+        allowPartial: true,
+        paymentStatus: true,
+        paymentMode: true,
+        paymentType: true,
+        amount: true,
+        patientAmount: true,
+        insuranceAmount: true,
+        paidAmount: true,
+        insuranceClaimId: true,
+        paymentDetails: true,
+        refunds: {
+          select: {
+            id: true,
+            productId: true,
+            examResultId: true,
+            patientRefundAmount: true,
+            insuranceAdjustmentAmount: true,
+            totalAdjustmentAmount: true,
+            reason: true,
+            approvalId: true,
+            approval: { select: { status: true } },
+          },
+        },
+      },
     });
 
     if (!payment) {
       return c.json(
-        {
-          error:
-            "Bill is not pending. Editing is only allowed while the bill is pending.",
-        },
+        { error: "No exam bill found for this visit." },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
 
+    const isPaidBill = payment.paymentStatus !== "PENDING";
+
     const productIds = (exams as string[]).map((e) => Number.parseInt(e, 10));
+    const originalProductIds = examToEdit.products.map((p) => p.id);
 
     const existingPendingApproval = await db.approval.findFirst({
       where: {
@@ -359,8 +510,9 @@ export const requestVisitExamEdit = async (c: Context) => {
         examId: examToEdit.id,
         payload: {
           paymentId: payment.id,
+          paidBill: isPaidBill,
           original: {
-            exams: examToEdit.products.map((p) => p.id),
+            exams: originalProductIds,
             allowPartial: Boolean(payment.allowPartial),
           },
           requested: {
@@ -370,6 +522,19 @@ export const requestVisitExamEdit = async (c: Context) => {
         },
       },
     });
+
+    // If the bill is already paid, create a consolidated REFUND approval
+    // for all removed exam products
+    if (isPaidBill) {
+      await createConsolidatedRefundApproval({
+        payment,
+        examToEdit,
+        productIds,
+        originalProductIds,
+        visit,
+        user,
+      });
+    }
 
     await logActivity({
       userId: Number(user.id),
@@ -386,7 +551,9 @@ export const requestVisitExamEdit = async (c: Context) => {
 
     return c.json({
       success: true,
-      message: "Submitted for approval",
+      message: isPaidBill
+        ? "Submitted for approval. A refund request has also been created for removed exams."
+        : "Submitted for approval",
       data: approval,
     });
   } catch (error) {

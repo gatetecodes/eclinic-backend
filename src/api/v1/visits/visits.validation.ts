@@ -99,6 +99,7 @@ export const patientSchema = z
     isAForeigner: z.boolean().optional(),
     foreignerRegion: z
       .enum(["EAST_AFRICA", "AFRICA", "REST_OF_THE_WORLD"])
+      .nullable()
       .optional(),
     isChild: z.boolean().optional().default(false),
   })
@@ -176,6 +177,7 @@ export const initialCheckInSchema = z
         isAForeigner: z.boolean().optional(),
         foreignerRegion: z
           .enum(["EAST_AFRICA", "AFRICA", "REST_OF_THE_WORLD"])
+          .nullable()
           .optional(),
         address: z.string().optional(),
       })
