@@ -11,7 +11,7 @@ model Refund {
     product                   Product     @relation(fields: [productId], references: [id])
     productId                 Int
     approval                  Approval?   @relation(fields: [approvalId], references: [id])
-    approvalId                Int?        @unique
+    approvalId                Int?
     patientRefundAmount       Decimal     @db.Decimal(10, 2)
     insuranceAdjustmentAmount Decimal     @db.Decimal(10, 2)
     totalAdjustmentAmount     Decimal     @db.Decimal(10, 2)

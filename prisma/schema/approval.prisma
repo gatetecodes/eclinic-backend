@@ -20,7 +20,7 @@ model Approval {
     treatmentId   Int?
     exam          Exam?          @relation(fields: [examId], references: [id])
     examId        Int?
-    refund        Refund?
+    refunds       Refund[]
 }
 
 enum ApprovalType {
