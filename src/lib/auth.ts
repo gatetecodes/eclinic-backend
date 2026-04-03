@@ -218,6 +218,24 @@ const prismaForAuth = createCoercingPrisma(prisma);
 const backendUrl = process.env.BACKEND_URL;
 const frontendUrl = process.env.APP_URL;
 const nextUpUrl = process.env.NEXT_UP_URL || "";
+const parseTrustedOrigins = (value?: string) =>
+  (value ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const trustedOrigins = [frontendUrl, nextUpUrl]
+  .map((origin) => origin?.trim())
+  .filter(Boolean) as string[];
+
+const normalizedEnvTrustedOrigins = parseTrustedOrigins(
+  process.env.BETTER_AUTH_TRUSTED_ORIGINS
+);
+
+if (process.env.BETTER_AUTH_TRUSTED_ORIGINS !== undefined) {
+  process.env.BETTER_AUTH_TRUSTED_ORIGINS =
+    normalizedEnvTrustedOrigins.join(",");
+}
 const isProdLike =
   process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
 const cookieDomain = isProdLike
@@ -234,7 +252,7 @@ if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
 
 export const auth = betterAuth({
   baseURL: backendUrl,
-  trustedOrigins: [frontendUrl, nextUpUrl],
+  trustedOrigins: [...trustedOrigins, ...normalizedEnvTrustedOrigins],
   database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),
