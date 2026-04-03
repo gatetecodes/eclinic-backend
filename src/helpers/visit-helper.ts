@@ -220,10 +220,15 @@ export async function handleInsurance(
   });
 
   if (existingInsurance) {
-    // Update existing insurance with principal information if provided
+    // Keep the existing insurance record in sync with edited check-in details
     await db.patientInsurance.update({
       where: { id: existingInsurance.id },
       data: {
+        coveragePercentage: Number.parseFloat(
+          Number.parseFloat(insuranceData.coveragePercentage || "0").toFixed(2)
+        ),
+        insuranceCompanyId,
+        employerId: employerId ?? null,
         relationshipType:
           (insuranceData.relationshipType as
             | "PRINCIPAL"
