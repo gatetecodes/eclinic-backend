@@ -26,6 +26,9 @@ const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_WINDOW_MS = RATE_LIMIT_WINDOW_MINUTES * ONE_MINUTE_MS;
 const RATE_LIMIT_MAX_REQUESTS = 200;
 const DEFAULT_PORT = 4002;
+const corsOrigins = [process.env.APP_URL, process.env.NEXT_UP_URL]
+  .map((origin) => origin?.trim())
+  .filter(Boolean) as string[];
 
 const app = new Hono();
 
@@ -34,7 +37,7 @@ app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: [process.env.APP_URL as string, process.env.NEXT_UP_URL as string],
+    origin: corsOrigins,
     credentials: true,
   })
 );
