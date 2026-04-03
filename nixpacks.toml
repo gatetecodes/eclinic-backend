@@ -22,4 +22,4 @@ dependsOn = ["install"]
 LD_LIBRARY_PATH = "/nix/store/*-openssl-3.*/lib"
 
 [start]
-cmd = "bunx prisma migrate deploy && bun run start"
+cmd = "sh ./scripts/start-prod.sh"
