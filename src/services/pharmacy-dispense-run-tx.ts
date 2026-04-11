@@ -242,14 +242,36 @@ async function applyInventoryDeduction(
   itemId: number,
   quantity: number
 ) {
-  await tx.inventoryBatch.update({
-    where: { id: batchId },
+  const batchUpdate = await tx.inventoryBatch.updateMany({
+    where: {
+      id: batchId,
+      currentQuantity: { gte: quantity },
+    },
     data: { currentQuantity: { decrement: quantity } },
   });
-  await tx.inventoryStock.update({
-    where: { itemId },
+  if (batchUpdate.count !== 1) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INSUFFICIENT_STOCK",
+      message: "No batch with sufficient quantity for this item",
+      exposeMessage: true,
+    });
+  }
+  const stockUpdate = await tx.inventoryStock.updateMany({
+    where: {
+      itemId,
+      quantity: { gte: quantity },
+    },
     data: { quantity: { decrement: quantity } },
   });
+  if (stockUpdate.count !== 1) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INSUFFICIENT_STOCK",
+      message: "Insufficient inventory stock for this item",
+      exposeMessage: true,
+    });
+  }
   await refreshItemStatus(tx, itemId);
 }
 

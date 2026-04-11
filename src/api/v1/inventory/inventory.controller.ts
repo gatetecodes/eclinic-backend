@@ -1773,7 +1773,7 @@ export const getNearExpiryBatches = async (c: Context) => {
         unitPrice: true,
         item: { select: { id: true, itemName: true } },
       },
-      orderBy: [{ expiryDate: "asc" }],
+      orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
     });
     return c.json({ data: batches }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
@@ -1814,7 +1814,7 @@ export const getStockItemDetails = async (c: Context) => {
           where: {
             ...(typeof branchId === "number" ? { branchId } : {}),
           },
-          orderBy: [{ expiryDate: "asc" }, { createdAt: "desc" }],
+          orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
         },
         branch: {
           select: {

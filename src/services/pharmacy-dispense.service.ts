@@ -137,16 +137,24 @@ export async function upsertPrescriptionItemMap(params: {
   }
 
   const line = await db.prescriptionItem.findFirst({
-    where: { id: params.prescriptionItemId },
+    where: {
+      id: params.prescriptionItemId,
+      prescription: {
+        clinicId: params.clinicId,
+        ...(typeof params.branchId === "number"
+          ? { branchId: params.branchId }
+          : {}),
+      },
+    },
     include: {
-      prescription: { select: { clinicId: true } },
+      prescription: { select: { clinicId: true, branchId: true } },
     },
   });
-  if (!line || line.prescription.clinicId !== params.clinicId) {
+  if (!line) {
     throw new AppError({
       status: httpCodes.NOT_FOUND,
       code: "PRESCRIPTION_ITEM_NOT_FOUND",
-      message: "Prescription line not found in this clinic",
+      message: "Prescription line not found in this clinic or branch",
       exposeMessage: true,
     });
   }
@@ -165,12 +173,23 @@ export async function upsertPrescriptionItemMap(params: {
   });
 }
 
-export async function deletePrescriptionItemMap(
-  clinicId: number,
-  prescriptionItemId: number
-) {
+export async function deletePrescriptionItemMap(params: {
+  clinicId: number;
+  prescriptionItemId: number;
+  branchId: number | undefined;
+}) {
   const map = await db.pharmacyPrescriptionItemMap.findFirst({
-    where: { prescriptionItemId, clinicId },
+    where: {
+      prescriptionItemId: params.prescriptionItemId,
+      clinicId: params.clinicId,
+      prescriptionItem: {
+        prescription: {
+          ...(typeof params.branchId === "number"
+            ? { branchId: params.branchId }
+            : {}),
+        },
+      },
+    },
   });
   if (!map) {
     throw new AppError({
