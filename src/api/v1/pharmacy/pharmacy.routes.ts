@@ -61,7 +61,7 @@ router.delete(
   "/prescription-items/:prescriptionItemId/map",
   ...withAccess({
     resource: "pharmacy",
-    action: "update",
+    action: "delete",
     feature: "pharmacy",
   }),
   deletePrescriptionItemMapping

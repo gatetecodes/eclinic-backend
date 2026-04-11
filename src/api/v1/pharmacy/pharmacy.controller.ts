@@ -692,6 +692,7 @@ export const mapPrescriptionItemToInventory = async (c: Context) => {
 export const deletePrescriptionItemMapping = async (c: Context) => {
   try {
     const clinicId = c.get("clinicId");
+    const branchId = c.get("branchId");
     if (typeof clinicId !== "number") {
       return jsonError(
         c,
@@ -714,7 +715,11 @@ export const deletePrescriptionItemMapping = async (c: Context) => {
       );
     }
 
-    await deletePrescriptionItemMap(clinicId, prescriptionItemId);
+    await deletePrescriptionItemMap({
+      clinicId,
+      prescriptionItemId,
+      branchId,
+    });
     return c.body(null, httpCodes.NO_CONTENT as ContentfulStatusCode);
   } catch (error) {
     if (error instanceof AppError) {
