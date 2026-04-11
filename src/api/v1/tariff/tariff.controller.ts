@@ -149,7 +149,9 @@ export const getTariff = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
-        foreignersPrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
         unit: true,
         normalRange: true,
         isActive: true,
@@ -338,7 +340,9 @@ export const getProductsListWithPricing = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
-        foreignersPrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
         clinicProductPrices: scopedClinicId
           ? {
               where: {
@@ -346,7 +350,9 @@ export const getProductsListWithPricing = async (c: Context) => {
               },
               select: {
                 basePrice: true,
-                foreignersPrice: true,
+                eastAfricaPrice: true,
+                africaPrice: true,
+                restOfWorldPrice: true,
               },
               take: 1,
             }
@@ -386,8 +392,11 @@ export const getProductsListWithPricing = async (c: Context) => {
       return {
         ...product,
         basePrice: clinicPrice?.basePrice ?? product.basePrice,
-        foreignersPrice:
-          clinicPrice?.foreignersPrice ?? product.foreignersPrice,
+        eastAfricaPrice:
+          clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+        africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+        restOfWorldPrice:
+          clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
         // Filter insurance prices to prefer clinic-specific, then global
         insurancePrices: scopedClinicId
           ? (() => {
@@ -447,7 +456,9 @@ export const getProductById = async (c: Context) => {
         description: true,
         category: true,
         basePrice: true,
-        foreignersPrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
         unit: true,
         normalRange: true,
         consumables: true,
@@ -459,7 +470,9 @@ export const getProductById = async (c: Context) => {
               },
               select: {
                 basePrice: true,
-                foreignersPrice: true,
+                eastAfricaPrice: true,
+                africaPrice: true,
+                restOfWorldPrice: true,
               },
               take: 1,
             }
@@ -524,7 +537,10 @@ export const getProductById = async (c: Context) => {
     const transformedProduct = {
       ...product,
       basePrice: clinicPrice?.basePrice ?? product.basePrice,
-      foreignersPrice: clinicPrice?.foreignersPrice ?? product.foreignersPrice,
+      eastAfricaPrice: clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+      africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+      restOfWorldPrice:
+        clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
       // Filter insurance prices to prefer clinic-specific, then global
       insurancePrices: clinicId
         ? (() => {
@@ -584,7 +600,9 @@ export const createProduct = async (c: Context) => {
       description,
       category,
       basePrice,
-      foreignersPrice,
+      eastAfricaPrice,
+      africaPrice,
+      restOfWorldPrice,
       unit,
       normalRange,
       consumables,
@@ -622,8 +640,10 @@ export const createProduct = async (c: Context) => {
         code,
         description,
         category: category as ProductCategory,
-        basePrice: basePrice ? basePrice : null,
-        foreignersPrice: foreignersPrice ? foreignersPrice : null,
+        basePrice: basePrice ?? null,
+        eastAfricaPrice: eastAfricaPrice ?? null,
+        africaPrice: africaPrice ?? null,
+        restOfWorldPrice: restOfWorldPrice ?? null,
         unit,
         normalRange,
         consumables: consumables
@@ -792,6 +812,7 @@ export const updateProduct = async (c: Context) => {
   }
 };
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const updateProductPricing = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -842,8 +863,13 @@ export const updateProductPricing = async (c: Context) => {
       );
     }
 
-    const { basePrice, foreignersPrice, insurancePrices } =
-      validatedFields.data;
+    const {
+      basePrice,
+      eastAfricaPrice,
+      africaPrice,
+      restOfWorldPrice,
+      insurancePrices,
+    } = validatedFields.data;
     const clinicId = user.clinicId;
 
     // Verify insurance companies exist (no clinic relation in backend schema)
@@ -871,13 +897,17 @@ export const updateProductPricing = async (c: Context) => {
       },
       update: {
         basePrice: basePrice ?? null,
-        foreignersPrice: foreignersPrice ?? null,
+        eastAfricaPrice: eastAfricaPrice ?? null,
+        africaPrice: africaPrice ?? null,
+        restOfWorldPrice: restOfWorldPrice ?? null,
       },
       create: {
         clinicId,
         productId,
         basePrice: basePrice ?? null,
-        foreignersPrice: foreignersPrice ?? null,
+        eastAfricaPrice: eastAfricaPrice ?? null,
+        africaPrice: africaPrice ?? null,
+        restOfWorldPrice: restOfWorldPrice ?? null,
       },
     });
 
@@ -928,7 +958,9 @@ export const updateProductPricing = async (c: Context) => {
           },
           select: {
             basePrice: true,
-            foreignersPrice: true,
+            eastAfricaPrice: true,
+            africaPrice: true,
+            restOfWorldPrice: true,
           },
         },
         insurancePrices: {
@@ -1001,13 +1033,42 @@ export const getConsultationProducts = async (c: Context) => {
         id: true,
         name: true,
         basePrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
+        clinicProductPrices: {
+          where: {
+            clinicId: user.clinicId,
+          },
+          select: {
+            basePrice: true,
+            eastAfricaPrice: true,
+            africaPrice: true,
+            restOfWorldPrice: true,
+          },
+          take: 1,
+        },
       },
+    });
+
+    const productsWithPricing = products.map((product) => {
+      const clinicPrice = product.clinicProductPrices?.[0];
+      return {
+        ...product,
+        basePrice: clinicPrice?.basePrice ?? product.basePrice,
+        eastAfricaPrice:
+          clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+        africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+        restOfWorldPrice:
+          clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
+        clinicProductPrices: undefined,
+      };
     });
 
     return c.json({
       status: httpCodes.OK,
       message: "Consultation products fetched successfully",
-      data: products,
+      data: productsWithPricing,
     });
   } catch (_error) {
     return c.json(
@@ -1048,6 +1109,21 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
         id: true,
         name: true,
         basePrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
+        clinicProductPrices: {
+          where: {
+            clinicId: user.clinicId,
+          },
+          select: {
+            basePrice: true,
+            eastAfricaPrice: true,
+            africaPrice: true,
+            restOfWorldPrice: true,
+          },
+          take: 1,
+        },
         insurancePrices: {
           select: {
             id: true,
@@ -1070,10 +1146,24 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
       },
     });
 
+    const productsWithPricing = products.map((product) => {
+      const clinicPrice = product.clinicProductPrices?.[0];
+      return {
+        ...product,
+        basePrice: clinicPrice?.basePrice ?? product.basePrice,
+        eastAfricaPrice:
+          clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+        africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+        restOfWorldPrice:
+          clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
+        clinicProductPrices: undefined,
+      };
+    });
+
     return c.json({
       status: httpCodes.OK,
       message: "Consultation products with pricing fetched successfully",
-      data: products,
+      data: productsWithPricing,
     });
   } catch (_error) {
     return c.json(
@@ -1103,7 +1193,21 @@ export const getLabProductsWithPricing = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
-        foreignersPrice: true,
+        eastAfricaPrice: true,
+        africaPrice: true,
+        restOfWorldPrice: true,
+        clinicProductPrices: {
+          where: {
+            clinicId: user.clinicId,
+          },
+          select: {
+            basePrice: true,
+            eastAfricaPrice: true,
+            africaPrice: true,
+            restOfWorldPrice: true,
+          },
+          take: 1,
+        },
         insurancePrices: {
           select: {
             id: true,
@@ -1125,10 +1229,25 @@ export const getLabProductsWithPricing = async (c: Context) => {
         },
       },
     });
+
+    const productsWithPricing = products.map((product) => {
+      const clinicPrice = product.clinicProductPrices?.[0];
+      return {
+        ...product,
+        basePrice: clinicPrice?.basePrice ?? product.basePrice,
+        eastAfricaPrice:
+          clinicPrice?.eastAfricaPrice ?? product.eastAfricaPrice,
+        africaPrice: clinicPrice?.africaPrice ?? product.africaPrice,
+        restOfWorldPrice:
+          clinicPrice?.restOfWorldPrice ?? product.restOfWorldPrice,
+        clinicProductPrices: undefined,
+      };
+    });
+
     return c.json({
       status: httpCodes.OK,
       message: "Lab products with pricing fetched successfully",
-      data: products,
+      data: productsWithPricing,
     });
   } catch (_error) {
     return c.json(

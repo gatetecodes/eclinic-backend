@@ -20,7 +20,8 @@ export type Resource =
   | "tariff"
   | "users"
   | "visits"
-  | "performanceReports";
+  | "performanceReports"
+  | "pharmacy";
 
 // Actions are coarse-grained verbs aligned with controller operations
 export type Action =
@@ -38,7 +39,8 @@ export type Action =
   | "dischargePatient"
   | "addExams"
   | "updatePreConsultation"
-  | "updateInitialCheckin";
+  | "updateInitialCheckin"
+  | "dispense";
 
 // Feature flags represent product-surface capabilities that can be plan/tier gated
 export type FeatureKey =
@@ -54,7 +56,8 @@ export type FeatureKey =
   | "rooms"
   | "hospitalization"
   | "notifications"
-  | "insuranceClaims";
+  | "insuranceClaims"
+  | "pharmacy";
 
 export type EntitlementStatus = "ACTIVE" | "TRIAL" | "INACTIVE" | "EXPIRED";
 

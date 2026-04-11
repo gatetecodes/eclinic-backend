@@ -180,6 +180,13 @@ export const addHospitalizationProducts = async (c: Context) => {
         patientInsurance: true,
         paymentMode: true,
         clinicId: true,
+        patient: {
+          select: {
+            nationality: true,
+            isAForeigner: true,
+            foreignerRegion: true,
+          },
+        },
         payments: {
           where: {
             paymentType: PaymentType.HOSPITALIZATION,
@@ -199,6 +206,52 @@ export const addHospitalizationProducts = async (c: Context) => {
       );
     }
     const payment = visit.payments[0];
+
+    const getEffectivePrice = (
+      dbProduct: {
+        basePrice: Prisma.Decimal | number | null;
+        eastAfricaPrice: Prisma.Decimal | number | null;
+        africaPrice: Prisma.Decimal | number | null;
+        restOfWorldPrice: Prisma.Decimal | number | null;
+      },
+      clinicPrice: {
+        basePrice: Prisma.Decimal | number | null;
+        eastAfricaPrice: Prisma.Decimal | number | null;
+        africaPrice: Prisma.Decimal | number | null;
+        restOfWorldPrice: Prisma.Decimal | number | null;
+      } | null,
+      patient: {
+        nationality: string | null;
+        isAForeigner: boolean | null;
+        foreignerRegion: string | null;
+      } | null
+    ) => {
+      const isRwandan =
+        patient?.nationality === "Rwanda" && !patient?.isAForeigner;
+
+      const basePrice = Number(
+        clinicPrice?.basePrice ?? dbProduct.basePrice ?? 0
+      );
+
+      if (isRwandan) {
+        return basePrice;
+      }
+      const region = patient?.foreignerRegion;
+      if (region === "EAST_AFRICA") {
+        return Number(
+          clinicPrice?.eastAfricaPrice ?? dbProduct.eastAfricaPrice ?? basePrice
+        );
+      }
+      if (region === "AFRICA") {
+        return Number(
+          clinicPrice?.africaPrice ?? dbProduct.africaPrice ?? basePrice
+        );
+      }
+      return Number(
+        clinicPrice?.restOfWorldPrice ?? dbProduct.restOfWorldPrice ?? basePrice
+      );
+    };
+
     const result = await db.$transaction(async (tx) => {
       let totalCost = 0;
       let totalPatientAmount = 0;
@@ -213,7 +266,9 @@ export const addHospitalizationProducts = async (c: Context) => {
             select: {
               name: true,
               basePrice: true,
-              foreignersPrice: true,
+              eastAfricaPrice: true,
+              africaPrice: true,
+              restOfWorldPrice: true,
               insurancePrices: {
                 where: {
                   OR: [{ clinicId }, { clinicId: null }],
@@ -230,7 +285,9 @@ export const addHospitalizationProducts = async (c: Context) => {
                 },
                 select: {
                   basePrice: true,
-                  foreignersPrice: true,
+                  eastAfricaPrice: true,
+                  africaPrice: true,
+                  restOfWorldPrice: true,
                 },
                 take: 1,
               },
@@ -242,10 +299,6 @@ export const addHospitalizationProducts = async (c: Context) => {
 
           // Get clinic-specific prices with fallback
           const clinicPrice = dbProduct.clinicProductPrices?.[0];
-          const effectiveBasePrice =
-            clinicPrice?.basePrice ?? dbProduct.basePrice;
-          const effectiveForeignersPrice =
-            clinicPrice?.foreignersPrice ?? dbProduct.foreignersPrice;
 
           if (visit.paymentMode === PaymentMode.INSURANCE) {
             // Try clinic-specific insurance price first, then global
@@ -283,14 +336,16 @@ export const addHospitalizationProducts = async (c: Context) => {
               insuranceAmount: insuranceShare,
             });
           } else {
-            if (!(effectiveBasePrice || effectiveForeignersPrice)) {
+            const unitPrice = getEffectivePrice(
+              dbProduct,
+              clinicPrice,
+              visit.patient
+            );
+            if (unitPrice === 0) {
               throw new Error(
-                `Base price not defined for product: ${dbProduct.name}`
+                `Price not defined for product: ${dbProduct.name}`
               );
             }
-            const unitPrice = Number(
-              effectiveBasePrice ?? effectiveForeignersPrice
-            );
             totalCost += unitPrice * product.quantity;
             totalPatientAmount += unitPrice * product.quantity;
             paymentDetails.push({

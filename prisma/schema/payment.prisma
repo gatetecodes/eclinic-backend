@@ -6,6 +6,8 @@ model Payment {
     branchId         Int?
     visit            Visit?           @relation(fields: [visitId], references: [id])
     visitId          Int?
+    treatment        Treatment?       @relation(fields: [treatmentId], references: [id])
+    treatmentId      Int?
     appointment      Event?           @relation(fields: [appointmentId], references: [id])
     appointmentId    Int?
     insuranceClaim   InsuranceClaim?  @relation(fields: [insuranceClaimId], references: [id])
@@ -23,6 +25,7 @@ model Payment {
     paymentStatus    PaymentStatus    @default(PENDING)
     discounts        Discount[]
     partialPayments  PartialPayment[]
+    refunds          Refund[]
     processedBy      User?            @relation("ProcessedPayments", fields: [processedById], references: [id])
     processedById    Int?
     createdAt        DateTime         @default(now())
@@ -30,6 +33,7 @@ model Payment {
 
     @@index([clinicId])
     @@index([visitId])
+    @@index([treatmentId])
     @@index([appointmentId])
     @@index([insuranceClaimId])
 }
@@ -48,6 +52,7 @@ enum PaymentStatus {
     FULLY_PAID //After insurance amount is fully paid
     PARTIALLY_PAID //After partial payment is made
     CANCELLED
+    DELETED
 }
 
 enum DiscountStatus {

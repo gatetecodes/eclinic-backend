@@ -37,6 +37,7 @@ export const createPrescription = async (c: Context) => {
       },
       select: {
         id: true,
+        branchId: true,
         status: true,
         patientInsurance: {
           select: {
@@ -63,10 +64,12 @@ export const createPrescription = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
+    const resolvedBranchId = visit.branchId ?? user.branchId ?? null;
     const result = await db.$transaction(async (tx) => {
       const newPrescription = await tx.prescription.create({
         data: {
           clinicId: user.clinicId,
+          branchId: resolvedBranchId,
           doctorId: doctorIdNum,
           visitId: visitIdNum,
           items: {
@@ -132,7 +135,7 @@ export const createPrescription = async (c: Context) => {
     await invalidateVisitRelatedCaches({
       visitId: visit.id,
       clinicId: user.clinicId,
-      branchId: user.branchId,
+      branchId: resolvedBranchId,
     });
 
     return c.json(

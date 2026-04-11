@@ -11,19 +11,25 @@ model Approval {
     approvedBy    User?          @relation("ApprovalApprover", fields: [approvedById], references: [id])
     approvedById  Int?
     reason        String?
+    payload       Json?
     createdAt     DateTime       @default(now())
     updatedAt     DateTime       @updatedAt
     discount      Discount?      @relation(fields: [discountId], references: [id], onDelete: Cascade)
     discountId    Int?           @unique
-    // TODO! Add other relations as needed, e.g.:
-    // refund         Refund?       @relation(fields: [refundId], references: [id])
-    // refundId       Int?
+    treatment     Treatment?     @relation(fields: [treatmentId], references: [id])
+    treatmentId   Int?
+    exam          Exam?          @relation(fields: [examId], references: [id])
+    examId        Int?
+    refunds       Refund[]
 }
 
 enum ApprovalType {
     DISCOUNT
     REFUND
     PRICE_OVERRIDE
+    EXAM_EDIT
+    TREATMENT_EDIT
+    EXTRA_INVENTORY
 }
 
 enum ApprovalStatus {

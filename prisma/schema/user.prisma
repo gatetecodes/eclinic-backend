@@ -75,8 +75,11 @@ model User {
     patientId                Int?                    @unique
     sessions                 Session[]
     processedPartialPayments PartialPayment[]        @relation("ProcessedPartialPayments")
+    processedRefunds         Refund[]                @relation("ProcessedRefunds")
     doctorQueues             Queue[]                 @relation("DoctorQueues")
-    doctorQueueConfigs       QueueConfig[]           @relation("DoctorQueueConfigs")
+    doctorQueueConfigs         QueueConfig[]                 @relation("DoctorQueueConfigs")
+    pharmacyDispenseOrders     PharmacyDispenseOrder[]       @relation("PharmacyDispensePerformedBy")
+    pharmacyIdempotencyRecords PharmacyIdempotencyRecord[]
 
     @@unique([clinicId, email])
     @@index([email])

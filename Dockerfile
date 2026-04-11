@@ -23,9 +23,10 @@ COPY --from=base /app/dist ./dist
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/prisma ./prisma
 COPY --from=base /app/package.json ./
+COPY --from=base /app/scripts ./scripts
 
 # Expose port
 EXPOSE 3001
 
 # Start the application
-CMD ["bun", "run", "start"]
+CMD ["sh", "./scripts/start-prod.sh"]

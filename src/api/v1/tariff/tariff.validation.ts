@@ -29,9 +29,17 @@ export const createProductSchema = z.object({
     .number()
     .min(0, "Base price must be non-negative")
     .optional(),
-  foreignersPrice: z.coerce
+  eastAfricaPrice: z.coerce
     .number()
-    .min(0, "Foreigners price must be non-negative")
+    .min(0, "East Africa price must be non-negative")
+    .optional(),
+  africaPrice: z.coerce
+    .number()
+    .min(0, "Africa price must be non-negative")
+    .optional(),
+  restOfWorldPrice: z.coerce
+    .number()
+    .min(0, "Rest of World price must be non-negative")
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
@@ -55,13 +63,27 @@ export const updateProductSchema = z.object({
   code: z.string().min(1, "Product code is required").optional(),
   description: z.string().optional(),
   category: z.enum(["TREATMENT", "EXAM", "MEDICATION", "SUPPLY"]).optional(),
-  basePrice: z.coerce
-    .number()
-    .min(0, "Base price must be non-negative")
+  basePrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "Base price must be non-negative"))
     .optional(),
-  foreignersPrice: z.coerce
-    .number()
-    .min(0, "Foreigners price must be non-negative")
+  eastAfricaPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "East Africa price must be non-negative"))
+    .optional(),
+  africaPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(z.coerce.number().min(0, "Africa price must be non-negative"))
+    .optional(),
+  restOfWorldPrice: z
+    .literal("")
+    .transform(() => null)
+    .or(
+      z.coerce.number().min(0, "Rest of the World price must be non-negative")
+    )
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
@@ -91,9 +113,17 @@ export const getProductsByDepartmentSchema = z.object({
 
 export const updateProductPricingSchema = z.object({
   basePrice: z.coerce.number().min(0, "Base price must be non-negative"),
-  foreignersPrice: z.coerce
+  eastAfricaPrice: z.coerce
     .number()
-    .min(0, "Foreigners price must be non-negative")
+    .min(0, "East Africa price must be non-negative")
+    .optional(),
+  africaPrice: z.coerce
+    .number()
+    .min(0, "Africa price must be non-negative")
+    .optional(),
+  restOfWorldPrice: z.coerce
+    .number()
+    .min(0, "Rest of World price must be non-negative")
     .optional(),
   insurancePrices: z.array(
     z.object({

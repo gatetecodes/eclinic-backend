@@ -18,6 +18,7 @@ import {
   getLatestTransactions,
   getLowStockItems,
   getNearExpiryBatches,
+  getStockItemDetails,
   getStockTransactions,
   importInventoryItemsFromCSV,
   receiveGoods,
@@ -79,5 +80,6 @@ router.put("/:id", updateInventoryItem);
 router.delete("/:id", deleteInventoryItem);
 router.get("/batches", getInventoryBatches);
 router.get("/:itemId/batches", getAvailableBatches);
+router.get("/:itemId/details", getStockItemDetails);
 
 export default router;

@@ -1,0 +1,84 @@
+enum DispenseOrderSource {
+    CLINIC_PRESCRIPTION
+    WALK_IN_OTC
+    EXTERNAL_RX
+}
+
+model PharmacyDispenseOrder {
+    id                       String                  @id @default(uuid())
+    clinic                   Clinic                  @relation(fields: [clinicId], references: [id])
+    clinicId                 Int
+    branch                   Branch?                 @relation(fields: [branchId], references: [id])
+    branchId                 Int?
+    prescription             Prescription?           @relation(fields: [prescriptionId], references: [id])
+    prescriptionId           Int?
+    visit                    Visit?                  @relation(fields: [visitId], references: [id])
+    visitId                  Int?
+    patient                  Patient?                @relation(fields: [patientId], references: [id])
+    patientId                Int?
+    source                   DispenseOrderSource
+    externalPrescriberName   String?
+    externalPrescriptionDate DateTime?
+    notes                    String?
+    performedBy              User                    @relation("PharmacyDispensePerformedBy", fields: [performedByUserId], references: [id])
+    performedByUserId        Int
+    createdAt                DateTime                @default(now())
+    lines                    PharmacyDispenseLine[]
+    transactions             Transaction[]
+    idempotencyRecord        PharmacyIdempotencyRecord?
+
+    @@index([clinicId])
+    @@index([clinicId, branchId])
+    @@index([prescriptionId])
+    @@index([visitId])
+    @@index([patientId])
+    @@index([createdAt])
+}
+
+model PharmacyDispenseLine {
+    id                 Int                   @id @default(autoincrement())
+    order              PharmacyDispenseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+    orderId            String
+    prescriptionItem   PrescriptionItem?     @relation(fields: [prescriptionItemId], references: [id])
+    prescriptionItemId Int?                  @unique
+    inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id])
+    inventoryItemId    Int
+    batch              InventoryBatch        @relation(fields: [batchId], references: [id])
+    batchId            Int
+    quantity           Int
+    transaction        Transaction           @relation(fields: [transactionId], references: [id])
+    transactionId      Int                   @unique
+
+    @@index([orderId])
+    @@index([prescriptionItemId])
+    @@index([inventoryItemId])
+}
+
+model PharmacyPrescriptionItemMap {
+    id                 Int              @id @default(autoincrement())
+    prescriptionItem   PrescriptionItem @relation(fields: [prescriptionItemId], references: [id], onDelete: Cascade)
+    prescriptionItemId Int              @unique
+    inventoryItem      InventoryItem    @relation(fields: [inventoryItemId], references: [id])
+    inventoryItemId    Int
+    clinic             Clinic           @relation(fields: [clinicId], references: [id])
+    clinicId           Int
+    createdAt          DateTime         @default(now())
+    updatedAt          DateTime         @updatedAt
+
+    @@index([clinicId])
+}
+
+model PharmacyIdempotencyRecord {
+    id        Int                   @id @default(autoincrement())
+    clinic    Clinic                @relation(fields: [clinicId], references: [id])
+    clinicId  Int
+    user      User                  @relation(fields: [userId], references: [id])
+    userId    Int
+    key       String
+    order     PharmacyDispenseOrder? @relation(fields: [orderId], references: [id])
+    orderId   String?                @unique
+    createdAt DateTime              @default(now())
+
+    @@unique([clinicId, userId, key])
+    @@index([orderId])
+}

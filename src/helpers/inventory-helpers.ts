@@ -32,6 +32,7 @@ export async function findExistingInventoryItem(
     select: {
       id: true,
       itemName: true,
+      sku: true,
       itemType: true,
       reorderLevel: true,
       unit: true,
@@ -52,6 +53,10 @@ export const handleExistingInventoryItem = async (
   const data: Record<string, unknown> = {
     reorderLevel: newReorderLevel,
   };
+
+  if (!existingItem.sku) {
+    data.sku = generateSku(existingItem.itemName);
+  }
 
   if (Number.isFinite(maybePrice)) {
     data.unitPrice = maybePrice;
@@ -82,6 +87,7 @@ export async function createNewInventoryItem(
   return await db.inventoryItem.create({
     data: {
       itemName: record.NAME,
+      sku: generateSku(record.NAME),
       itemType: record.CATEGORY as ItemType,
       clinicId,
       branchId,
@@ -100,7 +106,7 @@ export async function createNewInventoryItem(
   });
 }
 
-async function getValidatedBatch(
+export async function getValidatedBatch(
   tx: Prisma.TransactionClient,
   batchId: number,
   itemId: number,
@@ -134,7 +140,7 @@ async function getValidatedBatch(
   return batch;
 }
 
-async function createNegativeStockTransaction(
+export async function createNegativeStockTransaction(
   tx: Prisma.TransactionClient,
   args: {
     itemId: number;
@@ -145,8 +151,9 @@ async function createNegativeStockTransaction(
     sourceType?: SourceType;
     visitId?: number;
     userId?: number;
+    dispenseOrderId?: string;
   }
-) {
+): Promise<number> {
   if (!args.userId) {
     throw new AppError({
       status: httpCodes.BAD_REQUEST,
@@ -155,7 +162,7 @@ async function createNegativeStockTransaction(
       exposeMessage: true,
     });
   }
-  await tx.transaction.create({
+  const row = await tx.transaction.create({
     data: {
       itemId: args.itemId,
       batchId: args.batchId,
@@ -167,10 +174,13 @@ async function createNegativeStockTransaction(
         : null,
       sourceType: args.sourceType ?? SourceType.VISIT,
       visitId: args.visitId,
+      dispenseOrderId: args.dispenseOrderId,
       userId: args.userId,
       status: TransactionStatus.COMPLETED,
     },
+    select: { id: true },
   });
+  return row.id;
 }
 
 async function decrementBatchAndStock(
@@ -216,6 +226,17 @@ export async function refreshItemStatus(
   }
 }
 
+export function generateSku(itemName: string): string {
+  const prefix = itemName
+    .substring(0, 3)
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "X")
+    .padEnd(3, "X");
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const timestamp = Date.now().toString(36).slice(-4).toUpperCase();
+  return `SKU-${prefix}-${random}${timestamp}`;
+}
+
 export const performStockOut = async (
   selectedBatches: { id: number; quantity: number; itemId: number }[],
   options?: {
@@ -223,6 +244,7 @@ export const performStockOut = async (
     visitId?: number;
     type?: TransactionType;
     sourceType?: SourceType;
+    dispenseOrderId?: string;
   }
 ) => {
   return await db.$transaction(async (tx) => {
@@ -237,6 +259,7 @@ export const performStockOut = async (
         sourceType: options?.sourceType,
         visitId: options?.visitId,
         userId: options?.userId,
+        dispenseOrderId: options?.dispenseOrderId,
       });
       await decrementBatchAndStock(tx, id, itemId, quantity);
     }
@@ -281,13 +304,16 @@ function calculatePaymentAmounts(
   coveragePercentage: number | null = null
 ): { patientAmount: number; insuranceAmount: number } {
   if (!coveragePercentage) {
-    return { patientAmount: totalPrice, insuranceAmount: 0 };
+    return { patientAmount: Number(totalPrice.toFixed(2)), insuranceAmount: 0 };
   }
 
   const coverageDecimal = coveragePercentage / 100;
+  const insuranceAmount = Number((totalPrice * coverageDecimal).toFixed(2));
+  const patientAmount = Number((totalPrice - insuranceAmount).toFixed(2));
+
   return {
-    insuranceAmount: totalPrice * coverageDecimal,
-    patientAmount: totalPrice * (1 - coverageDecimal),
+    insuranceAmount,
+    patientAmount,
   };
 }
 
@@ -398,9 +424,9 @@ export const createPaymentForInventoryItems = async (
       paymentStatus: PaymentStatus.PENDING,
       paymentDetails: JSON.parse(JSON.stringify(paymentDetails)),
       paymentType,
-      amount: totalAmount,
-      patientAmount: totalPatientAmount,
-      insuranceAmount: totalInsuranceAmount,
+      amount: Number(totalAmount.toFixed(2)),
+      patientAmount: Number(totalPatientAmount.toFixed(2)),
+      insuranceAmount: Number(totalInsuranceAmount.toFixed(2)),
       allowPartial: options?.allowPartial ?? false,
     },
   });

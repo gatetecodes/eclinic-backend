@@ -185,6 +185,12 @@ export type GoodsReceiptInput = z.infer<typeof goodsReceiptSchema>;
 // Create Inventory Item
 export const createInventoryItemSchema = z.object({
   itemName: z.string().min(1, "Item name is required"),
+  sku: z
+    .string()
+    .trim()
+    .transform((value) => (value === "" ? null : value))
+    .optional()
+    .nullable(),
   itemType: z.enum(ItemType),
   unit: z.enum(Unit),
   reorderLevel: z.number().int().nonnegative(),

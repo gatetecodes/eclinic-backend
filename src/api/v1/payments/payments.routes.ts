@@ -10,10 +10,12 @@ import {
   exportPayments,
   getPayments,
   markPaymentAsPaid,
+  requestExamRefundApproval,
 } from "./payments.controller.ts";
 import {
   createDiscountSchema,
   markPaymentAsPaidSchema,
+  requestExamRefundApprovalSchema,
 } from "./payments.validation.ts";
 
 const router = new Hono<AppEnv>();
@@ -31,6 +33,11 @@ router.post(
   "/:paymentId/mark-as-paid",
   validate(markPaymentAsPaidSchema, "json"),
   markPaymentAsPaid
+);
+router.post(
+  "/:paymentId/request-refund",
+  validate(requestExamRefundApprovalSchema, "json"),
+  requestExamRefundApproval
 );
 
 export default router;

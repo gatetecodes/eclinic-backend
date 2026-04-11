@@ -37,6 +37,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     departments: { read: true, create: true, update: true, delete: true },
     tariff: { read: true, create: true, update: true, delete: true },
     performanceReports: { read: true },
+    pharmacy: { read: true, update: true, dispense: true, delete: true },
   },
   BRANCH_ADMIN: {
     exams: { read: true, create: true, update: true },
@@ -57,6 +58,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       delete: true,
       readMyProfile: true,
     },
+    pharmacy: { read: true, update: true, dispense: true },
   },
   DOCTOR: {
     visits: {
@@ -77,6 +79,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     departments: { read: true },
     tariff: { read: true },
     insurance: { read: true, create: true, update: true },
+    insuranceClaims: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     users: { read: true, update: true, readMyProfile: true },
     appointments: { read: true, create: true, update: true, delete: true },
@@ -120,6 +123,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     prescription: { read: true, process: true },
     visits: { read: true, readVisitDetails: true },
     notifications: { read: true, create: true, update: true, delete: true },
+    pharmacy: { read: true, update: true, dispense: true },
   },
   CASHIER: {
     payments: { read: true, create: true, update: true },
@@ -152,6 +156,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     inventory: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
+    pharmacy: { read: true },
   },
   PATIENT: {
     appointments: { read: true, create: true, update: true, delete: true },
