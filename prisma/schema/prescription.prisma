@@ -9,9 +9,10 @@ model Prescription {
     status    PrescriptionStatus @default(ISSUED)
     createdAt DateTime           @default(now())
     updatedAt DateTime           @updatedAt
-    items     PrescriptionItem[]
-    branch    Branch?            @relation(fields: [branchId], references: [id])
-    branchId  Int?
+    items                  PrescriptionItem[]
+    branch                 Branch?                 @relation(fields: [branchId], references: [id])
+    branchId               Int?
+    pharmacyDispenseOrders PharmacyDispenseOrder[]
 
     @@unique([clinicId, visitId, doctorId])
     @@index([clinicId])
@@ -28,9 +29,11 @@ model PrescriptionItem {
     dosage         String
     frequency      String
     duration       String
-    instructions   String?
-    createdAt      DateTime     @default(now())
-    updatedAt      DateTime     @updatedAt
+    instructions        String?
+    createdAt           DateTime                   @default(now())
+    updatedAt           DateTime                   @updatedAt
+    pharmacyDispenseLines PharmacyDispenseLine[]
+    pharmacyItemMap       PharmacyPrescriptionItemMap?
 
     @@unique([prescriptionId, medicationName, dosage])
     @@index([prescriptionId])

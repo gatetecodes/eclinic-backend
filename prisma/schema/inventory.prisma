@@ -4,6 +4,7 @@ model InventoryItem {
     clinic           Clinic          @relation(fields: [clinicId], references: [id])
     clinicId         Int
     itemName         String
+    sku              String?
     itemType         ItemType
     reorderLevel     Int
     manufacturer     String?
@@ -23,7 +24,9 @@ model InventoryItem {
     branchId            Int?
     purchaseOrderLines  PurchaseOrderLine[]
     goodsReceiptLines   GoodsReceiptLine[]
-    expiryNotifications InventoryExpiryNotification[]
+    expiryNotifications     InventoryExpiryNotification[]
+    pharmacyDispenseLines   PharmacyDispenseLine[]
+    pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
 
     @@unique([clinicId, itemName])
 }
@@ -60,6 +63,7 @@ model InventoryBatch {
     // Relations
     transactions       Transaction[]
     expiryNotification InventoryExpiryNotification?
+    pharmacyDispenseLines PharmacyDispenseLine[]
 
     @@unique([itemId, batchNumber])
     @@index([itemId, branchId, expiryDate])
@@ -96,13 +100,18 @@ model Transaction {
     totalAmount Decimal?          @db.Decimal(10, 2)
     status      TransactionStatus @default(COMPLETED)
     sourceType  SourceType
-    visitId     Int? // Reference to external source (e.g., visitId, orderId)
-    visit       Visit?            @relation(fields: [visitId], references: [id])
-    notes       String?
+    visitId         Int? // Reference to external source (e.g., visitId, orderId)
+    visit           Visit?                 @relation(fields: [visitId], references: [id])
+    dispenseOrderId String?
+    pharmacyDispenseOrder PharmacyDispenseOrder? @relation(fields: [dispenseOrderId], references: [id])
+    pharmacyDispenseLine  PharmacyDispenseLine?
+    notes           String?
     performedBy User              @relation(fields: [userId], references: [id])
     userId      Int
     createdAt   DateTime          @default(now())
     updatedAt   DateTime          @updatedAt
+
+    @@index([dispenseOrderId])
 }
 
 enum ItemType {
@@ -145,6 +154,7 @@ enum SourceType {
     RETURN // Return processing
     DISPOSAL // Disposal record
     STOCKTAKE // Inventory count adjustment
+    PHARMACY_DISPENSE // Pharmacy module dispensing
 }
 
 enum Unit {

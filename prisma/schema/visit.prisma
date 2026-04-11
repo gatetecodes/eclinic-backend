@@ -57,6 +57,7 @@ model Visit {
     notifications           Notification[]
     handoffs                Handoff[]
     queueEntries            QueueEntry[]
+    pharmacyDispenseOrders  PharmacyDispenseOrder[]
 
     @@index([patientId])
     @@index([clinicId])

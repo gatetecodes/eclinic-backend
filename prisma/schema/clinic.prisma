@@ -54,8 +54,11 @@ model Clinic {
     portalSettings           Json? // Store portal configuration
 
     // Entitlements & quotas
-    entitlementOverrides EntitlementOverride[]
-    entitlementUsages    EntitlementUsage[]
+    entitlementOverrides           EntitlementOverride[]
+    entitlementUsages            EntitlementUsage[]
+    pharmacyDispenseOrders         PharmacyDispenseOrder[]
+    pharmacyPrescriptionItemMaps   PharmacyPrescriptionItemMap[]
+    pharmacyIdempotencyRecords     PharmacyIdempotencyRecord[]
 
     // Pricing
     clinicProductPrices ClinicProductPrice[]
@@ -113,6 +116,7 @@ model Branch {
     inventoryBatches       InventoryBatch[]
     queues                 Queue[]
     queueConfigs           QueueConfig[]
+    pharmacyDispenseOrders PharmacyDispenseOrder[]
 
     @@index([clinicId])
     @@index([code])
