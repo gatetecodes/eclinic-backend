@@ -7,6 +7,7 @@ import type {
 export type InventoryItem = {
   id: number;
   itemName: string;
+  sku: string | null;
   itemType: string;
   reorderLevel: number;
   manufacturer: string | null;
@@ -43,6 +44,7 @@ export type ConsumableCSVRow = {
 export type IExistingInventoryItem = {
   id: number;
   itemName: string;
+  sku: string | null;
   itemType: ItemType;
   reorderLevel: number;
   unit: Unit | null;

@@ -37,6 +37,7 @@ export const createPrescription = async (c: Context) => {
       },
       select: {
         id: true,
+        branchId: true,
         status: true,
         patientInsurance: {
           select: {
@@ -67,6 +68,7 @@ export const createPrescription = async (c: Context) => {
       const newPrescription = await tx.prescription.create({
         data: {
           clinicId: user.clinicId,
+          branchId: visit.branchId ?? user.branchId ?? null,
           doctorId: doctorIdNum,
           visitId: visitIdNum,
           items: {

@@ -19,6 +19,7 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import {
+  generateSku, // Corrected import
   processInventoryItemRecord,
   refreshItemStatus,
 } from "../../../helpers/inventory-helpers";
@@ -44,6 +45,7 @@ export const createInventoryItem = async (c: Context) => {
     const user = c.get("user");
     const {
       itemName,
+      sku,
       itemType,
       unit,
       reorderLevel,
@@ -56,6 +58,7 @@ export const createInventoryItem = async (c: Context) => {
         clinicId: user.clinicId,
         branchId: user.branchId,
         itemName,
+        sku: sku || generateSku(itemName),
         itemType,
         unit,
         reorderLevel,
@@ -147,6 +150,7 @@ export const updateInventoryItem = async (c: Context) => {
     const itemId = Number(id);
     const {
       itemName,
+      sku,
       itemType,
       unit,
       unitPrice,
@@ -165,6 +169,7 @@ export const updateInventoryItem = async (c: Context) => {
         },
         data: {
           itemName,
+          sku,
           itemType,
           unit,
           unitPrice,
@@ -1772,6 +1777,86 @@ export const getNearExpiryBatches = async (c: Context) => {
     });
     return c.json({ data: batches }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getStockItemDetails = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
+    const itemId = Number.parseInt(c.req.param("itemId"), 10);
+
+    if (!Number.isFinite(itemId)) {
+      return c.json(
+        { error: "Invalid item ID" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const whereClause: Prisma.InventoryItemWhereInput = {
+      id: itemId,
+      ...(typeof clinicId === "number" ? { clinicId } : {}),
+      ...(typeof branchId === "number" ? { branchId } : {}),
+    };
+
+    const item = await db.inventoryItem.findFirst({
+      where: whereClause,
+      include: {
+        currentStock: true,
+        batches: {
+          where: {
+            ...(typeof branchId === "number" ? { branchId } : {}),
+          },
+          orderBy: [{ expiryDate: "asc" }, { createdAt: "desc" }],
+        },
+        branch: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      return c.json(
+        { error: "Item not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    return c.json(
+      {
+        data: {
+          id: item.id,
+          itemName: item.itemName,
+          sku: item.sku,
+          itemType: item.itemType,
+          unit: item.unit,
+          status: item.status,
+          reorderLevel: item.reorderLevel,
+          manufacturer: item.manufacturer,
+          minOrderQuantity: item.minOrderQuantity,
+          notes: item.notes,
+          unitPrice: item.unitPrice,
+          currentStock: item.currentStock,
+          branch: item.branch,
+          batches: item.batches,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        },
+      },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    logger.error("getStockItemDetails", { error });
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal Server Error",
