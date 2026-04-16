@@ -290,7 +290,9 @@ export const getPharmacyDispenseOrders = async (c: Context) => {
       }),
     ]);
 
-    return c.json({ data: rows, meta: { total, page, perPage } });
+    const pageCount = perPage > 0 ? Math.ceil(total / perPage) : 0;
+
+    return c.json({ data: rows, totalCount: total, pageCount });
   } catch (error) {
     logger.error("getPharmacyDispenseOrders", { error });
     return c.json(
@@ -407,9 +409,12 @@ export const getPharmacyQueue = async (c: Context) => {
       })),
     }));
 
+    const pageCount = perPage > 0 ? Math.ceil(total / perPage) : 0;
+
     return c.json({
       data,
-      meta: { total, page, perPage },
+      totalCount: total,
+      pageCount,
     });
   } catch (error) {
     logger.error("getPharmacyQueue", { error });
