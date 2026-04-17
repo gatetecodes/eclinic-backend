@@ -1,7 +1,12 @@
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ZodError, ZodIssue } from "zod";
+import { jsonError } from "@/lib/api-response";
 import { httpCodes } from "@/lib/constants";
+import {
+  type TranslationKey,
+  type TranslationValues,
+  translateZodIssue,
+} from "@/lib/i18n";
 import { logger } from "@/lib/logger";
 
 export type AppIssue = {
@@ -15,6 +20,8 @@ export class AppError extends Error {
   readonly code: string;
   readonly issues?: AppIssue[];
   readonly exposeMessage: boolean;
+  readonly messageKey?: TranslationKey;
+  readonly messageValues?: TranslationValues;
 
   constructor(params: {
     status: number;
@@ -22,6 +29,8 @@ export class AppError extends Error {
     message?: string;
     issues?: AppIssue[];
     exposeMessage?: boolean;
+    messageKey?: TranslationKey;
+    messageValues?: TranslationValues;
   }) {
     super(params.message ?? params.code);
     this.name = "AppError";
@@ -29,32 +38,34 @@ export class AppError extends Error {
     this.code = params.code;
     this.issues = params.issues;
     this.exposeMessage = params.exposeMessage ?? params.status < 500;
+    this.messageKey = params.messageKey;
+    this.messageValues = params.messageValues;
   }
 
   toResponse(c: Context) {
-    const payload = {
-      success: false as const,
+    return jsonError(c, {
       status: this.status,
-      error: {
-        code: this.code,
-        message: this.exposeMessage ? this.message : undefined,
-        issues: this.issues,
-      },
-    };
-    return c.json(payload, this.status as unknown as ContentfulStatusCode);
+      code: this.code,
+      message: this.exposeMessage ? this.message : undefined,
+      messageKey: this.exposeMessage ? this.messageKey : undefined,
+      messageValues: this.messageValues,
+      issues: this.issues,
+    });
   }
 }
 
-export function fromZodError(error: ZodError): AppError {
+export function fromZodError(error: ZodError, c?: Context): AppError {
+  const locale = c?.get("locale");
   const issues: AppIssue[] = error.issues.map((issue: ZodIssue) => ({
     field: issue.path?.length ? String(issue.path.join(".")) : undefined,
     code: issue.code,
-    message: issue.message,
+    message: translateZodIssue(locale, issue),
   }));
   return new AppError({
     status: httpCodes.BAD_REQUEST,
     code: "VALIDATION_ERROR",
     message: "Validation failed",
+    messageKey: "common.validationFailed",
     issues,
     exposeMessage: true,
   });
@@ -80,6 +91,7 @@ export function tryMapPrismaError(error: unknown): AppError | null {
       status: httpCodes.CONFLICT,
       code: "UNIQUE_CONSTRAINT_VIOLATION",
       message: "A record with the same unique value already exists",
+      messageKey: "errors.uniqueConstraintViolation",
       exposeMessage: true,
     });
   }
@@ -91,6 +103,7 @@ export function notFoundError(message = "Not Found") {
     status: httpCodes.NOT_FOUND,
     code: "NOT_FOUND",
     message,
+    messageKey: "common.notFound",
     exposeMessage: true,
   });
 }
@@ -100,6 +113,7 @@ export function unauthorizedError(message = "Unauthorized") {
     status: httpCodes.UNAUTHORIZED,
     code: "UNAUTHORIZED",
     message,
+    messageKey: "common.unauthorized",
     exposeMessage: true,
   });
 }
@@ -109,6 +123,7 @@ export function forbiddenError(message = "Forbidden") {
     status: httpCodes.FORBIDDEN,
     code: "FORBIDDEN",
     message,
+    messageKey: "common.forbidden",
     exposeMessage: true,
   });
 }

@@ -20,6 +20,7 @@ model Clinic {
     id                       Int                  @id @default(autoincrement())
     name                     String
     logo                     String?
+    defaultLocale            String                @default("en")
     subscriptionStatus       SubscriptionStatus   @default(TRIAL)
     subscriptionPlan         SubscriptionPlan
     contactPhone             String?

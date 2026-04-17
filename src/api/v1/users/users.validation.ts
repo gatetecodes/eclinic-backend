@@ -169,6 +169,10 @@ export const updateUserSchema = z
     }
   );
 
+export const updateLocalePreferenceSchema = z.object({
+  preferredLocale: z.enum(["en", "fr"]),
+});
+
 export const userIdParamSchema = z.object({
   userId: z.coerce.number().int().positive(),
 });

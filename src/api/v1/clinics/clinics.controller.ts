@@ -120,7 +120,9 @@ export const createClinic = async (c: Context) => {
     });
 
     // Send verification email to the clinic admin so they can activate their account
-    const emailResult = await createVerificationEmail(clinic.adminUser.email);
+    const emailResult = await createVerificationEmail(clinic.adminUser.email, {
+      locale: c.get("locale"),
+    });
     if (!emailResult.success) {
       logger.warn("Clinic admin created but verification email failed", {
         email: clinic.adminUser.email,
@@ -256,7 +258,9 @@ export const updateClinicAdmin = async (c: Context) => {
         });
 
         // Send verification email for new admin email
-        const emailResult = await createVerificationEmail(data.admin.email);
+        const emailResult = await createVerificationEmail(data.admin.email, {
+          locale: c.get("locale"),
+        });
         if (!emailResult.success) {
           logger.warn(
             "Clinic admin email updated but verification email failed",

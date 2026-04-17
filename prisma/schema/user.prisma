@@ -36,6 +36,7 @@ model User {
     status                   UserStatus              @default(ACTIVE)
     email                    String                  @unique
     emailVerified            DateTime?
+    preferredLocale          String?
     phone_number             String
     phone_number_verified    DateTime?
     consultationFee          Float?

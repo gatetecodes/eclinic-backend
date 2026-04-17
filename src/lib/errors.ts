@@ -1,18 +1,16 @@
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { jsonError } from "@/lib/api-response";
 import { httpCodes } from "@/lib/constants";
+import type { TranslationKey } from "@/lib/i18n";
 import { logger } from "@/lib/logger";
 
 export function unauthorized(c: Context) {
   logger.warn("access_denied", { reason: "UNAUTHORIZED" });
-  return c.json(
-    {
-      success: false,
-      status: httpCodes.UNAUTHORIZED,
-      error: { code: "UNAUTHORIZED", message: "Unauthorized" },
-    },
-    httpCodes.UNAUTHORIZED as ContentfulStatusCode
-  );
+  return jsonError(c, {
+    status: httpCodes.UNAUTHORIZED,
+    code: "UNAUTHORIZED",
+    messageKey: "common.unauthorized",
+  });
 }
 
 export function forbidden(
@@ -25,28 +23,26 @@ export function forbidden(
   extra?: Record<string, unknown>
 ) {
   logger.warn("access_denied", { reason, ...extra });
-  return c.json(
-    {
-      success: false,
-      status: httpCodes.FORBIDDEN,
-      error: { code: "FORBIDDEN", message: "Forbidden" },
-      ...extra,
-    },
-    httpCodes.FORBIDDEN as ContentfulStatusCode
-  );
+  const messageKeys: Record<typeof reason, TranslationKey> = {
+    RBAC_DENIED: "errors.rbacDenied",
+    FEATURE_DISABLED: "errors.featureDisabled",
+    TENANT_NOT_FOUND: "errors.tenantNotFound",
+    QUOTA_EXCEEDED: "errors.quotaExceeded",
+  };
+
+  return jsonError(c, {
+    status: httpCodes.FORBIDDEN,
+    code: "FORBIDDEN",
+    messageKey: messageKeys[reason] ?? "common.forbidden",
+    details: extra,
+  });
 }
 
 export function internalServerError(c: Context) {
   logger.error("internal_server_error", { reason: "INTERNAL_SERVER_ERROR" });
-  return c.json(
-    {
-      success: false,
-      status: httpCodes.INTERNAL_SERVER_ERROR,
-      error: {
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Something went wrong",
-      },
-    },
-    httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-  );
+  return jsonError(c, {
+    status: httpCodes.INTERNAL_SERVER_ERROR,
+    code: "INTERNAL_SERVER_ERROR",
+    messageKey: "common.internalServerError",
+  });
 }
