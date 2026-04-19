@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getUserAvailability } from "../availability.service";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/database/db", () => {
   return {
@@ -11,10 +10,15 @@ vi.mock("@/database/db", () => {
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { db } = require("@/database/db");
+let getUserAvailability: typeof import("../availability.service").getUserAvailability;
+let db: typeof import("@/database/db").db;
 
 describe("getUserAvailability", () => {
+  beforeAll(async () => {
+    ({ getUserAvailability } = await import("../availability.service"));
+    ({ db } = await import("@/database/db"));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

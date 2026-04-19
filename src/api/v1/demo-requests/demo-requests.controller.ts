@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import {
   type DemoRequest,
@@ -8,8 +7,14 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
+import {
+  jsonError,
+  jsonSuccess,
+  translateForContext,
+} from "../../../lib/api-response";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
+import { translate } from "../../../lib/i18n";
 import { logger } from "../../../lib/logger";
 import { sendEmail } from "../../../services/email.service";
 import type { demoRequestSchema } from "./demo-requests.validation";
@@ -19,10 +24,11 @@ export const createDemoRequest = async (c: Context) => {
     const data = c.get("validatedJson") as z.infer<typeof demoRequestSchema>;
 
     if (!data) {
-      return c.json(
-        { error: "Invalid data" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.BAD_REQUEST,
+        code: "BAD_REQUEST",
+        messageKey: "common.invalidData",
+      });
     }
 
     const { clinic_name, email, phone_number, address, demo_date } = data;
@@ -35,22 +41,18 @@ export const createDemoRequest = async (c: Context) => {
         demo_date,
       },
     });
-    return c.json(
-      {
-        success: true,
-        message:
-          "Demo request created successfully. We will get back to you soon.",
-        data: demoRequest,
-      },
-      httpCodes.CREATED as ContentfulStatusCode
-    );
+    return jsonSuccess(c, {
+      status: httpCodes.CREATED,
+      messageKey: "demo.requestCreated",
+      data: demoRequest,
+    });
   } catch (error) {
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Internal Server Error",
-      },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    logger.error("Failed to create demo request", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      message: translateForContext(c, "common.internalServerError"),
+    });
   }
 };
 
@@ -70,22 +72,22 @@ export const getDemoRequests = async (c: Context) => {
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
       : 0;
-    return c.json(
-      {
-        message: "Demo requests fetched successfully",
-        data: demoRequests,
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      messageKey: "demo.requestsFetched",
+      data: demoRequests,
+      meta: {
         totalCount,
         pageCount,
       },
-      httpCodes.OK as ContentfulStatusCode
-    );
+    });
   } catch (error) {
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Internal Server Error",
-      },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    logger.error("Failed to fetch demo requests", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      message: translateForContext(c, "common.internalServerError"),
+    });
   }
 };
 
@@ -96,19 +98,21 @@ export const approveDemoRequest = async (c: Context) => {
     const idNum = Number(id);
 
     if (!Number.isInteger(idNum) || idNum <= 0) {
-      return c.json(
-        { error: "Invalid ID" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.BAD_REQUEST,
+        code: "BAD_REQUEST",
+        messageKey: "common.invalidId",
+      });
     }
 
     const existing = await db.demoRequest.findUnique({ where: { id: idNum } });
 
     if (!existing) {
-      return c.json(
-        { error: "Demo request not found" },
-        httpCodes.NOT_FOUND as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.NOT_FOUND,
+        code: "NOT_FOUND",
+        messageKey: "common.notFound",
+      });
     }
 
     const demoRequest = await db.demoRequest.update({
@@ -117,33 +121,41 @@ export const approveDemoRequest = async (c: Context) => {
     });
 
     try {
+      const locale = c.get("locale");
       await sendEmail({
         to: demoRequest.email,
-        subject: "Demo Request Approved",
+        subject: translate(locale, "demo.requestApprovedSubject"),
         template: "demo-request",
         context: {
-          name: demoRequest.clinic_name,
-          clinic_name: demoRequest.clinic_name,
-          email: demoRequest.email,
-          phone_number: demoRequest.phone_number,
-          address: demoRequest.address,
-          demo_date: demoRequest.demo_date,
+          previewTitle: translate(locale, "email.demo.previewTitle"),
+          title: translate(locale, "email.demo.title"),
+          greeting: translate(locale, "email.demo.greeting"),
+          body: translate(locale, "email.demo.body", {
+            clinicName: demoRequest.clinic_name,
+          }),
+          nextText: translate(locale, "email.demo.next"),
+          thanksText: translate(locale, "email.demo.thanks"),
+          questionsText: translate(locale, "email.demo.questions"),
+          phoneLabel: translate(locale, "email.demo.phone"),
+          emailLabel: translate(locale, "email.demo.email"),
+          signatureText: translate(locale, "email.demo.signature"),
+          teamText: translate(locale, "email.demo.team"),
         },
       });
     } catch (error) {
       logger.error("Approved without email notification", { id: idNum, error });
     }
-    return c.json(
-      { message: "Demo request approved successfully", success: true },
-      httpCodes.OK as ContentfulStatusCode
-    );
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      messageKey: "demo.requestApproved",
+    });
   } catch (error) {
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Internal Server Error",
-      },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    logger.error("Failed to approve demo request", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      message: translateForContext(c, "common.internalServerError"),
+    });
   }
 };
 
@@ -154,35 +166,37 @@ export const rejectDemoRequest = async (c: Context) => {
     const idNum = Number(id);
 
     if (!Number.isInteger(idNum) || idNum <= 0) {
-      return c.json(
-        { error: "Invalid ID" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.BAD_REQUEST,
+        code: "BAD_REQUEST",
+        messageKey: "common.invalidId",
+      });
     }
 
     const existing = await db.demoRequest.findUnique({ where: { id: idNum } });
 
     if (!existing) {
-      return c.json(
-        { error: "Demo request not found" },
-        httpCodes.NOT_FOUND as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.NOT_FOUND,
+        code: "NOT_FOUND",
+        messageKey: "common.notFound",
+      });
     }
 
     await db.demoRequest.update({
       where: { id: idNum },
       data: { status: DemoRequestStatus.REJECTED },
     });
-    return c.json(
-      { message: "Demo request rejected successfully", success: true },
-      httpCodes.OK as ContentfulStatusCode
-    );
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      messageKey: "demo.requestRejected",
+    });
   } catch (error) {
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Internal Server Error",
-      },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    logger.error("Failed to reject demo request", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      message: translateForContext(c, "common.internalServerError"),
+    });
   }
 };

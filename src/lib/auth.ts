@@ -3,6 +3,12 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { addHours } from "date-fns";
 import { db } from "@/database/db";
+import { translate } from "@/lib/i18n";
+import {
+  DEFAULT_LOCALE,
+  normalizeLocale,
+  prefixLocalePath,
+} from "@/lib/locale";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/services/email.service";
 import type {
@@ -307,15 +313,37 @@ export const auth = betterAuth({
           nextPath = resolvedCallback.path;
         }
       }
-      const verificationUrl = new URL(verifyPath, frontendUrl);
+      const locale =
+        normalizeLocale(
+          (user as { preferredLocale?: string | null }).preferredLocale
+        ) ?? DEFAULT_LOCALE;
+      const localizedVerifyPath = isPatient
+        ? verifyPath
+        : prefixLocalePath(locale, verifyPath);
+      const localizedNextPath =
+        isPatient || nextPath.startsWith("/patient-portal")
+          ? nextPath
+          : prefixLocalePath(locale, nextPath);
+      const verificationUrl = new URL(localizedVerifyPath, frontendUrl);
       verificationUrl.searchParams.set("token", token);
-      verificationUrl.searchParams.set("next", nextPath);
+      verificationUrl.searchParams.set("next", localizedNextPath);
 
       return sendEmail({
         to: user.email,
-        subject: "Verify your account",
+        subject: translate(locale, "auth.verifyAccountSubject"),
         template: "verification",
-        context: { verificationLink: verificationUrl.toString() },
+        context: {
+          verificationLink: verificationUrl.toString(),
+          previewTitle: translate(locale, "email.verification.previewTitle"),
+          logoAlt: translate(locale, "email.verification.logoAlt"),
+          title: translate(locale, "email.verification.title"),
+          intro: translate(locale, "email.verification.intro"),
+          buttonLabel: translate(locale, "email.verification.button"),
+          fallbackText: translate(locale, "email.verification.fallback"),
+          ignoreText: translate(locale, "email.verification.ignore"),
+          signatureText: translate(locale, "email.verification.signature"),
+          teamText: translate(locale, "email.verification.team"),
+        },
       }).catch((err) => {
         logger.error("Better Auth: failed to send verification email", {
           email: user.email,
@@ -354,6 +382,10 @@ export const auth = betterAuth({
       },
       branchId: {
         type: "number",
+        required: false,
+      },
+      preferredLocale: {
+        type: "string",
         required: false,
       },
       status: {
@@ -429,6 +461,7 @@ export type Session = Omit<typeof auth.$Infer.Session, "user"> & {
     patientId?: number;
     clinicId?: number;
     branchId?: number;
+    preferredLocale?: string | null;
     clinic?: Clinic;
     branch?: Branch;
   };

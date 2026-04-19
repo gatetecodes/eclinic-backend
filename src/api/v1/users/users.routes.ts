@@ -24,6 +24,7 @@ import {
   getStaffWithoutTimesheets,
   getUserById,
   getUserTimesheet,
+  updateMyLocalePreference,
   upsertUserTimesheet,
 } from "./users.controller.ts";
 import {
@@ -33,6 +34,7 @@ import {
   createUserSchema,
   editDoctorSchema,
   getAvailableDoctorsByDepartmentIdSchema,
+  updateLocalePreferenceSchema,
   updateUserSchema,
   upsertTimesheetSchema,
 } from "./users.validation.ts";
@@ -92,6 +94,11 @@ router.put(
   assignDepartmentsToDoctor
 );
 router.get("/:id/timesheet", crudAccess("users"), getUserTimesheet);
+router.put(
+  "/me/preferences",
+  validate(updateLocalePreferenceSchema, "json"),
+  updateMyLocalePreference
+);
 router.put(
   "/:id/timesheet",
   crudAccess("users"),

@@ -110,7 +110,9 @@ export const OnboardingController = {
     });
 
     // Send verification email to the clinic admin so they can activate their account
-    const emailResult = await createVerificationEmail(email);
+    const emailResult = await createVerificationEmail(email, {
+      locale: c.get("locale"),
+    });
     if (!emailResult.success) {
       logger.warn(
         "Onboarding clinic admin created but verification email failed",

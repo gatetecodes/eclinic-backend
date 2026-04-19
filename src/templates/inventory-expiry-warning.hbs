@@ -9,21 +9,19 @@
     <td style="padding: 0 0 24px; text-align: left;">
       <img
         src="https://usecarelogic.com/assets/carelogic_logo.svg"
-        alt="CareLogic Logo"
+        alt="{{logoAlt}}"
         style="max-width: 200px; height: auto; display: block;"
       />
     </td>
   </tr>
   <tr>
     <td style="padding: 16px 0;">
-      <p style="margin: 0 0 12px; font-size: 14px; color: #444;">Hello,</p>
-      <h2 style="margin: 0 0 8px; font-size: 20px; color: #111;">Inventory
-        batches expiring soon</h2>
-      <p style="margin: 0; font-size: 14px; color: #444;">Clinic:
+      <p style="margin: 0 0 12px; font-size: 14px; color: #444;">{{greeting}}</p>
+      <h2 style="margin: 0 0 8px; font-size: 20px; color: #111;">{{title}}</h2>
+      <p style="margin: 0; font-size: 14px; color: #444;">{{clinicLabel}}:
         {{clinicName}}</p>
       <p style="margin: 8px 0 16px; font-size: 14px; color: #444;">
-        The following batches are within one month of their expiration date.
-        Please review and dispose of them when appropriate.
+        {{intro}}
       </p>
     </td>
   </tr>
@@ -40,21 +38,20 @@
       <th
         align="left"
         style="padding: 8px; border-bottom: 1px solid #ddd;"
-      >Item</th>
+      >{{itemLabel}}</th>
       <th
         align="left"
         style="padding: 8px; border-bottom: 1px solid #ddd;"
-      >Batch</th>
+      >{{batchLabel}}</th>
       <th
         align="left"
         style="padding: 8px; border-bottom: 1px solid #ddd;"
-      >Expiry Date</th>
-      <th align="left" style="padding: 8px; border-bottom: 1px solid #ddd;">Days
-        Remaining</th>
+      >{{expiryDateLabel}}</th>
+      <th align="left" style="padding: 8px; border-bottom: 1px solid #ddd;">{{daysRemainingLabel}}</th>
       <th
         align="left"
         style="padding: 8px; border-bottom: 1px solid #ddd;"
-      >Qty</th>
+      >{{quantityLabel}}</th>
     </tr>
   </thead>
   <tbody>
@@ -83,12 +80,11 @@
 <p
   style="font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #666; margin-top: 24px;"
 >
-  This reminder will continue weekly until the batch is disposed of or the
-  expiry date is extended.
+  {{footerText}}
 </p>
 <p
   style="font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #444; margin: 0;"
 >
-  Thanks,<br />
-  The CareLogic Team
+  {{signatureText}}<br />
+  {{teamText}}
 </p>
