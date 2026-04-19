@@ -49,7 +49,7 @@ export function parseAcceptLanguage(
     })
     .filter(
       (candidate): candidate is { locale: SupportedLocale; quality: number } =>
-        Boolean(candidate.locale)
+        Boolean(candidate.locale) && candidate.quality > 0
     )
     .sort((left, right) => right.quality - left.quality);
 

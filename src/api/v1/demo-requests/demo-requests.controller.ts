@@ -47,13 +47,11 @@ export const createDemoRequest = async (c: Context) => {
       data: demoRequest,
     });
   } catch (error) {
+    logger.error("Failed to create demo request", { error });
     return jsonError(c, {
       status: httpCodes.INTERNAL_SERVER_ERROR,
       code: "INTERNAL_SERVER_ERROR",
-      message:
-        error instanceof Error
-          ? error.message
-          : translateForContext(c, "common.internalServerError"),
+      message: translateForContext(c, "common.internalServerError"),
     });
   }
 };
@@ -84,13 +82,11 @@ export const getDemoRequests = async (c: Context) => {
       },
     });
   } catch (error) {
+    logger.error("Failed to fetch demo requests", { error });
     return jsonError(c, {
       status: httpCodes.INTERNAL_SERVER_ERROR,
       code: "INTERNAL_SERVER_ERROR",
-      message:
-        error instanceof Error
-          ? error.message
-          : translateForContext(c, "common.internalServerError"),
+      message: translateForContext(c, "common.internalServerError"),
     });
   }
 };
@@ -154,13 +150,11 @@ export const approveDemoRequest = async (c: Context) => {
       messageKey: "demo.requestApproved",
     });
   } catch (error) {
+    logger.error("Failed to approve demo request", { error });
     return jsonError(c, {
       status: httpCodes.INTERNAL_SERVER_ERROR,
       code: "INTERNAL_SERVER_ERROR",
-      message:
-        error instanceof Error
-          ? error.message
-          : translateForContext(c, "common.internalServerError"),
+      message: translateForContext(c, "common.internalServerError"),
     });
   }
 };
@@ -198,13 +192,11 @@ export const rejectDemoRequest = async (c: Context) => {
       messageKey: "demo.requestRejected",
     });
   } catch (error) {
+    logger.error("Failed to reject demo request", { error });
     return jsonError(c, {
       status: httpCodes.INTERNAL_SERVER_ERROR,
       code: "INTERNAL_SERVER_ERROR",
-      message:
-        error instanceof Error
-          ? error.message
-          : translateForContext(c, "common.internalServerError"),
+      message: translateForContext(c, "common.internalServerError"),
     });
   }
 };

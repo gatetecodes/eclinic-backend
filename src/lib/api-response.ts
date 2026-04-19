@@ -84,7 +84,7 @@ export function jsonSuccess<T>(c: Context, params: SuccessResponseParams<T>) {
         : { success: params.success }),
       ...(message ? { message } : {}),
       ...(params.data === undefined ? {} : { data: params.data }),
-      ...(params.meta ?? {}),
+      ...(params.meta === undefined ? {} : { meta: params.meta }),
       status,
     },
     status as ContentfulStatusCode
