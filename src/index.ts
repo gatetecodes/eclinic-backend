@@ -9,9 +9,9 @@ import { createServer } from "node:http";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { rateLimiter } from "hono-rate-limiter";
 import { ZodError } from "zod";
+import { jsonError } from "@/lib/api-response";
 import { AppError, fromZodError, tryMapPrismaError } from "@/lib/app-error";
 import { logger as appLogger } from "@/lib/logger";
 import { startRecurringJobs } from "./jobs";
@@ -84,7 +84,7 @@ app.onError((err, c) => {
   }
   // Zod validation errors not caught upstream
   if (err instanceof ZodError) {
-    return fromZodError(err).toResponse(c);
+    return fromZodError(err, c).toResponse(c);
   }
   // Try Prisma known errors
   const mapped = tryMapPrismaError(err);
@@ -92,31 +92,27 @@ app.onError((err, c) => {
     return mapped.toResponse(c);
   }
   const errorId = randomUUID();
-  appLogger.error("unhandled_error", { errorId, error: err });
-  return c.json(
-    {
-      success: false,
-      status: httpCodes.INTERNAL_SERVER_ERROR,
-      error: {
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Something went wrong",
-        errorId,
-      },
-    },
-    httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-  );
+  appLogger.error("unhandled_error", {
+    errorId,
+    locale: c.get("locale"),
+    localeSource: c.get("localeSource"),
+    error: err,
+  });
+  return jsonError(c, {
+    status: httpCodes.INTERNAL_SERVER_ERROR,
+    code: "INTERNAL_SERVER_ERROR",
+    messageKey: "common.internalServerError",
+    details: { errorId },
+  });
 });
 
 // 404 handler
 app.notFound((c) => {
-  return c.json(
-    {
-      success: false,
-      status: httpCodes.NOT_FOUND,
-      error: { code: "NOT_FOUND", message: "Not Found" },
-    },
-    httpCodes.NOT_FOUND as ContentfulStatusCode
-  );
+  return jsonError(c, {
+    status: httpCodes.NOT_FOUND,
+    code: "NOT_FOUND",
+    messageKey: "common.notFound",
+  });
 });
 
 import { initSocket } from "@/lib/socket";

@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { auth } from "../../lib/auth";
 import { requireAuth } from "../../middlewares/auth.middleware.ts";
 import { entitlementsContext } from "../../middlewares/entitlements.middleware.ts";
+import {
+  finalizeLocaleContext,
+  initializeLocaleContext,
+} from "../../middlewares/locale.middleware.ts";
 import { tenantContext } from "../../middlewares/tenant.middleware.ts";
 import activityRouter from "./activity/routes.ts";
 import adminRouter from "./admin/routes.ts";
@@ -36,6 +40,8 @@ import whatsappRouter from "./whatsapp/whatsapp.routes";
 
 const v1 = new Hono();
 
+v1.use("*", initializeLocaleContext);
+
 v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/onboarding", onboardingRouter);
 v1.route("/public/queues", publicQueuesRouter);
@@ -56,6 +62,7 @@ v1.route("/users", publicUsersRouter);
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
+v1.use("*", finalizeLocaleContext);
 
 // Mount patient-portal routes BEFORE tenant/entitlements to bypass them while keeping auth
 v1.route("/patient-portal", patientPortalRouter);

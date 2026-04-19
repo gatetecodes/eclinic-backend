@@ -5,6 +5,8 @@ import {
   UserStatus,
 } from "../../generated/prisma/client";
 import { db } from "../database/db";
+import { translate } from "../lib/i18n";
+import { DEFAULT_LOCALE, normalizeLocale } from "../lib/locale";
 import { logger } from "../lib/logger";
 import { sendEmail } from "./email.service";
 
@@ -21,7 +23,7 @@ type BatchWithRelations = Awaited<
             id: true;
             itemName: true;
             clinicId: true;
-            clinic: { select: { id: true; name: true } };
+            clinic: { select: { id: true; name: true; defaultLocale: true } };
           };
         };
         expiryNotification: true;
@@ -33,6 +35,7 @@ type BatchWithRelations = Awaited<
 type ClinicNotificationPayload = {
   clinicId: number;
   clinicName: string;
+  locale: string;
   batches: Array<{
     batchId: number;
     batchNumber: string;
@@ -88,6 +91,7 @@ const buildClinicPayloads = (
     const clinicPayload = payloads.get(clinicId) ?? {
       clinicId,
       clinicName: batch.item.clinic?.name ?? "Clinic",
+      locale: batch.item.clinic?.defaultLocale ?? DEFAULT_LOCALE,
       batches: [],
     };
 
@@ -109,6 +113,7 @@ const buildClinicPayloads = (
 
 export const sendInventoryExpiryReminders = async (
   referenceDate = new Date()
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 ) => {
   const today = startOfDay(referenceDate);
   const thresholdDate = addDays(today, EXPIRY_LEAD_DAYS);
@@ -137,6 +142,7 @@ export const sendInventoryExpiryReminders = async (
               select: {
                 id: true,
                 name: true,
+                defaultLocale: true,
               },
             },
           },
@@ -197,12 +203,26 @@ export const sendInventoryExpiryReminders = async (
       }
 
       try {
+        const locale = normalizeLocale(payload.locale) ?? DEFAULT_LOCALE;
         await sendEmail({
           to: recipients,
-          subject: "Inventory batches expiring soon",
+          subject: translate(locale, "email.inventory.subject"),
           template: EMAIL_TEMPLATE,
           context: {
+            logoAlt: translate(locale, "email.inventory.logoAlt"),
+            greeting: translate(locale, "email.inventory.greeting"),
+            title: translate(locale, "email.inventory.title"),
+            clinicLabel: translate(locale, "email.inventory.clinicLabel"),
+            intro: translate(locale, "email.inventory.intro"),
             clinicName: payload.clinicName,
+            itemLabel: translate(locale, "email.inventory.item"),
+            batchLabel: translate(locale, "email.inventory.batch"),
+            expiryDateLabel: translate(locale, "email.inventory.expiryDate"),
+            daysRemainingLabel: translate(
+              locale,
+              "email.inventory.daysRemaining"
+            ),
+            quantityLabel: translate(locale, "email.inventory.quantity"),
             batches: payload.batches.map((batch) => ({
               itemName: batch.itemName,
               batchNumber: batch.batchNumber,
@@ -210,6 +230,9 @@ export const sendInventoryExpiryReminders = async (
               daysUntilExpiry: batch.daysUntilExpiry,
               quantity: batch.currentQuantity,
             })),
+            footerText: translate(locale, "email.inventory.footer"),
+            signatureText: translate(locale, "email.inventory.signature"),
+            teamText: translate(locale, "email.inventory.team"),
           },
         });
 

@@ -9,8 +9,19 @@ import {
 } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import {
+  jsonError,
+  jsonSuccess,
+  translateForContext,
+} from "@/lib/api-response";
 import { AppError } from "@/lib/app-error.ts";
 import { httpCodes } from "@/lib/constants.ts";
+import { translate } from "@/lib/i18n";
+import {
+  DEFAULT_LOCALE,
+  normalizeLocale,
+  prefixLocalePath,
+} from "@/lib/locale";
 import {
   ActivityType,
   type EducationLevel,
@@ -139,13 +150,14 @@ const cleanupFailedStaffUser = async (
 const sendVerificationEmailSafe = async (
   email: string,
   token: string,
-  nextPath?: string
+  nextPath?: string,
+  locale?: string
 ): Promise<{ success: boolean; error?: unknown }> => {
   try {
-    const context = getVerificationTemplateContext(token, nextPath);
+    const context = getVerificationTemplateContext(token, nextPath, locale);
     await sendEmail({
       to: email,
-      subject: "Verify your account",
+      subject: translate(locale, "auth.verifyAccountSubject"),
       template: "verification",
       context,
     });
@@ -156,14 +168,21 @@ const sendVerificationEmailSafe = async (
   }
 };
 
+// biome-ignore lint/nursery/useMaxParams: <>
 const sendVerificationEmailWithRetry = async (
   email: string,
   token: string,
   nextPath?: string,
+  locale?: string,
   maxRetries = 3
 ): Promise<{ success: boolean; error?: unknown }> => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await sendVerificationEmailSafe(email, token, nextPath);
+    const result = await sendVerificationEmailSafe(
+      email,
+      token,
+      nextPath,
+      locale
+    );
     if (result.success) {
       return result;
     }
@@ -195,27 +214,55 @@ const generateVerificationToken = async (email: string) => {
   });
 };
 
-const getVerificationTemplateContext = (token: string, nextPath?: string) => {
+const getVerificationTemplateContext = (
+  token: string,
+  nextPath?: string,
+  locale?: string
+) => {
   const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
   if (!appUrl) {
     throw new Error("APP_URL is not configured");
   }
-  const verificationUrl = new URL("/auth/new-verification", appUrl);
+  const resolvedLocale = normalizeLocale(locale) ?? DEFAULT_LOCALE;
+  const localizedVerificationPath = prefixLocalePath(
+    resolvedLocale,
+    "/auth/new-verification"
+  );
+  const verificationUrl = new URL(localizedVerificationPath, appUrl);
   verificationUrl.searchParams.set("token", token);
   if (nextPath) {
-    verificationUrl.searchParams.set("next", nextPath);
+    const localizedNextPath =
+      nextPath.startsWith("/patient-portal") ||
+      nextPath.startsWith(`/${resolvedLocale}/`)
+        ? nextPath
+        : prefixLocalePath(resolvedLocale, nextPath);
+    verificationUrl.searchParams.set("next", localizedNextPath);
   }
   return {
     verificationLink: verificationUrl.toString(),
+    previewTitle: translate(resolvedLocale, "email.verification.previewTitle"),
+    logoAlt: translate(resolvedLocale, "email.verification.logoAlt"),
+    title: translate(resolvedLocale, "email.verification.title"),
+    intro: translate(resolvedLocale, "email.verification.intro"),
+    buttonLabel: translate(resolvedLocale, "email.verification.button"),
+    fallbackText: translate(resolvedLocale, "email.verification.fallback"),
+    ignoreText: translate(resolvedLocale, "email.verification.ignore"),
+    signatureText: translate(resolvedLocale, "email.verification.signature"),
+    teamText: translate(resolvedLocale, "email.verification.team"),
   } as const;
 };
 
 export const createVerificationEmail = async (
   email: string,
-  options?: { nextPath?: string }
+  options?: { nextPath?: string; locale?: string }
 ) => {
   const token = await generateVerificationToken(email);
-  return sendVerificationEmailWithRetry(email, token.token, options?.nextPath);
+  return sendVerificationEmailWithRetry(
+    email,
+    token.token,
+    options?.nextPath,
+    options?.locale
+  );
 };
 
 export const resendVerificationEmail = async (c: Context) => {
@@ -225,40 +272,32 @@ export const resendVerificationEmail = async (c: Context) => {
 
     const user = await db.user.findUnique({ where: { email } });
     if (!user || user.role === "PATIENT" || user.emailVerified) {
-      return c.json(
-        {
-          success:
-            "If this email exists, a new verification link has been sent.",
-        },
-        httpCodes.OK as ContentfulStatusCode
-      );
+      return jsonSuccess(c, {
+        status: httpCodes.OK,
+        success: translateForContext(c, "users.resendVerificationIfExists"),
+      });
     }
 
     const appUrl = process.env.APP_URL ?? process.env.FRONTEND_URL;
     if (!appUrl) {
       logger.error("APP_URL is not configured");
-      return c.json(
-        {
-          success:
-            "If this email exists, a new verification link has been sent.",
-        },
-        httpCodes.OK as ContentfulStatusCode
-      );
+      return jsonSuccess(c, {
+        status: httpCodes.OK,
+        success: translateForContext(c, "users.resendVerificationIfExists"),
+      });
     }
 
     const backendUrl = process.env.BACKEND_URL;
     if (!backendUrl) {
       logger.error("BACKEND_URL is not configured");
-      return c.json(
-        {
-          success:
-            "If this email exists, a new verification link has been sent.",
-        },
-        httpCodes.OK as ContentfulStatusCode
-      );
+      return jsonSuccess(c, {
+        status: httpCodes.OK,
+        success: translateForContext(c, "users.resendVerificationIfExists"),
+      });
     }
 
-    const callbackURL = `${appUrl}/auth/set-password`;
+    const locale = normalizeLocale(user.preferredLocale) ?? c.get("locale");
+    const callbackURL = `${appUrl}${prefixLocalePath(locale, "/auth/set-password")}`;
     const resendUrl = new URL(
       "/api/v1/auth/send-verification-email",
       backendUrl
@@ -276,20 +315,16 @@ export const resendVerificationEmail = async (c: Context) => {
       logger.warn("Resend verification email failed", { email });
     }
 
-    return c.json(
-      {
-        success: "If this email exists, a new verification link has been sent.",
-      },
-      httpCodes.OK as ContentfulStatusCode
-    );
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      success: translateForContext(c, "users.resendVerificationIfExists"),
+    });
   } catch (error) {
     logger.error("Failed to resend verification email", { error });
-    return c.json(
-      {
-        success: "If this email exists, a new verification link has been sent.",
-      },
-      httpCodes.OK as ContentfulStatusCode
-    );
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      success: translateForContext(c, "users.resendVerificationIfExists"),
+    });
   }
 };
 
@@ -1639,6 +1674,7 @@ export const getUserById = async (c: Context) => {
           select: {
             id: true,
             name: true,
+            defaultLocale: true,
             logo: true,
             contactPhone: true,
             contactEmail: true,
@@ -1666,10 +1702,11 @@ export const getUserById = async (c: Context) => {
       },
     });
     if (!user) {
-      return c.json(
-        { error: "User not found" },
-        httpCodes.NOT_FOUND as ContentfulStatusCode
-      );
+      return jsonError(c, {
+        status: httpCodes.NOT_FOUND,
+        code: "NOT_FOUND",
+        messageKey: "users.userNotFound",
+      });
     }
     return c.json({ data: user }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
@@ -1678,6 +1715,44 @@ export const getUserById = async (c: Context) => {
       { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
+  }
+};
+
+export const updateMyLocalePreference = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return jsonError(c, {
+        status: httpCodes.UNAUTHORIZED,
+        code: "UNAUTHORIZED",
+        messageKey: "common.unauthorized",
+      });
+    }
+
+    const body = c.get("validatedJson") as { preferredLocale: "en" | "fr" };
+    const updatedUser = await db.user.update({
+      where: { id: authUser.id },
+      data: {
+        preferredLocale: body.preferredLocale,
+      },
+      select: {
+        id: true,
+        preferredLocale: true,
+      },
+    });
+
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      messageKey: "users.preferencesUpdated",
+      data: updatedUser,
+    });
+  } catch (error) {
+    logger.error("Failed to update locale preference", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      messageKey: "common.internalServerError",
+    });
   }
 };
 
