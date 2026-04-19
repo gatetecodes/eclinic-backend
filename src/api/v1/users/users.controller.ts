@@ -9,11 +9,7 @@ import {
 } from "date-fns";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import {
-  jsonError,
-  jsonSuccess,
-  translateForContext,
-} from "@/lib/api-response";
+import { jsonError, jsonSuccess } from "@/lib/api-response";
 import { AppError } from "@/lib/app-error.ts";
 import { httpCodes } from "@/lib/constants.ts";
 import { translate } from "@/lib/i18n";
@@ -274,7 +270,7 @@ export const resendVerificationEmail = async (c: Context) => {
     if (!user || user.role === "PATIENT" || user.emailVerified) {
       return jsonSuccess(c, {
         status: httpCodes.OK,
-        success: translateForContext(c, "users.resendVerificationIfExists"),
+        messageKey: "users.resendVerificationIfExists",
       });
     }
 
@@ -283,7 +279,7 @@ export const resendVerificationEmail = async (c: Context) => {
       logger.error("APP_URL is not configured");
       return jsonSuccess(c, {
         status: httpCodes.OK,
-        success: translateForContext(c, "users.resendVerificationIfExists"),
+        messageKey: "users.resendVerificationIfExists",
       });
     }
 
@@ -292,7 +288,7 @@ export const resendVerificationEmail = async (c: Context) => {
       logger.error("BACKEND_URL is not configured");
       return jsonSuccess(c, {
         status: httpCodes.OK,
-        success: translateForContext(c, "users.resendVerificationIfExists"),
+        messageKey: "users.resendVerificationIfExists",
       });
     }
 
@@ -317,13 +313,13 @@ export const resendVerificationEmail = async (c: Context) => {
 
     return jsonSuccess(c, {
       status: httpCodes.OK,
-      success: translateForContext(c, "users.resendVerificationIfExists"),
+      messageKey: "users.resendVerificationIfExists",
     });
   } catch (error) {
     logger.error("Failed to resend verification email", { error });
     return jsonSuccess(c, {
       status: httpCodes.OK,
-      success: translateForContext(c, "users.resendVerificationIfExists"),
+      messageKey: "users.resendVerificationIfExists",
     });
   }
 };

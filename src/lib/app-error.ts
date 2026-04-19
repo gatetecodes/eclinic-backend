@@ -43,11 +43,17 @@ export class AppError extends Error {
   }
 
   toResponse(c: Context) {
+    const messageKey = this.exposeMessage ? this.messageKey : undefined;
     return jsonError(c, {
       status: this.status,
       code: this.code,
-      message: this.exposeMessage ? this.message : undefined,
-      messageKey: this.exposeMessage ? this.messageKey : undefined,
+      message: messageKey
+        ? undefined
+        : //biome-ignore lint/style/noNestedTernary: <>
+          this.exposeMessage
+          ? this.message
+          : undefined,
+      messageKey,
       messageValues: this.messageValues,
       issues: this.issues,
     });
@@ -98,32 +104,32 @@ export function tryMapPrismaError(error: unknown): AppError | null {
   return null;
 }
 
-export function notFoundError(message = "Not Found") {
+export function notFoundError(message?: string) {
   return new AppError({
     status: httpCodes.NOT_FOUND,
     code: "NOT_FOUND",
-    message,
-    messageKey: "common.notFound",
+    message: message ?? "Not Found",
+    messageKey: message ? undefined : "common.notFound",
     exposeMessage: true,
   });
 }
 
-export function unauthorizedError(message = "Unauthorized") {
+export function unauthorizedError(message?: string) {
   return new AppError({
     status: httpCodes.UNAUTHORIZED,
     code: "UNAUTHORIZED",
-    message,
-    messageKey: "common.unauthorized",
+    message: message ?? "Unauthorized",
+    messageKey: message ? undefined : "common.unauthorized",
     exposeMessage: true,
   });
 }
 
-export function forbiddenError(message = "Forbidden") {
+export function forbiddenError(message?: string) {
   return new AppError({
     status: httpCodes.FORBIDDEN,
     code: "FORBIDDEN",
-    message,
-    messageKey: "common.forbidden",
+    message: message ?? "Forbidden",
+    messageKey: message ? undefined : "common.forbidden",
     exposeMessage: true,
   });
 }
