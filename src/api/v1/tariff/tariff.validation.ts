@@ -125,17 +125,19 @@ export const updateProductPricingSchema = z.object({
     .number()
     .min(0, "Rest of World price must be non-negative")
     .optional(),
-  insurancePrices: z.array(
-    z.object({
-      companyId: z.string(),
-      priceWithCo: z.coerce
-        .number()
-        .min(0, "Price with CO must be non-negative")
-        .optional(),
-      priceType: z.enum(["PRIVATE", "GOV"]).optional(),
-      price: z.coerce.number().min(0, "Price must be non-negative"),
-    })
-  ),
+  insurancePrices: z
+    .array(
+      z.object({
+        companyId: z.string(),
+        priceWithCo: z.coerce
+          .number()
+          .min(0, "Price with CO must be non-negative")
+          .optional(),
+        priceType: z.enum(["PRIVATE", "GOV"]).optional(),
+        price: z.coerce.number().min(0, "Price must be non-negative"),
+      })
+    )
+    .optional(),
 });
 
 export type EditTariffData = z.infer<typeof editTariffSchema>;
