@@ -19,6 +19,7 @@ import {
   getClinicNurses,
   getClinicTimesheets,
   getClinicUsers,
+  getCurrentUser,
   getDoctorsByDepartmentId,
   getExpiringTimesheetsCount,
   getStaffWithoutTimesheets,
@@ -94,6 +95,7 @@ router.put(
   assignDepartmentsToDoctor
 );
 router.get("/:id/timesheet", crudAccess("users"), getUserTimesheet);
+router.get("/me", crudAccess("users"), getCurrentUser);
 router.put(
   "/me/preferences",
   validate(updateLocalePreferenceSchema, "json"),

@@ -259,6 +259,12 @@ if (!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)) {
 export const auth = betterAuth({
   baseURL: backendUrl,
   trustedOrigins: [...trustedOrigins, ...normalizedEnvTrustedOrigins],
+  rateLimit: {
+    enabled: true,
+    customRules: {
+      "/get-session": false,
+    },
+  },
   database: prismaAdapter(prismaForAuth, {
     provider: "postgresql",
   }),

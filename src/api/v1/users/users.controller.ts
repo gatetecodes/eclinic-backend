@@ -199,6 +199,39 @@ type AuthenticatedUser = {
   branchId?: number;
 };
 
+const userProfileInclude = {
+  clinicalDepartments: true,
+  clinic: {
+    select: {
+      id: true,
+      name: true,
+      defaultLocale: true,
+      logo: true,
+      contactPhone: true,
+      contactEmail: true,
+      subscriptionStatus: true,
+      subscriptionPlan: true,
+      isQueueManagementEnabled: true,
+    },
+  },
+  branch: {
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      contactPhone: true,
+      contactEmail: true,
+      isHeadOffice: true,
+    },
+  },
+  accounts: {
+    select: {
+      id: true,
+    },
+    take: 1,
+  },
+} as const;
+
 const generateVerificationToken = async (email: string) => {
   await db.verificationToken.deleteMany({ where: { email } });
   return db.verificationToken.create({
@@ -1664,38 +1697,7 @@ export const getUserById = async (c: Context) => {
     }
     const user = await db.user.findUnique({
       where: { id: userId },
-      include: {
-        clinicalDepartments: true,
-        clinic: {
-          select: {
-            id: true,
-            name: true,
-            defaultLocale: true,
-            logo: true,
-            contactPhone: true,
-            contactEmail: true,
-            subscriptionStatus: true,
-            subscriptionPlan: true,
-            isQueueManagementEnabled: true,
-          },
-        },
-        branch: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            contactPhone: true,
-            contactEmail: true,
-            isHeadOffice: true,
-          },
-        },
-        accounts: {
-          select: {
-            id: true,
-          },
-          take: 1,
-        },
-      },
+      include: userProfileInclude,
     });
     if (!user) {
       return jsonError(c, {
@@ -1707,6 +1709,47 @@ export const getUserById = async (c: Context) => {
     return c.json({ data: user }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     logger.error("Failed to get user by id", { error });
+    return c.json(
+      { error: "Internal server error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const getCurrentUser = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return c.json(
+        { error: "Unauthorized" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const authUserId = Number.parseInt(String(authUser.id), 10);
+    if (!Number.isFinite(authUserId) || authUserId <= 0) {
+      return c.json(
+        { error: "Invalid user id in session" },
+        httpCodes.UNAUTHORIZED as ContentfulStatusCode
+      );
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: authUserId },
+      include: userProfileInclude,
+    });
+
+    if (!user) {
+      return jsonError(c, {
+        status: httpCodes.NOT_FOUND,
+        code: "NOT_FOUND",
+        messageKey: "users.userNotFound",
+      });
+    }
+
+    return c.json({ data: user }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    logger.error("Failed to get current user", { error });
     return c.json(
       { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
