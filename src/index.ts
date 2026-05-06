@@ -16,6 +16,7 @@ import { AppError, fromZodError, tryMapPrismaError } from "@/lib/app-error";
 import { logger as appLogger } from "@/lib/logger";
 import { startRecurringJobs } from "./jobs";
 import { httpCodes } from "./lib/constants";
+import type { AppEnv } from "./middlewares/auth.middleware";
 // Import main routes (will mount versioned routers)
 import mainRoutes from "./routes";
 
@@ -24,13 +25,13 @@ const SECONDS_PER_MINUTE = 60;
 const ONE_MINUTE_MS = SECONDS_PER_MINUTE * MS_PER_SECOND;
 const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_WINDOW_MS = RATE_LIMIT_WINDOW_MINUTES * ONE_MINUTE_MS;
-const RATE_LIMIT_MAX_REQUESTS = 200;
+const RATE_LIMIT_MAX_REQUESTS = 500;
 const DEFAULT_PORT = 4002;
 const corsOrigins = [process.env.APP_URL, process.env.NEXT_UP_URL]
   .map((origin) => origin?.trim())
   .filter(Boolean) as string[];
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // Global middleware
 app.use("*", logger());

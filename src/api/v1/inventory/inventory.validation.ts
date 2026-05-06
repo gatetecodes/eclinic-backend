@@ -9,10 +9,8 @@ export const stockTransactionSchema = z.object({
   itemId: z.number(),
   quantity: z
     .string()
+    .regex(/^\d+$/, "Quantity must be a valid number")
     .transform((val) => Number.parseInt(val, 10))
-    .refine((val) => Number.isFinite(val), {
-      message: "Quantity must be a valid number",
-    })
     .refine((val) => val > 0, {
       message: "Quantity must be greater than zero",
     }),
@@ -36,14 +34,13 @@ export const saleTransactionSchema = z.object({
   itemId: z.number(),
   visitId: z
     .string()
+    .regex(/^\d+$/, "Visit ID must be a valid number")
     .transform((val) => Number.parseInt(val, 10))
     .optional(),
   quantity: z
     .string()
+    .regex(/^\d+$/, "Quantity must be a valid number")
     .transform((val) => Number.parseInt(val, 10))
-    .refine((val) => Number.isFinite(val), {
-      message: "Quantity must be a valid number",
-    })
     .refine((val) => val > 0, {
       message: "Quantity must be greater than zero",
     }),
