@@ -43,6 +43,7 @@ import {
   PaymentType,
   QueuePurpose,
   Role,
+  SmsEventType,
   VisitStatus,
 } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
@@ -66,6 +67,7 @@ import {
   DEFAULT_CACHE_TTL,
   getCachedData,
 } from "../../../../services/redis.service";
+import { SmsService } from "../../../../services/sms.service";
 import {
   consultationNoteSchema,
   editChiefComplaintSchema,
@@ -1615,7 +1617,11 @@ export const finalizeVisit = async (c: Context) => {
         id: true,
         status: true,
         doctor: { select: { id: true, name: true } },
-        patient: { select: { firstName: true, lastName: true } },
+        clinicId: true,
+        patientId: true,
+        patient: {
+          select: { firstName: true, lastName: true, phoneNumber: true },
+        },
       },
     });
     if (!visit) {
@@ -1662,6 +1668,21 @@ export const finalizeVisit = async (c: Context) => {
       branchId: user.branchId,
       visitId,
     });
+
+    if (visit.patient.phoneNumber) {
+      SmsService.queueEventMessage({
+        clinicId: visit.clinicId,
+        patientId: visit.patientId,
+        visitId,
+        phoneNumber: visit.patient.phoneNumber,
+        eventType: SmsEventType.VISIT_COMPLETED,
+        message: `Hi ${visit.patient.firstName}, your visit has been finalized. Thank you for choosing CareLogic.`,
+        metadata: { status: VisitStatus.FINALIZED },
+      }).catch(() => {
+        /* SMS is best-effort; do not fail finalize flow */
+      });
+    }
+
     return c.json({
       success: "Visit finalized successfully",
       visit: updatedVisit,
@@ -1683,7 +1704,17 @@ export const dischargeVisit = async (c: Context) => {
     const visit = await db.visit.findUnique({
       where: { id: visitId },
       select: {
-        patient: { select: { firstName: true, lastName: true } },
+        id: true,
+        clinicId: true,
+        patientId: true,
+        patient: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+          },
+        },
         patientInsurance: {
           select: { insuranceCompany: { select: { companyName: true } } },
         },
@@ -1719,6 +1750,20 @@ export const dischargeVisit = async (c: Context) => {
       visitId,
     });
 
+    if (visit.patient.phoneNumber) {
+      SmsService.queueEventMessage({
+        clinicId: visit.clinicId,
+        patientId: visit.patient.id,
+        visitId,
+        phoneNumber: visit.patient.phoneNumber,
+        eventType: SmsEventType.VISIT_COMPLETED,
+        message: `Hi ${visit.patient.firstName}, your visit has been completed and discharge is confirmed. We wish you a quick recovery.`,
+        metadata: { status: "DISCHARGED" },
+      }).catch(() => {
+        /* SMS is best-effort; do not fail discharge flow */
+      });
+    }
+
     return c.json({ success: "Visit discharged successfully", result });
   } catch (_error) {
     return c.json(
@@ -1752,6 +1797,31 @@ export const updateVisitStatus = async (c: Context) => {
       visitId,
       doctorId: updated.doctorId || undefined,
     });
+
+    if (
+      status === VisitStatus.FINALIZED ||
+      status === VisitStatus.DISCHARGED ||
+      status === VisitStatus.DISCHARGED_WITH_PRESCRIPTION
+    ) {
+      const patient = await db.patient.findUnique({
+        where: { id: updated.patientId },
+        select: { id: true, firstName: true, phoneNumber: true },
+      });
+      if (patient?.phoneNumber) {
+        SmsService.queueEventMessage({
+          clinicId: updated.clinicId,
+          patientId: patient.id,
+          visitId: updated.id,
+          phoneNumber: patient.phoneNumber,
+          eventType: SmsEventType.VISIT_COMPLETED,
+          message: `Hi ${patient.firstName}, your visit status is now ${status.replaceAll("_", " ").toLowerCase()}.`,
+          metadata: { status },
+        }).catch(() => {
+          /* SMS is best-effort; do not fail visit status update flow */
+        });
+      }
+    }
+
     return c.json({
       success: "Visit status updated successfully",
       visit: updated,

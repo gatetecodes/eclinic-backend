@@ -31,6 +31,7 @@ import performanceReportsRouter from "./performance-reports/performance-reports.
 import pharmacyRouter from "./pharmacy/pharmacy.routes.ts";
 import publicQueuesRouter from "./queues/public.routes.ts";
 import queuesRouter from "./queues/routes.ts";
+import smsRouter from "./sms/sms.routes";
 import tariffRouter from "./tariff/tariff.routes.ts";
 import publicUsersRouter from "./users/users.public.routes.ts";
 // Resource routers
@@ -46,6 +47,7 @@ v1.route("/demo-requests", demoRequestsRouter);
 v1.route("/onboarding", onboardingRouter);
 v1.route("/public/queues", publicQueuesRouter);
 v1.route("/whatsapp", whatsappRouter);
+v1.route("/sms", smsRouter);
 
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login
