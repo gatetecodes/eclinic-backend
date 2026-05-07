@@ -6,6 +6,7 @@ import type { Prisma } from "../../../../../generated/prisma/client";
 import {
   ActivityType,
   PaymentType,
+  SmsEventType,
   VisitStatus,
 } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
@@ -20,6 +21,7 @@ import {
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
+import { SmsService } from "../../../../services/sms.service";
 
 export const addExams = async (c: Context) => {
   try {
@@ -178,7 +180,14 @@ export const markResultsReady = async (c: Context) => {
         clinicId: true,
         branchId: true,
         doctorId: true,
-        patient: { select: { id: true, firstName: true, lastName: true } },
+        patient: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+          },
+        },
         doctor: { select: { id: true, name: true } },
       },
     });
@@ -238,6 +247,23 @@ export const markResultsReady = async (c: Context) => {
       branchId: Number(visit.branchId ?? 0),
       visitId,
     });
+
+    if (visit.patient.phoneNumber) {
+      SmsService.queueEventMessage({
+        clinicId: visit.clinicId,
+        visitId: visit.id,
+        patientId: visit.patient.id,
+        phoneNumber: visit.patient.phoneNumber,
+        eventType: SmsEventType.LAB_RESULTS_READY,
+        message: `Hi ${visit.patient.firstName}, your lab results are ready. Please return for doctor review.`,
+        metadata: {
+          visitId: visit.id,
+          doctorId: visit.doctorId,
+        },
+      }).catch(() => {
+        /* SMS is best-effort; do not fail results ready flow */
+      });
+    }
 
     // Auto-join doctor queue so patient re-joins for results review
     if (visit.doctorId != null && visit.branchId != null) {

@@ -39,7 +39,8 @@ model Patient {
     portalAccount        PatientPortalAccount?
     patientAppointments  PatientAppointment[]
     patientNotifications PatientNotification[]
-    queues                 QueueEntry[]
+    queues               QueueEntry[]
+    outboundSmsLogs      OutboundSmsLog[]
     pharmacyDispenseOrders PharmacyDispenseOrder[]
 
     @@index([phoneNumber, lastName, firstName])

@@ -48,6 +48,7 @@ const ALLOWED_VERIFICATION_CALLBACK_PATHS = new Set([
   "/patient-portal/auth/login",
   "/auth/set-password",
 ]);
+const ALLOWED_RESET_CALLBACK_PATHS = new Set(["/auth/set-password"]);
 
 const resolveVerificationCallbackPath = (
   callbackURL: string | null,
@@ -69,6 +70,28 @@ const resolveVerificationCallbackPath = (
       path: `${resolved.pathname}${resolved.search}`,
       isSetPassword: resolved.pathname === "/auth/set-password",
     };
+  } catch {
+    return null;
+  }
+};
+
+const resolveResetCallbackPath = (
+  callbackURL: string | null,
+  frontendOrigin: string
+): string | null => {
+  if (!callbackURL) {
+    return null;
+  }
+  try {
+    const base = new URL(frontendOrigin);
+    const resolved = new URL(callbackURL, base);
+    if (resolved.origin !== base.origin) {
+      return null;
+    }
+    if (!ALLOWED_RESET_CALLBACK_PATHS.has(resolved.pathname)) {
+      return null;
+    }
+    return `${resolved.pathname}${resolved.search}`;
   } catch {
     return null;
   }
@@ -274,6 +297,55 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: false,
     requireEmailVerification: true,
+    sendResetPassword: ({ user, url, token }) => {
+      const locale =
+        normalizeLocale(
+          (user as { preferredLocale?: string | null }).preferredLocale
+        ) ?? DEFAULT_LOCALE;
+
+      let callbackURL: string | null = null;
+      if (url) {
+        try {
+          callbackURL = new URL(url).searchParams.get("callbackURL");
+        } catch {
+          callbackURL = null;
+        }
+      }
+
+      const resolvedCallbackPath = resolveResetCallbackPath(
+        callbackURL,
+        frontendUrl
+      );
+
+      const resetPath = resolvedCallbackPath
+        ? resolvedCallbackPath
+        : prefixLocalePath(locale, "/auth/set-password");
+      const resetUrl = new URL(resetPath, frontendUrl);
+      resetUrl.searchParams.set("token", token);
+
+      return sendEmail({
+        to: user.email,
+        subject: translate(locale, "auth.resetPasswordSubject"),
+        template: "password-reset",
+        context: {
+          resetLink: resetUrl.toString(),
+          previewTitle: translate(locale, "email.reset.previewTitle"),
+          logoAlt: translate(locale, "email.reset.logoAlt"),
+          title: translate(locale, "email.reset.title"),
+          intro: translate(locale, "email.reset.intro"),
+          buttonLabel: translate(locale, "email.reset.button"),
+          fallbackText: translate(locale, "email.reset.fallback"),
+          ignoreText: translate(locale, "email.reset.ignore"),
+          signatureText: translate(locale, "email.reset.signature"),
+          teamText: translate(locale, "email.reset.team"),
+        },
+      }).catch((err) => {
+        logger.error("Better Auth: failed to send reset password email", {
+          email: user.email,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    },
   },
   emailVerification: {
     sendOnSignUp: true,

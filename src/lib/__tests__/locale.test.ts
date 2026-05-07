@@ -43,13 +43,13 @@ describe("translations", () => {
 
   it("formats translated placeholders", () => {
     expect(translate("fr", "validation.tooSmall.string", { minimum: 8 })).toBe(
-      "Doit contenir au moins 8 caracteres"
+      "Doit contenir au moins 8 caractères"
     );
   });
 
   it("maps known literal validation messages", () => {
     expect(translateLiteralMessage("fr", "Time must be in HH:mm format")).toBe(
-      "L'heure doit etre au format HH:mm"
+      "L'heure doit être au format HH:mm"
     );
     expect(translateLiteralMessage("fr", "Unknown message")).toBe(
       "Unknown message"

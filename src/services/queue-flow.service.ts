@@ -7,7 +7,9 @@ import {
   QueueEntryStatus,
   QueueEventType,
   type QueueSource,
+  SmsEventType,
 } from "../../generated/prisma/client";
+import { SmsService } from "./sms.service";
 import { WhatsAppService } from "./whatsapp.service";
 
 export const QueueFlowService = {
@@ -173,6 +175,26 @@ export const QueueFlowService = {
         },
       });
 
+      SmsService.queueEventMessage({
+        clinicId: queue.clinicId,
+        patientId: entry.patientId ?? undefined,
+        visitId: entry.visitId ?? undefined,
+        phoneNumber: entry.phoneNumber,
+        eventType: SmsEventType.QUEUE_JOINED,
+        message: `You joined ${queue.name}. Your position is ${entry.position} and estimated wait is ${estimatedWaitTime} minutes.`,
+        metadata: {
+          queueId: queue.id,
+          entryId: entry.id,
+          position: entry.position,
+          estimatedWaitTime,
+        },
+      }).catch((err) => {
+        logger.error("SMS queue-joined notification failed", {
+          entryId: entry.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
       return {
         ...entry,
         waitingAhead: waitingCount,
@@ -180,6 +202,7 @@ export const QueueFlowService = {
     });
   },
 
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
   updateStatus: async (entryId: number, status: QueueEntryStatus) => {
     const entry = await db.queueEntry.findUnique({
       where: { id: entryId },
@@ -261,6 +284,25 @@ export const QueueFlowService = {
         ],
       }).catch((err) => {
         logger.error("WhatsApp turn notification failed", {
+          entryId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
+      SmsService.queueEventMessage({
+        clinicId: entry.queue.clinicId,
+        patientId: entry.patientId ?? undefined,
+        visitId: entry.visitId ?? undefined,
+        phoneNumber: entry.phoneNumber,
+        eventType: SmsEventType.QUEUE_TURN,
+        message: `Hi ${firstName}, it's your turn now for ${entry.queue.name}. Please proceed to the service desk.`,
+        metadata: {
+          queueId: entry.queueId,
+          queueName: entry.queue.name,
+          entryId: entry.id,
+        },
+      }).catch((err) => {
+        logger.error("SMS turn notification failed", {
           entryId,
           error: err instanceof Error ? err.message : String(err),
         });
