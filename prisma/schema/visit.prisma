@@ -55,6 +55,7 @@ model Visit {
     consultations           Product[]                @relation("ConsultationProducts")
     spectaclePrescription   SpectaclePrescription?
     notifications           Notification[]
+    outboundSmsLogs         OutboundSmsLog[]
     handoffs                Handoff[]
     queueEntries            QueueEntry[]
     pharmacyDispenseOrders  PharmacyDispenseOrder[]

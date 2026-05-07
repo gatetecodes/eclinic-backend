@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  CurrencyCode,
   SubscriptionPlan,
   SubscriptionStatus,
 } from "../../../../generated/prisma/client";
@@ -17,6 +18,7 @@ export const adminSchema = z.object({
 export const clinicSchema = z.object({
   name: z.string().min(1),
   logo: z.string().optional().nullable(),
+  defaultCurrency: z.enum(CurrencyCode).optional(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
   contactEmail: z.email(),
@@ -27,6 +29,7 @@ export const clinicSchema = z.object({
 export const updateClinicSchema = z.object({
   name: z.string().min(1),
   logo: z.string().optional().nullable(),
+  defaultCurrency: z.enum(CurrencyCode).optional(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
   contactEmail: z.email(),
@@ -44,7 +47,13 @@ export const updateClinicSubscriptionStatusSchema = z.object({
 });
 
 export const updateClinicSettingsSchema = z.object({
-  isQueueManagementEnabled: z.boolean(),
+  isQueueManagementEnabled: z.boolean().optional(),
+  defaultCurrency: z.enum(CurrencyCode).optional(),
+  isSmsEnabled: z.boolean().optional(),
+  smsOnQueueJoined: z.boolean().optional(),
+  smsOnQueueTurn: z.boolean().optional(),
+  smsOnLabResultsReady: z.boolean().optional(),
+  smsOnVisitCompletion: z.boolean().optional(),
 });
 
 export type UpdateClinicSchema = z.infer<typeof updateClinicSchema>;

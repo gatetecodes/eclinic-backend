@@ -484,7 +484,15 @@ export const updateClinicSettings = async (c: Context) => {
     }
 
     const body = c.get("validatedJson");
-    const { isQueueManagementEnabled } = body;
+    const {
+      isQueueManagementEnabled,
+      defaultCurrency,
+      isSmsEnabled,
+      smsOnQueueJoined,
+      smsOnQueueTurn,
+      smsOnLabResultsReady,
+      smsOnVisitCompletion,
+    } = body;
 
     const clinic = await db.clinic.findUnique({
       where: { id: clinicId },
@@ -502,6 +510,21 @@ export const updateClinicSettings = async (c: Context) => {
         isQueueManagementEnabled:
           typeof isQueueManagementEnabled === "boolean"
             ? isQueueManagementEnabled
+            : undefined,
+        defaultCurrency,
+        isSmsEnabled:
+          typeof isSmsEnabled === "boolean" ? isSmsEnabled : undefined,
+        smsOnQueueJoined:
+          typeof smsOnQueueJoined === "boolean" ? smsOnQueueJoined : undefined,
+        smsOnQueueTurn:
+          typeof smsOnQueueTurn === "boolean" ? smsOnQueueTurn : undefined,
+        smsOnLabResultsReady:
+          typeof smsOnLabResultsReady === "boolean"
+            ? smsOnLabResultsReady
+            : undefined,
+        smsOnVisitCompletion:
+          typeof smsOnVisitCompletion === "boolean"
+            ? smsOnVisitCompletion
             : undefined,
       },
     });

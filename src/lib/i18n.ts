@@ -45,6 +45,7 @@ const en = {
   "users.preferencesUpdated": "Language preference updated successfully.",
   "users.userNotFound": "User not found",
   "auth.verifyAccountSubject": "Verify your account",
+  "auth.resetPasswordSubject": "Reset your password",
   "email.verification.previewTitle": "Verify your CareLogic account",
   "email.verification.logoAlt": "CareLogic logo",
   "email.verification.title": "Verify your email address",
@@ -57,6 +58,18 @@ const en = {
     "If you did not request this, you can safely ignore this email and your account will not be activated.",
   "email.verification.signature": "Thanks,",
   "email.verification.team": "The CareLogic Team",
+  "email.reset.previewTitle": "Reset your CareLogic password",
+  "email.reset.logoAlt": "CareLogic logo",
+  "email.reset.title": "Reset your password",
+  "email.reset.intro":
+    "We received a request to reset your password. Use the button below to set a new password.",
+  "email.reset.button": "Reset password",
+  "email.reset.fallback":
+    "If the button does not work, copy and paste this link into your browser:",
+  "email.reset.ignore":
+    "If you did not request this change, you can safely ignore this email.",
+  "email.reset.signature": "Thanks,",
+  "email.reset.team": "The CareLogic Team",
   "demo.requestCreated":
     "Demo request created successfully. We will get back to you soon.",
   "demo.requestsFetched": "Demo requests fetched successfully",
@@ -148,6 +161,7 @@ const fr: Record<keyof typeof en, string> = {
   "users.preferencesUpdated": "La langue a été mise à jour avec succès.",
   "users.userNotFound": "Utilisateur introuvable",
   "auth.verifyAccountSubject": "Vérifiez votre compte",
+  "auth.resetPasswordSubject": "Réinitialisez votre mot de passe",
   "email.verification.previewTitle": "Vérifiez votre compte CareLogic",
   "email.verification.logoAlt": "Logo CareLogic",
   "email.verification.title": "Vérifiez votre adresse email",
@@ -160,6 +174,18 @@ const fr: Record<keyof typeof en, string> = {
     "Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité et votre compte ne sera pas activé.",
   "email.verification.signature": "Merci,",
   "email.verification.team": "L'équipe CareLogic",
+  "email.reset.previewTitle": "Réinitialisez votre mot de passe CareLogic",
+  "email.reset.logoAlt": "Logo CareLogic",
+  "email.reset.title": "Réinitialisez votre mot de passe",
+  "email.reset.intro":
+    "Nous avons reçu une demande de réinitialisation de mot de passe. Utilisez le bouton ci-dessous pour définir un nouveau mot de passe.",
+  "email.reset.button": "Réinitialiser le mot de passe",
+  "email.reset.fallback":
+    "Si le bouton ne fonctionne pas, copiez et collez ce lien dans votre navigateur :",
+  "email.reset.ignore":
+    "Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité.",
+  "email.reset.signature": "Merci,",
+  "email.reset.team": "L'équipe CareLogic",
   "demo.requestCreated":
     "La demande de démonstration a été créée avec succès. Nous vous recontacterons bientôt.",
   "demo.requestsFetched":
