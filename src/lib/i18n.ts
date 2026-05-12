@@ -43,6 +43,7 @@ const en = {
   "users.resendVerificationIfExists":
     "If this email exists, a new verification link has been sent.",
   "users.preferencesUpdated": "Language preference updated successfully.",
+  "users.passwordUpdated": "Password updated successfully.",
   "users.userNotFound": "User not found",
   "auth.verifyAccountSubject": "Verify your account",
   "auth.resetPasswordSubject": "Reset your password",
@@ -161,6 +162,7 @@ const fr: Record<keyof typeof en, string> = {
   "users.resendVerificationIfExists":
     "Si cet email existe, un nouveau lien de vérification a été envoyé.",
   "users.preferencesUpdated": "La langue a été mise à jour avec succès.",
+  "users.passwordUpdated": "Mot de passe mis à jour avec succès.",
   "users.userNotFound": "Utilisateur introuvable",
   "auth.verifyAccountSubject": "Vérifiez votre compte",
   "auth.resetPasswordSubject": "Réinitialisez votre mot de passe",

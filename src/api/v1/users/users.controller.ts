@@ -53,6 +53,7 @@ import {
 } from "../../../services/users.service";
 // token helpers defined below
 import {
+  adminResetUserPasswordSchema,
   createDoctorSchema,
   createUserSchema,
   editDoctorSchema,
@@ -809,6 +810,119 @@ export const editUser = async (c: Context) => {
       { error: "Internal server error" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
+  }
+};
+
+export const adminResetUserPassword = async (c: Context) => {
+  try {
+    const authUser = c.get("user") as AuthenticatedUser | undefined;
+    if (!authUser) {
+      return jsonError(c, {
+        status: httpCodes.UNAUTHORIZED,
+        code: "UNAUTHORIZED",
+        messageKey: "common.unauthorized",
+      });
+    }
+    if (authUser.role !== "CLINIC_ADMIN") {
+      return jsonError(c, {
+        status: httpCodes.FORBIDDEN,
+        code: "FORBIDDEN",
+        messageKey: "common.forbidden",
+      });
+    }
+
+    const userIdRaw = c.req.param("userId");
+    const userId = Number.parseInt(userIdRaw, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return jsonError(c, {
+        status: httpCodes.BAD_REQUEST,
+        code: "INVALID_USER_ID",
+        messageKey: "common.invalidUserId",
+      });
+    }
+
+    if (userId === Number(authUser.id)) {
+      return jsonError(c, {
+        status: httpCodes.FORBIDDEN,
+        code: "FORBIDDEN",
+        messageKey: "common.forbidden",
+      });
+    }
+
+    const body = await c.get("validatedJson");
+    const parsed = adminResetUserPasswordSchema.safeParse(body);
+    if (!parsed.success) {
+      return Promise.reject(
+        new AppError({
+          status: httpCodes.BAD_REQUEST,
+          code: "INVALID_REQUEST",
+          message: "Invalid request",
+          exposeMessage: true,
+          issues: Object.entries(parsed.error.flatten().fieldErrors).map(
+            ([field, errors]) => ({
+              field,
+              message: errors.join(", "),
+            })
+          ),
+        })
+      );
+    }
+
+    const targetUser = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clinicId: true, role: true },
+    });
+    if (!targetUser) {
+      return jsonError(c, {
+        status: httpCodes.NOT_FOUND,
+        code: "NOT_FOUND",
+        messageKey: "users.userNotFound",
+      });
+    }
+    if (targetUser.clinicId !== authUser.clinicId) {
+      return jsonError(c, {
+        status: httpCodes.FORBIDDEN,
+        code: "FORBIDDEN",
+        messageKey: "common.forbidden",
+      });
+    }
+    if (targetUser.role === Role.SUPER_ADMIN) {
+      return jsonError(c, {
+        status: httpCodes.FORBIDDEN,
+        code: "FORBIDDEN",
+        messageKey: "common.forbidden",
+      });
+    }
+
+    const hashedPassword = hashCredentialPassword(parsed.data.password);
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword },
+      });
+      await tx.account.updateMany({
+        where: { userId, providerId: "credential" },
+        data: { password: hashedPassword },
+      });
+    });
+
+    await logActivity({
+      userId: Number(authUser.id),
+      action: `Reset password for user ${userId}`,
+      type: ActivityType.STATUS_UPDATE,
+    });
+
+    return jsonSuccess(c, {
+      status: httpCodes.OK,
+      messageKey: "users.passwordUpdated",
+    });
+  } catch (error) {
+    logger.error("Failed to reset user password", { error });
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "INTERNAL_SERVER_ERROR",
+      messageKey: "common.internalServerError",
+    });
   }
 };
 

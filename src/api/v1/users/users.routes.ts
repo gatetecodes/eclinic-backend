@@ -6,6 +6,7 @@ import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
   addDoctorAvailability,
   addNewUser,
+  adminResetUserPassword,
   assignDepartmentsToDoctor,
   createDoctor,
   deactivateUser,
@@ -30,6 +31,7 @@ import {
 } from "./users.controller.ts";
 import {
   addDoctorAvailabilitySchema,
+  adminResetUserPasswordSchema,
   assignDepartmentsToDoctorSchema,
   createDoctorSchema,
   createUserSchema,
@@ -111,6 +113,12 @@ router.post(
   "/:userId/deactivate",
   ...withAccess({ resource: "users", action: "update", feature: "users" }),
   deactivateUser
+);
+router.put(
+  "/:userId/password",
+  crudAccess("users"),
+  validate(adminResetUserPasswordSchema, "json"),
+  adminResetUserPassword
 );
 router.put(
   "/:userId",
