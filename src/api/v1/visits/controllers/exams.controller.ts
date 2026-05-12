@@ -20,8 +20,10 @@ import {
   invalidatePaymentRelatedCaches,
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
+import { translate } from "../../../../lib/i18n";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import { SmsService } from "../../../../services/sms.service";
+import { normalizeDrCongoPhoneToE164 } from "../../../../services/twilio.provider";
 
 export const addExams = async (c: Context) => {
   try {
@@ -180,6 +182,7 @@ export const markResultsReady = async (c: Context) => {
         clinicId: true,
         branchId: true,
         doctorId: true,
+        clinic: { select: { defaultLocale: true } },
         patient: {
           select: {
             id: true,
@@ -248,14 +251,20 @@ export const markResultsReady = async (c: Context) => {
       visitId,
     });
 
-    if (visit.patient.phoneNumber) {
+    const drCongoPhoneNumber = visit.patient.phoneNumber
+      ? normalizeDrCongoPhoneToE164(visit.patient.phoneNumber)
+      : null;
+
+    if (drCongoPhoneNumber) {
       SmsService.queueEventMessage({
         clinicId: visit.clinicId,
         visitId: visit.id,
         patientId: visit.patient.id,
-        phoneNumber: visit.patient.phoneNumber,
+        phoneNumber: drCongoPhoneNumber,
         eventType: SmsEventType.LAB_RESULTS_READY,
-        message: `Hi ${visit.patient.firstName}, your lab results are ready. Please return for doctor review.`,
+        message: translate(visit.clinic.defaultLocale, "sms.labResultsReady", {
+          firstName: visit.patient.firstName,
+        }),
         metadata: {
           visitId: visit.id,
           doctorId: visit.doctorId,
