@@ -16,7 +16,7 @@
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "allowJs": true,
-    "types": ["node", "pg"],
+    "types": ["node", "pg", "bun"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],

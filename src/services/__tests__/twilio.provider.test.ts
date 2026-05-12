@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { createHmac } from "node:crypto";
-import { normalizeToE164, TwilioProvider } from "@/services/twilio.provider";
+import {
+  isDrCongoPhoneNumber,
+  normalizeDrCongoPhoneToE164,
+  normalizeToE164,
+  TwilioProvider,
+} from "@/services/twilio.provider";
 
 const ORIGINAL_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const ORIGINAL_VALIDATE_FLAG = process.env.TWILIO_VALIDATE_WEBHOOK_SIGNATURE;
@@ -19,6 +24,13 @@ describe("normalizeToE164", () => {
     expect(normalizeToE164("250781234567")).toBe("+250781234567");
   });
 
+  it("normalizes DR Congo phone numbers", () => {
+    expect(normalizeToE164("0812345678")).toBe("+243812345678");
+    expect(normalizeToE164("812345678")).toBe("+243812345678");
+    expect(normalizeToE164("243812345678")).toBe("+243812345678");
+    expect(normalizeToE164("00243812345678")).toBe("+243812345678");
+  });
+
   it("accepts valid E.164 numbers", () => {
     expect(normalizeToE164("+14155552671")).toBe("+14155552671");
   });
@@ -26,6 +38,17 @@ describe("normalizeToE164", () => {
   it("rejects invalid or empty values", () => {
     expect(normalizeToE164("")).toBeNull();
     expect(normalizeToE164("abc")).toBeNull();
+  });
+});
+
+describe("normalizeDrCongoPhoneToE164", () => {
+  it("accepts only DR Congo phone numbers", () => {
+    expect(normalizeDrCongoPhoneToE164("+243 812 345 678")).toBe(
+      "+243812345678"
+    );
+    expect(isDrCongoPhoneNumber("0991234567")).toBeTrue();
+    expect(isDrCongoPhoneNumber("+250781234567")).toBeFalse();
+    expect(normalizeDrCongoPhoneToE164("+14155552671")).toBeNull();
   });
 });
 

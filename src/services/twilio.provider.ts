@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import twilio from "twilio";
 import { logger } from "@/lib/logger";
 
 type TwilioSendResult = {
@@ -20,6 +20,8 @@ const TWILIO_RETRYABLE_CODES = new Set([
 ]);
 
 const E164_REGEX = /^\+[1-9]\d{6,14}$/;
+const DR_CONGO_COUNTRY_CODE = "243";
+const DR_CONGO_NATIONAL_NUMBER_REGEX = /^[89]\d{8}$/;
 
 function isRetryableError(httpStatus: number, code?: string): boolean {
   if (httpStatus >= 500) {
@@ -32,15 +34,6 @@ function isRetryableError(httpStatus: number, code?: string): boolean {
     return true;
   }
   return false;
-}
-
-function safeCompare(a: string, b: string): boolean {
-  const first = Buffer.from(a);
-  const second = Buffer.from(b);
-  if (first.length !== second.length) {
-    return false;
-  }
-  return timingSafeEqual(first, second);
 }
 
 export function normalizeToE164(rawPhone: string): string | null {
@@ -59,6 +52,11 @@ export function normalizeToE164(rawPhone: string): string | null {
     return null;
   }
 
+  const drCongoPhone = normalizeDrCongoDigitsToE164(digits);
+  if (drCongoPhone) {
+    return drCongoPhone;
+  }
+
   // Rwanda local (07XXXXXXXX)
   if (digits.length === 10 && digits.startsWith("07")) {
     return `+250${digits.slice(1)}`;
@@ -75,6 +73,50 @@ export function normalizeToE164(rawPhone: string): string | null {
   }
 
   return null;
+}
+
+function normalizeDrCongoDigitsToE164(digits: string): string | null {
+  if (
+    digits.length === 14 &&
+    digits.startsWith(`00${DR_CONGO_COUNTRY_CODE}`) &&
+    DR_CONGO_NATIONAL_NUMBER_REGEX.test(digits.slice(5))
+  ) {
+    return `+${digits.slice(2)}`;
+  }
+
+  if (
+    digits.length === 12 &&
+    digits.startsWith(DR_CONGO_COUNTRY_CODE) &&
+    DR_CONGO_NATIONAL_NUMBER_REGEX.test(digits.slice(3))
+  ) {
+    return `+${digits}`;
+  }
+
+  if (
+    digits.length === 10 &&
+    digits.startsWith("0") &&
+    DR_CONGO_NATIONAL_NUMBER_REGEX.test(digits.slice(1))
+  ) {
+    return `+${DR_CONGO_COUNTRY_CODE}${digits.slice(1)}`;
+  }
+
+  if (digits.length === 9 && DR_CONGO_NATIONAL_NUMBER_REGEX.test(digits)) {
+    return `+${DR_CONGO_COUNTRY_CODE}${digits}`;
+  }
+
+  return null;
+}
+
+export function normalizeDrCongoPhoneToE164(rawPhone: string): string | null {
+  const digits = rawPhone.trim().replace(/\D/g, "");
+  if (!digits) {
+    return null;
+  }
+  return normalizeDrCongoDigitsToE164(digits);
+}
+
+export function isDrCongoPhoneNumber(rawPhone: string): boolean {
+  return normalizeDrCongoPhoneToE164(rawPhone) !== null;
 }
 
 export const TwilioProvider = {
@@ -97,17 +139,12 @@ export const TwilioProvider = {
       return false;
     }
 
-    const sortedKeys = Object.keys(params.rawBody).sort();
-    const payload = sortedKeys.reduce(
-      (acc, key) => `${acc}${key}${params.rawBody[key] ?? ""}`,
-      params.fullUrl
+    return twilio.validateRequest(
+      authToken,
+      params.signatureHeader,
+      params.fullUrl,
+      params.rawBody
     );
-
-    const expected = createHmac("sha1", authToken)
-      .update(payload)
-      .digest("base64");
-
-    return safeCompare(expected, params.signatureHeader);
   },
 
   sendMessage: async (params: {
@@ -142,88 +179,77 @@ export const TwilioProvider = {
       });
       return {
         success: false,
-        errorMessage: "Twilio sender configuration missing",
+        errorMessage:
+          "Twilio sender missing: set TWILIO_MESSAGING_SERVICE_SID (recommended; configure alphanumeric sender on the service in Twilio)",
         retryable: false,
       };
     }
 
-    const bodyParams = new URLSearchParams();
-    bodyParams.set("To", params.to);
-    bodyParams.set("Body", params.body);
+    const payload: {
+      to: string;
+      body: string;
+      messagingServiceSid?: string;
+      from?: string;
+      statusCallback?: string;
+    } = {
+      to: params.to,
+      body: params.body,
+    };
+    // Messaging Service wins: alphanumeric / pool is resolved by Twilio from the service.
     if (messagingServiceSid) {
-      bodyParams.set("MessagingServiceSid", messagingServiceSid);
+      payload.messagingServiceSid = messagingServiceSid;
     } else if (alphanumericSenderId) {
-      bodyParams.set("From", alphanumericSenderId.trim());
+      payload.from = alphanumericSenderId.trim();
     } else if (from) {
-      bodyParams.set("From", from);
+      payload.from = from;
     }
     if (params.statusCallbackUrl) {
-      bodyParams.set("StatusCallback", params.statusCallbackUrl);
+      payload.statusCallback = params.statusCallbackUrl;
     }
 
-    const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString(
-      "base64"
-    );
+    const client = twilio(accountSid, authToken);
 
     try {
-      const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${basicAuth}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: bodyParams.toString(),
-        }
-      );
-
-      const json = (await response.json().catch(() => ({}))) as {
-        sid?: string;
-        status?: string;
-        code?: number;
-        message?: string;
-      };
-
-      if (!response.ok) {
-        const code = json.code ? String(json.code) : undefined;
-        const retryable = isRetryableError(response.status, code);
-        logger.error("Twilio SMS send failed", {
-          to: params.to,
-          status: response.status,
-          code,
-          message: json.message,
-          retryable,
-        });
-
-        return {
-          success: false,
-          errorCode: code,
-          errorMessage: json.message || "Failed to send SMS",
-          retryable,
-        };
-      }
+      const message = await client.messages.create(payload);
 
       logger.info("Twilio SMS queued", {
         to: params.to,
-        providerMessageId: json.sid,
-        status: json.status,
+        providerMessageId: message.sid,
+        status: message.status,
       });
 
       return {
         success: true,
-        providerMessageId: json.sid,
-        status: json.status,
+        providerMessageId: message.sid,
+        status: message.status,
       };
     } catch (error) {
-      logger.error("Twilio SMS request crashed", {
+      const maybeError = error as {
+        status?: number;
+        code?: number | string;
+        message?: string;
+      };
+      const errorCode = maybeError.code ? String(maybeError.code) : undefined;
+      const retryable =
+        typeof maybeError.status === "number"
+          ? isRetryableError(maybeError.status, errorCode)
+          : true;
+
+      logger.error("Twilio SMS send failed", {
         to: params.to,
+        status: maybeError.status,
+        code: errorCode,
+        message: maybeError.message,
+        retryable,
         error,
       });
       return {
         success: false,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        retryable: true,
+        errorCode,
+        errorMessage:
+          maybeError.message ||
+          (error instanceof Error ? error.message : String(error)),
+        retryable,
       };
     }
   },

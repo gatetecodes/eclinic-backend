@@ -106,6 +106,8 @@ const en = {
   "email.inventory.signature": "Thanks,",
   "email.inventory.team": "The CareLogic Team",
   "email.inventory.subject": "Inventory batches expiring soon",
+  "sms.labResultsReady":
+    "Hi {firstName}, your lab results are ready. Please return for doctor review.",
   "dashboard.stats.trend.sameAsYesterday": "Same as yesterday",
   "dashboard.stats.trend.lessThanYesterday": "Less than yesterday",
   "dashboard.stats.trend.moreThanYesterday": "More than yesterday",
@@ -226,6 +228,8 @@ const fr: Record<keyof typeof en, string> = {
   "email.inventory.signature": "Merci,",
   "email.inventory.team": "L'équipe CareLogic",
   "email.inventory.subject": "Lots d'inventaire bientôt expirés",
+  "sms.labResultsReady":
+    "Bonjour {firstName}, vos résultats de laboratoire sont prêts. Veuillez revenir pour la revue avec le médecin.",
   "dashboard.stats.trend.sameAsYesterday": "Pareil que hier",
   "dashboard.stats.trend.lessThanYesterday": "Moins que hier",
   "dashboard.stats.trend.moreThanYesterday": "Plus que hier",
