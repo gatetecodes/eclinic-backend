@@ -173,6 +173,10 @@ export const updateLocalePreferenceSchema = z.object({
   preferredLocale: z.enum(["en", "fr"]),
 });
 
+export const adminResetUserPasswordSchema = z.object({
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 export const userIdParamSchema = z.object({
   userId: z.coerce.number().int().positive(),
 });
@@ -359,6 +363,9 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type CreateDoctorInput = z.infer<typeof createDoctorSchema>;
 export type EditDoctorInput = z.infer<typeof editDoctorSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type AdminResetUserPasswordInput = z.infer<
+  typeof adminResetUserPasswordSchema
+>;
 export type UserIdParam = z.infer<typeof userIdParamSchema>;
 export type DoctorIdParam = z.infer<typeof doctorIdParamSchema>;
 export type UpsertTimesheetInput = z.infer<typeof upsertTimesheetSchema>;
