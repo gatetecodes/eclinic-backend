@@ -206,6 +206,7 @@ const userProfileInclude = {
     select: {
       id: true,
       name: true,
+      operatingCountry: true,
       defaultLocale: true,
       defaultCurrency: true,
       logo: true,

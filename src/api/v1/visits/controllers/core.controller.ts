@@ -82,44 +82,30 @@ import {
 async function maybeCreateConsultationBill({
   visit,
   allowPartial,
-  branchId,
+  tx,
 }: {
   visit: {
     id: number;
     requiresConsultation: boolean;
     consultations?: Array<{ id: number }>;
-    patient: { firstName: string; lastName: string };
   };
   allowPartial?: boolean;
-  branchId?: number | null;
+  tx: Prisma.TransactionClient;
 }) {
   if (!visit.requiresConsultation) {
-    return;
+    return false;
   }
   const consultationIds = visit.consultations?.map((item) => item.id) ?? [];
   if (consultationIds.length === 0) {
-    return;
+    return false;
   }
   await createPaymentForProducts(
     consultationIds,
     visit.id,
     PaymentType.CONSULTATION,
-    { allowPartial: Boolean(allowPartial) }
+    { allowPartial: Boolean(allowPartial), tx }
   );
-  if (typeof branchId === "number") {
-    const paymentCashier = await getCachier(branchId);
-    if (paymentCashier) {
-      await db.notification.create({
-        data: {
-          userId: paymentCashier.id,
-          title: "New payment bill",
-          message: `New CONSULTATION payment bill for ${visit.patient.firstName} ${visit.patient.lastName} has been created`,
-          type: "NEW_PAYMENT_BILL",
-          visitId: visit.id,
-        },
-      });
-    }
-  }
+  return true;
 }
 
 //biome-ignore lint/complexity/noExcessiveCognitiveComplexity:<>
@@ -170,57 +156,57 @@ export const createInitialCheckIn = async (c: Context) => {
       );
     }
 
-    const visit = await db.visit.create({
-      data: {
-        patient: { connect: { id: patientId } },
-        department: departmentId
-          ? { connect: { id: Number.parseInt(departmentId, 10) } }
-          : undefined,
-        status: VisitStatus.CHECKED_IN,
-        priority,
-        doctor: doctorId
-          ? { connect: { id: Number.parseInt(doctorId, 10) } }
-          : undefined,
-        consultations: consultationProductIds
-          ? {
-              connect: consultationProductIds.map((pid) => ({
-                id: Number.parseInt(pid, 10),
-              })),
-            }
-          : undefined,
-        isNewPatient,
-        clinic: { connect: { id: user.clinicId } },
-        branch: { connect: { id: user.branchId } },
-        checkedInBy: { connect: { id: Number(user.id) } },
-        isLabOnly,
-        requiresConsultation: requiresConsultation ?? !isLabOnly,
-        paymentMode: paymentMode as PaymentMode | undefined,
-        patientInsurance: patientInsuranceId
-          ? { connect: { id: patientInsuranceId } }
-          : undefined,
-      },
-      include: {
-        patient: true,
-        department: true,
-        consultations: { select: { id: true } },
-      },
-    });
+    const transactionResult = await db.$transaction(async (tx) => {
+      const visit = await tx.visit.create({
+        data: {
+          patient: { connect: { id: patientId } },
+          department: departmentId
+            ? { connect: { id: Number.parseInt(departmentId, 10) } }
+            : undefined,
+          status: VisitStatus.CHECKED_IN,
+          priority,
+          doctor: doctorId
+            ? { connect: { id: Number.parseInt(doctorId, 10) } }
+            : undefined,
+          consultations: consultationProductIds
+            ? {
+                connect: consultationProductIds.map((pid) => ({
+                  id: Number.parseInt(pid, 10),
+                })),
+              }
+            : undefined,
+          isNewPatient,
+          clinic: { connect: { id: user.clinicId } },
+          branch: { connect: { id: user.branchId } },
+          checkedInBy: { connect: { id: Number(user.id) } },
+          isLabOnly,
+          requiresConsultation: requiresConsultation ?? !isLabOnly,
+          paymentMode: paymentMode as PaymentMode | undefined,
+          patientInsurance: patientInsuranceId
+            ? { connect: { id: patientInsuranceId } }
+            : undefined,
+        },
+        include: {
+          patient: true,
+          department: true,
+          consultations: { select: { id: true } },
+        },
+      });
 
-    // Create consultation bill immediately when applicable
-    try {
-      await maybeCreateConsultationBill({
+      const hasConsultationPayt = await maybeCreateConsultationBill({
         visit,
         allowPartial,
-        branchId: user.branchId,
+        tx,
       });
-      // Lab-only visits should create lab payment bills immediately
+
+      let hasLabPayt = false;
+      // Lab-only visits should create lab payment bills immediately.
+      // All of this is inside the same DB transaction as visit creation.
       const labProductIdsNumbers = (labProductIds ?? [])
         .map((pid) => Number.parseInt(pid, 10))
         .filter((pid) => Number.isFinite(pid));
       if (isLabOnly && labProductIdsNumbers.length > 0) {
-        // Create exam record first to ensure data consistency
-        // If exam creation fails, no payment will be created
-        await db.exam.create({
+        await tx.exam.create({
           data: {
             clinic: { connect: { id: user.clinicId } },
             visit: { connect: { id: visit.id } },
@@ -230,44 +216,68 @@ export const createInitialCheckIn = async (c: Context) => {
           },
         });
 
-        // Create payment after exam is successfully created
-        const labPayment = await createPaymentForProducts(
+        await createPaymentForProducts(
           labProductIdsNumbers,
           visit.id,
           PaymentType.ADDITIONAL_EXAM,
-          { allowPartial: Boolean(allowPartial) }
+          { allowPartial: Boolean(allowPartial), tx }
         );
+        hasLabPayt = true;
+      }
 
+      return { visit, hasConsultationPayt, hasLabPayt };
+    });
+    const {
+      visit: createdVisit,
+      hasConsultationPayt: didCreateConsultationPayment,
+      hasLabPayt: didCreateLabPayment,
+    } = transactionResult;
+
+    // Notifications are best-effort and should never break successful check-in.
+    if (
+      user.branchId &&
+      (didCreateConsultationPayment || didCreateLabPayment)
+    ) {
+      try {
         const paymentCashier = await getCachier(user.branchId);
         if (paymentCashier) {
-          await db.notification.create({
-            data: {
-              userId: paymentCashier.id,
-              title: "New payment bill",
-              message: `New ${String(labPayment.paymentType)} payment bill for ${visit.patient.firstName} ${visit.patient.lastName} has been created`,
-              type: "NEW_PAYMENT_BILL",
-              visitId: visit.id,
-            },
-          });
+          if (didCreateConsultationPayment) {
+            await db.notification.create({
+              data: {
+                userId: paymentCashier.id,
+                title: "New payment bill",
+                message: `New CONSULTATION payment bill for ${createdVisit.patient.firstName} ${createdVisit.patient.lastName} has been created`,
+                type: "NEW_PAYMENT_BILL",
+                visitId: createdVisit.id,
+              },
+            });
+          }
+          if (didCreateLabPayment) {
+            await db.notification.create({
+              data: {
+                userId: paymentCashier.id,
+                title: "New payment bill",
+                message: `New ${String(PaymentType.ADDITIONAL_EXAM)} payment bill for ${createdVisit.patient.firstName} ${createdVisit.patient.lastName} has been created`,
+                type: "NEW_PAYMENT_BILL",
+                visitId: createdVisit.id,
+              },
+            });
+          }
         }
+      } catch {
+        // Intentionally swallow notification failures.
       }
-    } catch (error) {
-      const message = (error as Error).message;
-      return c.json(
-        { error: message },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
     }
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
       branchId: user.branchId,
-      visitId: visit.id,
+      visitId: createdVisit.id,
     });
     await invalidatePaymentRelatedCaches({
       clinicId: user.clinicId,
       branchId: user.branchId,
-      visitId: visit.id,
+      visitId: createdVisit.id,
     });
     await invalidateDashboardRelatedCaches(user.clinicId);
 
@@ -277,19 +287,26 @@ export const createInitialCheckIn = async (c: Context) => {
       if (Number.isFinite(docId)) {
         await QueueIntegrationService.ensurePatientInDoctorQueue({
           doctorId: docId,
-          patientId: visit.patientId,
+          patientId: createdVisit.patientId,
           clinicId: user.clinicId,
           branchId: user.branchId,
-          visitId: visit.id,
+          visitId: createdVisit.id,
         });
       }
     }
 
     return c.json(
-      { success: "Patient checked in successfully", visit },
+      { success: "Patient checked in successfully", visit: createdVisit },
       httpCodes.CREATED as ContentfulStatusCode
     );
-  } catch (_error) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : undefined;
+    if (message) {
+      return c.json(
+        { error: message },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     return c.json(
       { error: "Failed to check in patient." },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
