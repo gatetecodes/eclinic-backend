@@ -79,8 +79,13 @@ export const createClinic = async (c: Context) => {
       );
     }
     const clinic = await db.$transaction(async (tx) => {
-      const { admin, ...clinicData } = validatedFields.data;
-      const newClinic = await tx.clinic.create({ data: clinicData });
+      const { admin, operatingCountry, ...clinicData } = validatedFields.data;
+      const newClinic = await tx.clinic.create({
+        data: {
+          ...clinicData,
+          operatingCountry: operatingCountry.toUpperCase(),
+        },
+      });
       const branch = await tx.branch.create({
         data: {
           name: "Main Branch",
@@ -194,16 +199,22 @@ export const updateClinic = async (c: Context) => {
     const { id } = c.req.param();
     const clinicId = Number.parseInt(id, 10);
     const data = c.get("validatedJson");
+    const normalizedData = {
+      ...data,
+      ...(typeof data.operatingCountry === "string"
+        ? { operatingCountry: data.operatingCountry.toUpperCase() }
+        : {}),
+    };
     const updatedClinic = await db.clinic.update({
       where: { id: clinicId },
-      data,
+      data: normalizedData,
     });
 
     // Invalidate entitlements if subscription plan, status or expiry date is updated
     if (
-      "subscriptionPlan" in data ||
-      "subscriptionStatus" in data ||
-      "subscriptionExpiryDate" in data
+      "subscriptionPlan" in normalizedData ||
+      "subscriptionStatus" in normalizedData ||
+      "subscriptionExpiryDate" in normalizedData
     ) {
       await invalidateEntitlements(clinicId);
     }

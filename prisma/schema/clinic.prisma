@@ -27,6 +27,7 @@ model Clinic {
     name                     String
     logo                     String?
     defaultLocale            String                @default("en")
+    operatingCountry         String                @default("RW")
     defaultCurrency          CurrencyCode          @default(RWF)
     subscriptionStatus       SubscriptionStatus   @default(TRIAL)
     subscriptionPlan         SubscriptionPlan
