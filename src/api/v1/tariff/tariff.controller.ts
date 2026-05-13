@@ -1112,7 +1112,14 @@ export const getConsultationProducts = async (c: Context) => {
           {
             departments: {
               some: {
-                name: { in: ["CONSULTATION"] },
+                name: {
+                  in: [
+                    "CONSULTATION",
+                    "Consultation",
+                    "Consultations",
+                    "consultations",
+                  ],
+                },
               },
             },
           },
@@ -1188,7 +1195,14 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
           {
             departments: {
               some: {
-                name: { in: ["CONSULTATION"] },
+                name: {
+                  in: [
+                    "CONSULTATION",
+                    "Consultation",
+                    "Consultations",
+                    "consultations",
+                  ],
+                },
               },
             },
           },
