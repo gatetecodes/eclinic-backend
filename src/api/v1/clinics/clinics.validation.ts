@@ -5,6 +5,10 @@ import {
   SubscriptionStatus,
 } from "../../../../generated/prisma/client";
 
+const countryCodeSchema = z.string().regex(/^[A-Za-z]{2}$/, {
+  message: "Operating country must be a valid 2-letter ISO code",
+});
+
 export const getClinicParamsSchema = z.object({ id: z.string() });
 
 export type GetClinicParams = z.infer<typeof getClinicParamsSchema>;
@@ -18,6 +22,7 @@ export const adminSchema = z.object({
 export const clinicSchema = z.object({
   name: z.string().min(1),
   logo: z.string().optional().nullable(),
+  operatingCountry: countryCodeSchema,
   defaultCurrency: z.enum(CurrencyCode).optional(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
@@ -29,6 +34,7 @@ export const clinicSchema = z.object({
 export const updateClinicSchema = z.object({
   name: z.string().min(1),
   logo: z.string().optional().nullable(),
+  operatingCountry: countryCodeSchema,
   defaultCurrency: z.enum(CurrencyCode).optional(),
   subscriptionPlan: z.enum(SubscriptionPlan),
   contactPhone: z.string(),
