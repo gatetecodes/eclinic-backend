@@ -68,6 +68,38 @@ type VisitForPayment = {
   } | null;
 };
 
+/** Cash visit line price: local/base unless patient is flagged foreigner, then regional tier (with base fallback). */
+async function resolveCashVisitUnitPrice(
+  product: ProductForPayment,
+  patient: VisitForPayment["patient"],
+  targetClinicId: number
+): Promise<number> {
+  const clinicPrices = await getClinicProductPrice(product.id, targetClinicId);
+  const resolvedBasePrice = Number(clinicPrices.basePrice ?? product.basePrice);
+
+  if (!patient.isAForeigner) {
+    return resolvedBasePrice;
+  }
+
+  const region = patient.foreignerRegion;
+  let tierPrice: number;
+  if (region === "EAST_AFRICA") {
+    tierPrice = Number(clinicPrices.eastAfricaPrice ?? product.eastAfricaPrice);
+  } else if (region === "AFRICA") {
+    tierPrice = Number(clinicPrices.africaPrice ?? product.africaPrice);
+  } else {
+    tierPrice = Number(
+      clinicPrices.restOfWorldPrice ?? product.restOfWorldPrice
+    );
+  }
+
+  if (Number.isFinite(tierPrice) && tierPrice > 0) {
+    return tierPrice;
+  }
+
+  return resolvedBasePrice;
+}
+
 export type IExistingProduct = {
   id: number;
   name: string;
@@ -1392,28 +1424,11 @@ export const createPaymentForProducts = async (
     visit: SimpleVisitForPayment;
     targetClinicId: number;
   }) => {
-    const isRwandan =
-      cashVisit.patient.nationality === "Rwanda" &&
-      !cashVisit.patient.isAForeigner;
-    const region = cashVisit.patient.foreignerRegion;
-    let effectivePrice = 0;
-    if (region === "EAST_AFRICA") {
-      effectivePrice = Number(cashProduct.eastAfricaPrice);
-    } else if (region === "AFRICA") {
-      effectivePrice = Number(cashProduct.africaPrice);
-    } else {
-      effectivePrice = Number(cashProduct.restOfWorldPrice);
-    }
-
-    // Get clinic-specific prices with fallback
-    const clinicPrices = await getClinicProductPrice(
-      cashProduct.id,
+    const basePrice = await resolveCashVisitUnitPrice(
+      cashProduct,
+      cashVisit.patient,
       targetClinicId
     );
-
-    const basePrice = isRwandan
-      ? Number(clinicPrices.basePrice ?? cashProduct.basePrice)
-      : effectivePrice;
 
     details.push({
       productName: cashProduct.name,
