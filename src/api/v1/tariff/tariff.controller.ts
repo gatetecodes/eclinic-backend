@@ -1118,6 +1118,7 @@ export const getConsultationProducts = async (c: Context) => {
                     "Consultation",
                     "Consultations",
                     "consultations",
+                    "CONSULTATIONS",
                   ],
                 },
               },
@@ -1171,6 +1172,9 @@ export const getConsultationProducts = async (c: Context) => {
       };
     });
 
+    //biome-ignore lint/suspicious/noConsole: <>
+    console.log({ productsWithPricing });
+
     return c.json({
       status: httpCodes.OK,
       message: "Consultation products fetched successfully",
@@ -1201,6 +1205,7 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
                     "Consultation",
                     "Consultations",
                     "consultations",
+                    "CONSULTATIONS",
                   ],
                 },
               },
