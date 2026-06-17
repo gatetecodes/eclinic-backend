@@ -1,12 +1,11 @@
 import { parse } from "date-fns";
 import type { z } from "zod";
 import {
+  ClaimSource,
   EducationLevel,
   type Gender,
   InsuranceRelationshipType,
-  type Payment,
   PaymentMode,
-  PaymentStatus,
   Prisma,
   Role,
   VisitStatus,
@@ -24,6 +23,8 @@ import {
   parseNationalityFromPhoneNumber,
 } from "../lib/utils";
 import { invalidateCache } from "../services/redis.service";
+import { createClaimForVisit } from "./claim-helper";
+import { summarizeVisitBilling } from "./payments.helper";
 
 type VisitSchemaType = z.infer<typeof visitSchema>;
 type PaymentModeType = z.infer<typeof addPaymentMethodSchema>;
@@ -534,6 +535,12 @@ export const dischargeVisit = async ({
                   id: true,
                 },
               },
+              discounts: {
+                select: {
+                  amount: true,
+                  approval: { select: { status: true } },
+                },
+              },
             },
           },
           patientInsurance: {
@@ -555,14 +562,17 @@ export const dischargeVisit = async ({
         return { error: "Visit not found" };
       }
 
-      // Verify all payments are completed
-      const hasUnpaidPayments = visit.payments.some(
-        (payment: Payment) => payment.paymentStatus === PaymentStatus.PENDING
-      );
+      // Discharge is gated on the PATIENT portion only. The insurance portion
+      // does not block discharge — it becomes a claim that is reconciled
+      // asynchronously after the patient has left.
+      const billing = summarizeVisitBilling(visit.payments);
 
-      logger.info("Has unpaid payments", { hasUnpaidPayments });
-      if (hasUnpaidPayments) {
-        return { error: "Cannot discharge visit with pending payments" };
+      logger.info("Discharge billing summary", { visitId, billing });
+      if (!billing.canDischarge) {
+        return {
+          error: `Patient must settle their balance (${billing.patientOutstanding}) before discharge`,
+          patientOutstanding: billing.patientOutstanding,
+        };
       }
 
       // Update visit status based on prescription
@@ -576,7 +586,16 @@ export const dischargeVisit = async ({
         },
       });
 
-      return updatedVisit;
+      // Generate the insurance claim immediately so back-office reconciliation
+      // can start the same day rather than waiting for the nightly cron.
+      // Idempotent: only claims PAID insurance payments not yet attached.
+      const insuranceClaim = await createClaimForVisit(
+        tx,
+        visitId,
+        ClaimSource.DISCHARGE
+      );
+
+      return { ...updatedVisit, insuranceClaim, billing };
     });
   } catch (error) {
     logger.error("Discharge visit error:", { error });
