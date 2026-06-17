@@ -59,6 +59,7 @@ model Visit {
     handoffs                Handoff[]
     queueEntries            QueueEntry[]
     pharmacyDispenseOrders  PharmacyDispenseOrder[]
+    visitDiagnoses          VisitDiagnosis[]
 
     @@index([patientId])
     @@index([clinicId])
@@ -120,4 +121,20 @@ model Handoff {
     @@index([visitId])
     @@index([fromDoctorId])
     @@index([toDoctorId])
+}
+
+// Structured, ICD-11-coded diagnoses for a visit. Additive: the free-text
+// Visit.diagnosis field is retained for backward compatibility.
+model VisitDiagnosis {
+    id          Int      @id @default(autoincrement())
+    visit       Visit    @relation(fields: [visitId], references: [id])
+    visitId     Int
+    icd11Code   String
+    description String
+    isPrimary   Boolean  @default(false)
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@index([visitId])
+    @@index([icd11Code])
 }

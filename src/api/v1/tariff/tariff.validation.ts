@@ -16,6 +16,7 @@ export const editTariffSchema = z.object({
         .number()
         .min(0, "Price with CO must be non-negative"),
       priceType: z.enum(["PRIVATE", "GOV"]).optional(),
+      insurerItemCode: z.string().optional(),
     })
   ),
 });
@@ -43,6 +44,9 @@ export const createProductSchema = z.object({
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
+  icd11Code: z.string().optional(),
+  loincCode: z.string().optional(),
+  nationalTariffCode: z.string().optional(),
   consumables: z
     .array(
       z.object({
@@ -87,6 +91,21 @@ export const updateProductSchema = z.object({
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
+  icd11Code: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  loincCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  nationalTariffCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
   consumables: z
     .array(
       z.object({
@@ -113,6 +132,9 @@ export const getProductsByDepartmentSchema = z.object({
 
 export const updateProductPricingSchema = z.object({
   basePrice: z.coerce.number().min(0, "Base price must be non-negative"),
+  icd11Code: z.string().optional(),
+  loincCode: z.string().optional(),
+  nationalTariffCode: z.string().optional(),
   eastAfricaPrice: z.coerce
     .number()
     .min(0, "East Africa price must be non-negative")
@@ -135,6 +157,7 @@ export const updateProductPricingSchema = z.object({
           .optional(),
         priceType: z.enum(["PRIVATE", "GOV"]).optional(),
         price: z.coerce.number().min(0, "Price must be non-negative"),
+        insurerItemCode: z.string().optional(),
       })
     )
     .optional(),

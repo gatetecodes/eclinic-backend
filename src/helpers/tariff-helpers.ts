@@ -31,6 +31,9 @@ export type ProductCSVRow = {
   EAST_AFRICA?: string;
   AFRICA?: string;
   REST_OF_THE_WORLD?: string;
+  ICD11?: string;
+  LOINC?: string;
+  NATIONAL_TARIFF_CODE?: string;
 };
 
 type MinimalProduct = { id: number; name: string };
@@ -1279,6 +1282,9 @@ export async function createNewProduct(
       restOfWorldPrice: record.REST_OF_THE_WORLD
         ? Number.parseFloat(record.REST_OF_THE_WORLD)
         : undefined,
+      icd11Code: record.ICD11 || undefined,
+      loincCode: record.LOINC || undefined,
+      nationalTariffCode: record.NATIONAL_TARIFF_CODE || undefined,
     },
     select: { id: true, name: true },
   });
