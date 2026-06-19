@@ -140,10 +140,30 @@ export const getInsuranceClaims = async (c: Context) => {
           orderBy: orderBy as Prisma.InsuranceClaimOrderByWithRelationInput,
           ...restOptions,
           include: {
+            items: {
+              select: {
+                id: true,
+                quantity: true,
+                amount: true,
+                insuranceAmount: true,
+                itemStatus: true,
+                product: {
+                  select: {
+                    name: true,
+                    code: true,
+                    unit: true,
+                    icd11Code: true,
+                    loincCode: true,
+                    nationalTariffCode: true,
+                  },
+                },
+              },
+            },
             visit: {
               select: {
                 id: true,
                 doctorId: true,
+                diagnosis: true,
                 doctor: {
                   select: {
                     id: true,
@@ -494,6 +514,13 @@ export const recordInsuranceDeduction = async (c: Context) => {
 export const markInsuranceClaimAsSubmitted = async (c: Context) => {
   try {
     const claimId = Number.parseInt(c.req.param("claimId"), 10);
+    if (Number.isNaN(claimId)) {
+      return c.json(
+        { error: "Invalid insurance claim id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const user = c.get("user");
 
     const insuranceClaim = await db.insuranceClaim.findUnique({
