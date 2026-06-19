@@ -44,9 +44,21 @@ export const createProductSchema = z.object({
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
-  icd11Code: z.string().optional(),
-  loincCode: z.string().optional(),
-  nationalTariffCode: z.string().optional(),
+  icd11Code: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  loincCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  nationalTariffCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
   consumables: z
     .array(
       z.object({

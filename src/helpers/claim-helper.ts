@@ -4,12 +4,13 @@ import {
   type Payment,
   PaymentMode,
   PaymentStatus,
-  type Prisma,
+  Prisma,
 } from "../../generated/prisma/client";
 import { db } from "../database/db";
 import { logger } from "../lib/logger";
 
 type PaymentWithProducts = Payment & { products: { id: number }[] };
+const CLAIM_NUMBER_RETRY_LIMIT = 3;
 
 // Build claim line items from a set of insurance payments. Prefers the
 // per-product breakdown stored in paymentDetails, falling back to the
@@ -82,6 +83,50 @@ export async function generateClaimNumber(
   return `${prefix}${date}${sequence}`;
 }
 
+function isClaimNumberUniqueViolation(
+  error: unknown
+): error is Prisma.PrismaClientKnownRequestError {
+  if (
+    !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+    error.code !== "P2002"
+  ) {
+    return false;
+  }
+
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.includes("claimNumber");
+  }
+
+  return typeof target === "string" && target.includes("claimNumber");
+}
+
+export async function retryOnClaimNumberConflict<T>(
+  operation: () => Promise<T>,
+  context: string
+): Promise<T> {
+  for (let attempt = 1; attempt <= CLAIM_NUMBER_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        !isClaimNumberUniqueViolation(error) ||
+        attempt === CLAIM_NUMBER_RETRY_LIMIT
+      ) {
+        throw error;
+      }
+
+      logger.warn("Claim number conflict detected, retrying", {
+        context,
+        attempt,
+        maxAttempts: CLAIM_NUMBER_RETRY_LIMIT,
+      });
+    }
+  }
+
+  throw new Error("Claim number retry loop exited unexpectedly");
+}
+
 export async function createAutomaticClaim({
   visitId,
   clinicId,
@@ -98,43 +143,47 @@ export async function createAutomaticClaim({
   const { claimItems, totalAmount } = buildClaimItems(payments);
 
   try {
-    return await db.$transaction(async (tx) => {
-      const claim = await tx.insuranceClaim.create({
-        data: {
-          claimNumber: await generateClaimNumber(tx),
-          visit: { connect: { id: visitId } },
-          clinic: { connect: { id: clinicId } },
-          ...(branchId ? { branch: { connect: { id: branchId } } } : {}),
-          patientInsurance: { connect: { id: patientInsuranceId } },
-          totalAmount,
-          source: ClaimSource.CRON,
-          items: {
-            create: claimItems.map((item) => ({
-              product: { connect: { id: item.productId } },
-              quantity: item.quantity,
-              amount: item.amount,
-              insuranceAmount: item.insuranceAmount,
-              itemStatus: "PENDING",
-            })),
-          },
-        },
-        include: {
-          items: true,
-        },
-      });
+    return await retryOnClaimNumberConflict(
+      () =>
+        db.$transaction(async (tx) => {
+          const claim = await tx.insuranceClaim.create({
+            data: {
+              claimNumber: await generateClaimNumber(tx),
+              visit: { connect: { id: visitId } },
+              clinic: { connect: { id: clinicId } },
+              ...(branchId ? { branch: { connect: { id: branchId } } } : {}),
+              patientInsurance: { connect: { id: patientInsuranceId } },
+              totalAmount,
+              source: ClaimSource.CRON,
+              items: {
+                create: claimItems.map((item) => ({
+                  product: { connect: { id: item.productId } },
+                  quantity: item.quantity,
+                  amount: item.amount,
+                  insuranceAmount: item.insuranceAmount,
+                  itemStatus: "PENDING",
+                })),
+              },
+            },
+            include: {
+              items: true,
+            },
+          });
 
-      // Link payments to the claim
-      await tx.payment.updateMany({
-        where: {
-          id: { in: payments.map((p) => p.id) },
-        },
-        data: {
-          insuranceClaimId: claim.id,
-        },
-      });
+          // Link payments to the claim
+          await tx.payment.updateMany({
+            where: {
+              id: { in: payments.map((p) => p.id) },
+            },
+            data: {
+              insuranceClaimId: claim.id,
+            },
+          });
 
-      return claim;
-    });
+          return claim;
+        }),
+      "createAutomaticClaim"
+    );
   } catch (error) {
     logger.error("Error creating automatic claim", { error });
     return null;

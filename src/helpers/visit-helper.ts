@@ -23,7 +23,10 @@ import {
   parseNationalityFromPhoneNumber,
 } from "../lib/utils";
 import { invalidateCache } from "../services/redis.service";
-import { createClaimForVisit } from "./claim-helper";
+import {
+  createClaimForVisit,
+  retryOnClaimNumberConflict,
+} from "./claim-helper";
 import { summarizeVisitBilling } from "./payments.helper";
 
 type VisitSchemaType = z.infer<typeof visitSchema>;
@@ -506,97 +509,101 @@ export const dischargeVisit = async ({
   hasPrescription: boolean;
 }) => {
   try {
-    return await db.$transaction(async (tx) => {
-      // Fetch visit with all required relations
-      const clinicId = user.clinicId ?? user.clinic?.id;
-      const branchId = user.branchId ?? user.branch?.id;
+    return await retryOnClaimNumberConflict(
+      () =>
+        db.$transaction(async (tx) => {
+          // Fetch visit with all required relations
+          const clinicId = user.clinicId ?? user.clinic?.id;
+          const branchId = user.branchId ?? user.branch?.id;
 
-      if (!(clinicId && branchId)) {
-        return { error: "Clinic or branch not found" };
-      }
+          if (!(clinicId && branchId)) {
+            return { error: "Clinic or branch not found" };
+          }
 
-      const visit = await tx.visit.findUnique({
-        where: {
-          id: visitId,
-          clinicId,
-          branchId,
-        },
-        include: {
-          patient: {
-            select: {
-              firstName: true,
-              lastName: true,
+          const visit = await tx.visit.findUnique({
+            where: {
+              id: visitId,
+              clinicId,
+              branchId,
             },
-          },
-          payments: {
             include: {
-              products: {
+              patient: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+              payments: {
+                include: {
+                  products: {
+                    select: {
+                      id: true,
+                    },
+                  },
+                  discounts: {
+                    select: {
+                      amount: true,
+                      approval: { select: { status: true } },
+                    },
+                  },
+                },
+              },
+              patientInsurance: {
                 select: {
                   id: true,
+                  insuranceNumber: true,
+                  insuranceCompany: {
+                    select: {
+                      companyName: true,
+                    },
+                  },
                 },
               },
-              discounts: {
-                select: {
-                  amount: true,
-                  approval: { select: { status: true } },
-                },
-              },
+              prescriptions: true,
             },
-          },
-          patientInsurance: {
-            select: {
-              id: true,
-              insuranceNumber: true,
-              insuranceCompany: {
-                select: {
-                  companyName: true,
-                },
-              },
+          });
+
+          if (!visit) {
+            return { error: "Visit not found" };
+          }
+
+          // Discharge is gated on the PATIENT portion only. The insurance portion
+          // does not block discharge — it becomes a claim that is reconciled
+          // asynchronously after the patient has left.
+          const billing = summarizeVisitBilling(visit.payments);
+
+          logger.info("Discharge billing summary", { visitId, billing });
+          if (!billing.canDischarge) {
+            return {
+              error: `Patient must settle their balance (${billing.patientOutstanding}) before discharge`,
+              patientOutstanding: billing.patientOutstanding,
+            };
+          }
+
+          // Update visit status based on prescription
+          const updatedVisit = await tx.visit.update({
+            where: { id: visitId },
+            data: {
+              status: hasPrescription
+                ? VisitStatus.DISCHARGED_WITH_PRESCRIPTION
+                : VisitStatus.DISCHARGED,
+              endTime: new Date(),
             },
-          },
-          prescriptions: true,
-        },
-      });
+          });
 
-      if (!visit) {
-        return { error: "Visit not found" };
-      }
+          // Generate the insurance claim immediately so back-office reconciliation
+          // can start the same day rather than waiting for the nightly cron.
+          // Idempotent: only claims PAID insurance payments not yet attached.
+          const insuranceClaim = await createClaimForVisit(
+            tx,
+            visitId,
+            ClaimSource.DISCHARGE
+          );
 
-      // Discharge is gated on the PATIENT portion only. The insurance portion
-      // does not block discharge — it becomes a claim that is reconciled
-      // asynchronously after the patient has left.
-      const billing = summarizeVisitBilling(visit.payments);
-
-      logger.info("Discharge billing summary", { visitId, billing });
-      if (!billing.canDischarge) {
-        return {
-          error: `Patient must settle their balance (${billing.patientOutstanding}) before discharge`,
-          patientOutstanding: billing.patientOutstanding,
-        };
-      }
-
-      // Update visit status based on prescription
-      const updatedVisit = await tx.visit.update({
-        where: { id: visitId },
-        data: {
-          status: hasPrescription
-            ? VisitStatus.DISCHARGED_WITH_PRESCRIPTION
-            : VisitStatus.DISCHARGED,
-          endTime: new Date(),
-        },
-      });
-
-      // Generate the insurance claim immediately so back-office reconciliation
-      // can start the same day rather than waiting for the nightly cron.
-      // Idempotent: only claims PAID insurance payments not yet attached.
-      const insuranceClaim = await createClaimForVisit(
-        tx,
-        visitId,
-        ClaimSource.DISCHARGE
-      );
-
-      return { ...updatedVisit, insuranceClaim, billing };
-    });
+          return { ...updatedVisit, insuranceClaim, billing };
+        }),
+      "dischargeVisit"
+    );
   } catch (error) {
     logger.error("Discharge visit error:", { error });
     return { error: "Failed to discharge visit" };
