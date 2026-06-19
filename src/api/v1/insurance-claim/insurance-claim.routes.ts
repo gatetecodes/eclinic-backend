@@ -5,6 +5,7 @@ import { crudAccess } from "../../../middlewares/crud-access.middleware.ts";
 import {
   getInsuranceClaims,
   markInsuranceClaimAsPaid,
+  markInsuranceClaimAsSubmitted,
   recordInsuranceDeduction,
 } from "./insurance-claim.controller.ts";
 import {
@@ -26,5 +27,6 @@ router.post(
   validate(recordInsuranceDeductionSchema, "json"),
   recordInsuranceDeduction
 );
+router.post("/:claimId/mark-as-submitted", markInsuranceClaimAsSubmitted);
 
 export default router;

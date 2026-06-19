@@ -16,6 +16,7 @@ import {
   editPreConsultation,
   finalizeVisit,
   getPatientVisits,
+  getVisitBillingSummary,
   getVisitById,
   listVisits,
   updateInitialCheckIn,
@@ -206,6 +207,13 @@ router.post(
   "/:id/discharge",
   validate(getVisitParamsSchema, "param"),
   dischargeVisit
+);
+
+// Billing summary (patient vs insurance responsibility) — drives discharge UI
+router.get(
+  "/:id/billing-summary",
+  validate(getVisitParamsSchema, "param"),
+  getVisitBillingSummary
 );
 
 // Treatments

@@ -487,3 +487,68 @@ export const recordInsuranceDeduction = async (c: Context) => {
     );
   }
 };
+
+// Mark a queued (PENDING) claim as submitted to the insurer, stamping the
+// submission date. This is the back-office reconciliation action that moves a
+// claim out of the "to submit" queue and starts its aging clock.
+export const markInsuranceClaimAsSubmitted = async (c: Context) => {
+  try {
+    const claimId = Number.parseInt(c.req.param("claimId"), 10);
+    const user = c.get("user");
+
+    const insuranceClaim = await db.insuranceClaim.findUnique({
+      where: {
+        id: claimId,
+        ...(typeof user.clinicId === "number"
+          ? { clinicId: user.clinicId }
+          : {}),
+      },
+      select: { id: true, clinicId: true, branchId: true, claimStatus: true },
+    });
+
+    if (!insuranceClaim) {
+      return c.json(
+        { error: "Insurance claim not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    // Only a queued (PENDING) claim can be submitted; ignore anything already
+    // submitted or further along to keep the action idempotent.
+    const updateResult = await db.insuranceClaim.updateMany({
+      where: { id: claimId, claimStatus: ClaimStatus.PENDING },
+      data: {
+        claimStatus: ClaimStatus.SUBMITTED,
+        submissionDate: new Date(),
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return c.json(
+        { error: "Only pending claims can be marked as submitted" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    try {
+      await invalidateInsuranceClaimRelatedCaches({
+        clinicId: insuranceClaim.clinicId,
+        branchId: insuranceClaim.branchId,
+      });
+    } catch {
+      // Ignore cache errors
+    }
+
+    return c.json(
+      { success: "Insurance claim marked as submitted" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};

@@ -48,6 +48,7 @@ import {
 } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
+import { summarizeVisitBilling } from "../../../../helpers/payments.helper";
 import { buildQueryOptions } from "../../../../helpers/query-helper";
 import { createPaymentForProducts } from "../../../../helpers/tariff-helpers";
 import {
@@ -1785,6 +1786,51 @@ export const dischargeVisit = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Failed to discharge visit" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+// Patient vs insurance responsibility for a visit. Drives the discharge UI:
+// the patient portion must be settled to discharge; the insurance portion is
+// claimed and reconciled afterwards.
+export const getVisitBillingSummary = async (c: Context) => {
+  try {
+    const { id } = c.get("validatedParam");
+    const visitId = Number.parseInt(id, 10);
+
+    const visit = await db.visit.findUnique({
+      where: { id: visitId },
+      select: {
+        id: true,
+        payments: {
+          select: {
+            patientAmount: true,
+            paidAmount: true,
+            insuranceAmount: true,
+            paymentStatus: true,
+            discounts: {
+              select: {
+                amount: true,
+                approval: { select: { status: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return c.json(
+        { error: "Visit not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    return c.json({ data: summarizeVisitBilling(visit.payments) });
+  } catch (_error) {
+    return c.json(
+      { error: "Failed to load billing summary" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

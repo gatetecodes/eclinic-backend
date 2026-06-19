@@ -219,6 +219,9 @@ export const getTariff = async (c: Context) => {
         },
         unit: true,
         normalRange: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         isActive: true,
         departments: {
           select: {
@@ -238,6 +241,7 @@ export const getTariff = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -348,6 +352,9 @@ export const getProductsList = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         departments: {
           select: {
             id: true,
@@ -422,6 +429,9 @@ export const getProductsListWithPricing = async (c: Context) => {
         eastAfricaPrice: true,
         africaPrice: true,
         restOfWorldPrice: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         clinicProductPrices: scopedClinicId
           ? {
               where: {
@@ -447,6 +457,7 @@ export const getProductsListWithPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             clinicId: true,
             insuranceCompany: {
               select: {
@@ -540,6 +551,9 @@ export const getProductById = async (c: Context) => {
         restOfWorldPrice: true,
         unit: true,
         normalRange: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         consumables: true,
         isActive: true,
         clinicProductPrices: clinicId
@@ -579,6 +593,7 @@ export const getProductById = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             clinicId: true,
             insuranceCompany: {
               select: {
@@ -655,6 +670,7 @@ export const getProductById = async (c: Context) => {
   }
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Sequential validation guards before product creation
 export const createProduct = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -686,6 +702,9 @@ export const createProduct = async (c: Context) => {
       restOfWorldPrice,
       unit,
       normalRange,
+      icd11Code,
+      loincCode,
+      nationalTariffCode,
       consumables,
       departmentIds,
     } = validatedData;
@@ -727,6 +746,9 @@ export const createProduct = async (c: Context) => {
         restOfWorldPrice: restOfWorldPrice ?? null,
         unit,
         normalRange,
+        icd11Code: icd11Code ?? null,
+        loincCode: loincCode ?? null,
+        nationalTariffCode: nationalTariffCode ?? null,
         consumables: consumables
           ? (consumables as Prisma.InputJsonValue)
           : undefined,
@@ -869,6 +891,7 @@ export const updateProduct = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -965,8 +988,30 @@ export const updateProductPricing = async (c: Context) => {
       eastAfricaPrice,
       africaPrice,
       restOfWorldPrice,
+      icd11Code,
+      loincCode,
+      nationalTariffCode,
       insurancePrices,
     } = validatedData;
+
+    // Standardized codes are global product attributes; persist on the Product
+    // itself only when at least one was provided in the payload.
+    if (
+      icd11Code !== undefined ||
+      loincCode !== undefined ||
+      nationalTariffCode !== undefined
+    ) {
+      await db.product.update({
+        where: { id: productId },
+        data: {
+          ...(icd11Code !== undefined ? { icd11Code: icd11Code || null } : {}),
+          ...(loincCode !== undefined ? { loincCode: loincCode || null } : {}),
+          ...(nationalTariffCode !== undefined
+            ? { nationalTariffCode: nationalTariffCode || null }
+            : {}),
+        },
+      });
+    }
 
     // Update or create clinic-specific product prices
     await db.clinicProductPrice.upsert({
@@ -1026,6 +1071,7 @@ export const updateProductPricing = async (c: Context) => {
               price: ip.price,
               priceWithCo: ip.priceWithCo ?? undefined,
               priceType: ip.priceType ?? PriceType.PRIVATE,
+              insurerItemCode: ip.insurerItemCode ?? undefined,
               insuranceCompanyId: Number.parseInt(ip.companyId, 10),
               productId,
               clinicId,
@@ -1071,6 +1117,7 @@ export const updateProductPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -1248,6 +1295,7 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
