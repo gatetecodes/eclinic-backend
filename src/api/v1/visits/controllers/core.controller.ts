@@ -1799,6 +1799,12 @@ export const getVisitBillingSummary = async (c: Context) => {
     const user = c.get("user");
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
+    if (Number.isNaN(visitId)) {
+      return c.json(
+        { error: "Invalid visit id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
 
     const visit = await db.visit.findUnique({
       where: {
