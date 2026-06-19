@@ -617,6 +617,7 @@ export const validateInsuranceClaim = async (c: Context) => {
                 name: true,
                 nationalTariffCode: true,
                 icd11Code: true,
+                loincCode: true,
                 insurancePrices: { select: { insuranceCompanyId: true } },
               },
             },

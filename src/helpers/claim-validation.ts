@@ -25,6 +25,7 @@ export type ValidatableClaim = {
       name: string;
       nationalTariffCode: string | null;
       icd11Code: string | null;
+      loincCode: string | null;
       insurancePrices: { insuranceCompanyId: number }[];
     };
   }[];
@@ -86,13 +87,18 @@ export function validateClaim(
   }
 
   const missingCode = items.filter(
-    (item) => !(item.product.nationalTariffCode || item.product.icd11Code)
+    (item) =>
+      !(
+        item.product.nationalTariffCode ||
+        item.product.icd11Code ||
+        item.product.loincCode
+      )
   );
   if (missingCode.length > 0) {
     issues.push({
-      code: "MISSING_TARIFF_CODE",
+      code: "MISSING_STANDARD_CODE",
       severity: "warning",
-      message: `${missingCode.length} item(s) are missing a standardized code (national tariff or ICD-11).`,
+      message: `${missingCode.length} item(s) have no standardized code (national tariff, ICD-11, or LOINC). Rwanda's official tariff lists procedures by name, so a code is recommended but not mandatory.`,
       count: missingCode.length,
     });
   }
