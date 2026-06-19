@@ -1796,11 +1796,20 @@ export const dischargeVisit = async (c: Context) => {
 // claimed and reconciled afterwards.
 export const getVisitBillingSummary = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
 
     const visit = await db.visit.findUnique({
-      where: { id: visitId },
+      where: {
+        id: visitId,
+        ...(user.role !== Role.SUPER_ADMIN && typeof user.clinicId === "number"
+          ? { clinicId: user.clinicId }
+          : {}),
+        ...(user.role !== Role.SUPER_ADMIN && typeof user.branchId === "number"
+          ? { branchId: user.branchId }
+          : {}),
+      },
       select: {
         id: true,
         payments: {

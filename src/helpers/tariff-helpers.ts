@@ -939,6 +939,7 @@ const handleLabTestUpdates = async ({
 };
 
 // Helper function to handle existing product updates
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Import reconciliation touches pricing, departments, standardized codes, and lab-specific updates in one pass.
 export async function handleExistingProduct(
   existingProduct: IExistingProduct,
   record: ProductCSVRow,
@@ -987,6 +988,16 @@ export async function handleExistingProduct(
     newDepartments = record.DEPARTMENT.split(",").map((item) => {
       return item.trim();
     });
+  }
+
+  if (record.ICD11 !== undefined) {
+    productUpdateData.icd11Code = record.ICD11 || null;
+  }
+  if (record.LOINC !== undefined) {
+    productUpdateData.loincCode = record.LOINC || null;
+  }
+  if (record.NATIONAL_TARIFF_CODE !== undefined) {
+    productUpdateData.nationalTariffCode = record.NATIONAL_TARIFF_CODE || null;
   }
 
   const isLabTest = newDepartments.includes("LABORATOIRE");

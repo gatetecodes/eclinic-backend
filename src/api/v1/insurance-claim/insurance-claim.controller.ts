@@ -9,6 +9,7 @@ import {
   type Prisma,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { validateClaim } from "../../../helpers/claim-validation";
 import { buildQueryOptions } from "../../../helpers/query-helper";
 import { invalidateInsuranceClaimRelatedCaches } from "../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../lib/common-validation";
@@ -140,10 +141,30 @@ export const getInsuranceClaims = async (c: Context) => {
           orderBy: orderBy as Prisma.InsuranceClaimOrderByWithRelationInput,
           ...restOptions,
           include: {
+            items: {
+              select: {
+                id: true,
+                quantity: true,
+                amount: true,
+                insuranceAmount: true,
+                itemStatus: true,
+                product: {
+                  select: {
+                    name: true,
+                    code: true,
+                    unit: true,
+                    icd11Code: true,
+                    loincCode: true,
+                    nationalTariffCode: true,
+                  },
+                },
+              },
+            },
             visit: {
               select: {
                 id: true,
                 doctorId: true,
+                diagnosis: true,
                 doctor: {
                   select: {
                     id: true,
@@ -494,6 +515,13 @@ export const recordInsuranceDeduction = async (c: Context) => {
 export const markInsuranceClaimAsSubmitted = async (c: Context) => {
   try {
     const claimId = Number.parseInt(c.req.param("claimId"), 10);
+    if (Number.isNaN(claimId)) {
+      return c.json(
+        { error: "Invalid insurance claim id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const user = c.get("user");
 
     const insuranceClaim = await db.insuranceClaim.findUnique({
@@ -541,6 +569,71 @@ export const markInsuranceClaimAsSubmitted = async (c: Context) => {
 
     return c.json(
       { success: "Insurance claim marked as submitted" },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+export const validateInsuranceClaim = async (c: Context) => {
+  try {
+    const claimId = Number.parseInt(c.req.param("claimId"), 10);
+    if (Number.isNaN(claimId)) {
+      return c.json(
+        { error: "Invalid insurance claim id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const user = c.get("user");
+
+    const claim = await db.insuranceClaim.findUnique({
+      where: {
+        id: claimId,
+        ...(typeof user.clinicId === "number"
+          ? { clinicId: user.clinicId }
+          : {}),
+      },
+      select: {
+        documents: { select: { id: true } },
+        patientInsurance: {
+          select: {
+            insuranceCompanyId: true,
+            startDate: true,
+            endDate: true,
+          },
+        },
+        visit: { select: { diagnosis: true } },
+        items: {
+          select: {
+            product: {
+              select: {
+                name: true,
+                nationalTariffCode: true,
+                icd11Code: true,
+                insurancePrices: { select: { insuranceCompanyId: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!claim) {
+      return c.json(
+        { error: "Insurance claim not found" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    return c.json(
+      { data: validateClaim(claim) },
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {

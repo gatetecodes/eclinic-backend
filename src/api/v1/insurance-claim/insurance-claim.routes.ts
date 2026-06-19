@@ -7,6 +7,7 @@ import {
   markInsuranceClaimAsPaid,
   markInsuranceClaimAsSubmitted,
   recordInsuranceDeduction,
+  validateInsuranceClaim,
 } from "./insurance-claim.controller.ts";
 import {
   markInsuranceClaimAsPaidSchema,
@@ -28,5 +29,6 @@ router.post(
   recordInsuranceDeduction
 );
 router.post("/:claimId/mark-as-submitted", markInsuranceClaimAsSubmitted);
+router.get("/:claimId/validation", validateInsuranceClaim);
 
 export default router;
