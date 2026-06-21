@@ -13,6 +13,10 @@ model Visit {
     transferredTo           User?                    @relation("VisitsTransferredTo", fields: [transferredToId], references: [id])
     transferredToId         Int?
     status                  VisitStatus              @default(CHECKED_IN)
+    // Operational "where is the patient right now" station for the visual
+    // patient-flow pipeline. Additive to `status` (which remains the legal /
+    // billing source of truth). Kept in sync on every status transition.
+    careStage               CareStage                @default(RECEPTION)
     startTime               DateTime                 @default(now())
     endTime                 DateTime?
     notes                   String?
@@ -60,12 +64,14 @@ model Visit {
     queueEntries            QueueEntry[]
     pharmacyDispenseOrders  PharmacyDispenseOrder[]
     visitDiagnoses          VisitDiagnosis[]
+    triage                  Triage?
 
     @@index([patientId])
     @@index([clinicId])
     @@index([departmentId])
     @@index([doctorId])
     @@index([status])
+    @@index([careStage])
     @@index([startTime])
     @@index([createdAt])
     @@index([updatedAt])
@@ -83,6 +89,19 @@ enum VisitStatus {
     DISCHARGED_WITH_PRESCRIPTION
     ADMITTED
     CANCELLED
+}
+
+// Visual patient-flow pipeline stage. Aligns with the QueuePurpose stations
+// (RECEPTION, TRIAGE/PRE_CONSULTATION, DOCTOR, LAB, CASHIER) plus PHARMACY and
+// a terminal DONE. Derived from VisitStatus + open lab/dispense/invoice state.
+enum CareStage {
+    RECEPTION
+    TRIAGE
+    DOCTOR
+    LAB
+    PHARMACY
+    BILLING
+    DONE
 }
 
 enum PaymentMode {
@@ -121,6 +140,38 @@ model Handoff {
     @@index([visitId])
     @@index([fromDoctorId])
     @@index([toDoctorId])
+}
+
+// Structured, per-visit triage record (Sano flow design). Additive: vitals are
+// still mirrored to Patient.medicalInfo for backward compatibility, but this
+// table gives each visit its own queryable triage snapshot (previously the
+// patient-level JSON was overwritten each visit). One triage per visit.
+model Triage {
+    id             Int       @id @default(autoincrement())
+    visit          Visit     @relation(fields: [visitId], references: [id])
+    visitId        Int       @unique
+    // Vitals — strings to match the existing capture format (free units).
+    height         String?
+    weight         String?
+    temperature    String?
+    bloodType      String?
+    heartRate      String?
+    bloodPressure  String?
+    bloodSugar     String?
+    respiratory    String?
+    hemoglobin     String?
+    spo2           String?
+    bmi            String?
+    chiefComplaint String?
+    acuity         Priority?
+    notes          String?
+    recordedBy     User?     @relation("TriageRecordedBy", fields: [recordedById], references: [id])
+    recordedById   Int?
+    createdAt      DateTime  @default(now())
+    updatedAt      DateTime  @updatedAt
+
+    @@index([visitId])
+    @@index([recordedById])
 }
 
 // Structured, ICD-11-coded diagnoses for a visit. Additive: the free-text

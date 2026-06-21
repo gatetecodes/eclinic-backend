@@ -310,9 +310,11 @@ export const getProductsList = async (c: Context) => {
     }
 
     const { departmentIds } = c.req.query();
-    const parsedDepartmentIds = departmentIds
-      ? departmentIds.split(".").map(Number)
-      : undefined;
+    const parsedDepartmentIdsRaw = departmentIds
+      ? departmentIds.split(".").map(Number).filter(Number.isFinite)
+      : [];
+    const parsedDepartmentIds =
+      parsedDepartmentIdsRaw.length > 0 ? parsedDepartmentIdsRaw : undefined;
 
     const { clinicId } = getScope(user, c.req.query());
     let targetClinicId: number | undefined;
@@ -382,9 +384,11 @@ export const getProductsListWithPricing = async (c: Context) => {
     const user = c.get("user");
 
     const { departmentIds } = c.req.query();
-    const parsedDepartmentIds = departmentIds
-      ? departmentIds.split(".").map(Number)
-      : undefined;
+    const parsedDepartmentIdsRaw = departmentIds
+      ? departmentIds.split(".").map(Number).filter(Number.isFinite)
+      : [];
+    const parsedDepartmentIds =
+      parsedDepartmentIdsRaw.length > 0 ? parsedDepartmentIdsRaw : undefined;
 
     const { clinicId } = getScope(user, c.req.query());
     let targetClinicId: number | undefined;

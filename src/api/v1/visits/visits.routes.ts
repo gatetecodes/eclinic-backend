@@ -31,6 +31,14 @@ import {
   markResultsReady,
   requestVisitExamEdit,
 } from "./controllers/exams.controller.ts";
+// flow controllers (visual patient-flow pipeline)
+// flow controllers (visual patient-flow pipeline)
+import {
+  advanceVisitStage,
+  createFlowCheckIn,
+  getPipeline,
+  getStageSummary,
+} from "./controllers/flow.controller.ts";
 //Patient controllers
 import { getPatientsByPhone } from "./controllers/patient.controller.ts";
 // prescription controllers
@@ -59,11 +67,13 @@ import {
   addPaymentMethodSchema,
   addVisitNurseTreatmentBodySchema,
   addVisitTreatmentBodySchema,
+  advanceVisitSchema,
   consultationNoteSchema,
   createPrescriptionSchema,
   createSpectaclePrescriptionSchema,
   editChiefComplaintSchema,
   finalizeVisitSchema,
+  flowCheckInSchema,
   getHandoffParamsSchema,
   getPatientByPhoneSchema,
   getPatientVisitsParamsSchema,
@@ -84,6 +94,15 @@ import {
 const router = new Hono<AppEnv>();
 
 router.get("/", listVisits);
+// Patient-flow pipeline (live snapshot grouped by stage)
+router.get("/pipeline", getPipeline);
+// Slim reception check-in (new flow): patient + payment mode only
+router.post(
+  "/flow/check-in",
+  validate(flowCheckInSchema, "json"),
+  ...withAccess({ resource: "visits", action: "create" }),
+  createFlowCheckIn
+);
 router.get("/today", getTodaysVisits);
 router.get("/todays", getTodaysVisits);
 router.post(
@@ -257,6 +276,20 @@ router.put(
   validate(getVisitParamsSchema, "param"),
   validate(updateVisitStatusSchema, "json"),
   updateVisitStatus
+);
+
+// Patient-flow: stage summary + atomic stage advance
+router.get(
+  "/:id/stage-summary",
+  validate(getVisitParamsSchema, "param"),
+  getStageSummary
+);
+router.post(
+  "/:id/advance",
+  validate(getVisitParamsSchema, "param"),
+  validate(advanceVisitSchema, "json"),
+  ...withAccess({ resource: "visits", action: "update" }),
+  advanceVisitStage
 );
 
 // Prescriptions

@@ -44,6 +44,19 @@ export const getPatientsByPhone = async (c: Context) => {
                 startTime: true,
               },
             },
+            // Most recent insurance on record — lets reception show the
+            // patient's payment method without re-asking for it.
+            patientInsurance: {
+              orderBy: {
+                createdAt: "desc",
+              },
+              take: 1,
+              select: {
+                insuranceNumber: true,
+                coveragePercentage: true,
+                insuranceCompany: { select: { companyName: true } },
+              },
+            },
           },
         }),
       undefined,

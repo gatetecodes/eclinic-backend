@@ -1361,10 +1361,11 @@ export const createPaymentForProducts = async (
   visitId: number,
   paymentType: PaymentType,
   options?: boolean | { allowPartial?: boolean; tx?: Prisma.TransactionClient }
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 ) => {
   const allowPartial =
     typeof options === "boolean" ? options : options?.allowPartial;
-  const txClient = typeof options === "object" ? (options?.tx ?? db) : db;
+  const tx = typeof options === "object" ? options?.tx : undefined;
 
   type SimpleProductForPayment = ProductForPayment;
   type SimpleVisitForPayment = VisitForPayment;
@@ -1463,14 +1464,23 @@ export const createPaymentForProducts = async (
     };
   };
   // First get the visit to know the clinicId
-  const visitForClinic = await txClient.visit.findUnique({
-    where: {
-      id: visitId,
-    },
-    select: {
-      clinicId: true,
-    },
-  });
+  const visitForClinic = tx
+    ? await tx.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          clinicId: true,
+        },
+      })
+    : await db.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          clinicId: true,
+        },
+      });
 
   if (!visitForClinic) {
     throw new Error("Visit not found");
@@ -1478,66 +1488,127 @@ export const createPaymentForProducts = async (
 
   const clinicId = visitForClinic.clinicId;
 
-  const products = await txClient.product.findMany({
-    where: {
-      id: {
-        in: productIds,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      basePrice: true,
-      eastAfricaPrice: true,
-      africaPrice: true,
-      restOfWorldPrice: true,
-      insurancePrices: {
+  const products = tx
+    ? await tx.product.findMany({
         where: {
-          OR: [{ clinicId }, { clinicId: null }],
+          id: {
+            in: productIds,
+          },
         },
         select: {
-          price: true,
-          clinicId: true,
-          insuranceCompany: {
+          id: true,
+          name: true,
+          basePrice: true,
+          eastAfricaPrice: true,
+          africaPrice: true,
+          restOfWorldPrice: true,
+          insurancePrices: {
+            where: {
+              OR: [{ clinicId }, { clinicId: null }],
+            },
             select: {
-              id: true,
-              companyName: true,
+              price: true,
+              clinicId: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
             },
           },
         },
-      },
-    },
-  });
+      })
+    : await db.product.findMany({
+        where: {
+          id: {
+            in: productIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          basePrice: true,
+          eastAfricaPrice: true,
+          africaPrice: true,
+          restOfWorldPrice: true,
+          insurancePrices: {
+            where: {
+              OR: [{ clinicId }, { clinicId: null }],
+            },
+            select: {
+              price: true,
+              clinicId: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
-  const visit = await txClient.visit.findUnique({
-    where: {
-      id: visitId,
-    },
-    select: {
-      id: true,
-      paymentMode: true,
-      clinicId: true,
-      branchId: true,
-      patient: {
-        select: {
-          nationality: true,
-          isAForeigner: true,
-          foreignerRegion: true,
+  const visit = tx
+    ? await tx.visit.findUnique({
+        where: {
+          id: visitId,
         },
-      },
-      patientInsurance: {
         select: {
-          coveragePercentage: true,
-          insuranceCompany: {
+          id: true,
+          paymentMode: true,
+          clinicId: true,
+          branchId: true,
+          patient: {
             select: {
-              id: true,
-              companyName: true,
+              nationality: true,
+              isAForeigner: true,
+              foreignerRegion: true,
+            },
+          },
+          patientInsurance: {
+            select: {
+              coveragePercentage: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
             },
           },
         },
-      },
-    },
-  });
+      })
+    : await db.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          id: true,
+          paymentMode: true,
+          clinicId: true,
+          branchId: true,
+          patient: {
+            select: {
+              nationality: true,
+              isAForeigner: true,
+              foreignerRegion: true,
+            },
+          },
+          patientInsurance: {
+            select: {
+              coveragePercentage: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
   if (!visit) {
     throw new Error("Visit not found");
@@ -1576,40 +1647,75 @@ export const createPaymentForProducts = async (
     throw new Error("Amount is 0");
   }
 
-  const payment = await txClient.payment.create({
-    data: {
-      clinic: {
-        connect: {
-          id: visit.clinicId,
+  const payment = tx
+    ? await tx.payment.create({
+        data: {
+          clinic: {
+            connect: {
+              id: visit.clinicId,
+            },
+          },
+          branch: {
+            connect: visit.branchId
+              ? {
+                  id: visit.branchId,
+                }
+              : undefined,
+          },
+          visit: {
+            connect: {
+              id: visit.id,
+            },
+          },
+          paymentMode: visit.paymentMode as PaymentMode,
+          products: {
+            connect: products.map((product: { id: number }) => ({
+              id: product.id,
+            })),
+          },
+          paymentStatus: PaymentStatus.PENDING,
+          paymentDetails,
+          paymentType,
+          amount,
+          patientAmount,
+          insuranceAmount,
+          allowPartial,
         },
-      },
-      branch: {
-        connect: visit.branchId
-          ? {
-              id: visit.branchId,
-            }
-          : undefined,
-      },
-      visit: {
-        connect: {
-          id: visit.id,
+      })
+    : await db.payment.create({
+        data: {
+          clinic: {
+            connect: {
+              id: visit.clinicId,
+            },
+          },
+          branch: {
+            connect: visit.branchId
+              ? {
+                  id: visit.branchId,
+                }
+              : undefined,
+          },
+          visit: {
+            connect: {
+              id: visit.id,
+            },
+          },
+          paymentMode: visit.paymentMode as PaymentMode,
+          products: {
+            connect: products.map((product: { id: number }) => ({
+              id: product.id,
+            })),
+          },
+          paymentStatus: PaymentStatus.PENDING,
+          paymentDetails,
+          paymentType,
+          amount,
+          patientAmount,
+          insuranceAmount,
+          allowPartial,
         },
-      },
-      paymentMode: visit.paymentMode as PaymentMode,
-      products: {
-        connect: products.map((product: { id: number }) => ({
-          id: product.id,
-        })),
-      },
-      paymentStatus: PaymentStatus.PENDING,
-      paymentDetails,
-      paymentType,
-      amount,
-      patientAmount,
-      insuranceAmount,
-      allowPartial,
-    },
-  });
+      });
 
   return payment;
 };

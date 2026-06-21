@@ -49,6 +49,7 @@ model User {
     updatedAt                DateTime                @updatedAt
     doctorVisits             Visit[]                 @relation("DoctorVisits")
     checkedInVisits          Visit[]                 @relation("CheckedInVisits")
+    triagesRecorded          Triage[]                @relation("TriageRecordedBy")
     handoffsInitiated        Handoff[]               @relation("HandoffFrom")
     handoffsReceived         Handoff[]               @relation("HandoffTo")
     clinicalDepartments      ClinicalDepartment[]
