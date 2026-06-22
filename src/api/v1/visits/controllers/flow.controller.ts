@@ -9,6 +9,7 @@ import {
   Priority,
   type Prisma,
   QueuePurpose,
+  Role,
   VisitStatus,
 } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
@@ -122,13 +123,34 @@ export const getPipeline = async (c: Context) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
+    // A doctor is only responsible for the patients assigned to them, so the
+    // consultation (DOCTOR) stage is scoped to their own visits server-side —
+    // the backend is the source of truth, not a client-side filter. Every other
+    // stage stays clinic-wide (shared lab/pharmacy/billing/triage queues), and
+    // other roles (admins, cashiers, …) see the whole pipeline.
+    const doctorId = Number(user?.id);
+    const scopeDoctorStage =
+      user?.role === Role.DOCTOR && Number.isFinite(doctorId);
+
+    const stageFilter: Prisma.VisitWhereInput = scopeDoctorStage
+      ? {
+          OR: [
+            { careStage: { notIn: [CareStage.DONE, CareStage.DOCTOR] } },
+            { careStage: CareStage.DOCTOR, doctorId },
+            { careStage: CareStage.DONE, updatedAt: { gte: startOfToday } },
+          ],
+        }
+      : {
+          OR: [
+            { careStage: { not: CareStage.DONE } },
+            { careStage: CareStage.DONE, updatedAt: { gte: startOfToday } },
+          ],
+        };
+
     const where: Prisma.VisitWhereInput = {
       ...(typeof clinicId === "number" ? { clinicId } : {}),
       ...(typeof branchId === "number" ? { branchId } : {}),
-      OR: [
-        { careStage: { not: CareStage.DONE } },
-        { careStage: CareStage.DONE, updatedAt: { gte: startOfToday } },
-      ],
+      ...stageFilter,
     };
 
     const visits = await db.visit.findMany({
@@ -170,10 +192,16 @@ export const getPipeline = async (c: Context) => {
  */
 export const getStageSummary = async (c: Context) => {
   try {
+    const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
-    const visit = await db.visit.findUnique({
-      where: { id: visitId },
+    const { clinicId, branchId } = getScope(user, c.req.query());
+    const visit = await db.visit.findFirst({
+      where: {
+        id: visitId,
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
       select: { id: true, status: true, careStage: true, doctorId: true },
     });
     if (!visit) {
@@ -389,11 +417,14 @@ export const createFlowCheckIn = async (c: Context) => {
  * Atomic, validated stage transition. Writes status + careStage together,
  * keeps the queue in sync, invalidates caches and emits a live flow event.
  */
+
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const advanceVisitStage = async (c: Context) => {
   try {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
+    const { clinicId, branchId } = getScope(user, c.req.query());
 
     const parsed = advanceVisitSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -405,8 +436,12 @@ export const advanceVisitStage = async (c: Context) => {
     const { toStage, providerId, note, withPrescription } = parsed.data;
     const targetStage = toStage as CareStage;
 
-    const visit = await db.visit.findUnique({
-      where: { id: visitId },
+    const visit = await db.visit.findFirst({
+      where: {
+        id: visitId,
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
       select: {
         id: true,
         careStage: true,
@@ -455,42 +490,48 @@ export const advanceVisitStage = async (c: Context) => {
       nextStatus = VisitStatus.DISCHARGED_WITH_PRESCRIPTION;
     }
 
-    const updated = await db.$transaction(async (tx) => {
-      // Mark the previous station's queue entry as served, best-effort.
-      const prevPurpose = QUEUE_PURPOSE_BY_STAGE[visit.careStage];
-      if (prevPurpose) {
-        await QueueIntegrationService.markQueueEntryServedForVisit(
-          visit.id,
-          prevPurpose
-        ).catch(() => {
-          /* best-effort */
-        });
-      }
-
-      return tx.visit.update({
+    const updated = await db.$transaction((tx) =>
+      tx.visit.update({
         where: { id: visitId },
         data: {
           status: nextStatus,
           // careStage is set explicitly so the db extension does not override
           // ambiguous cases (e.g. PHARMACY vs BILLING both map to FINALIZED).
           careStage: targetStage,
-          ...(providerId ? { doctorId: providerId } : {}),
+          ...(providerId && targetStage === CareStage.DOCTOR
+            ? { doctorId: providerId }
+            : {}),
           ...(note
             ? { notes: visit.notes ? `${visit.notes}\n${note}` : note }
             : {}),
           ...(targetStage === CareStage.DONE ? { endTime: new Date() } : {}),
         },
         select: flowVisitSelect,
-      });
-    });
+      })
+    );
 
-    await syncQueueForStage(targetStage, {
-      visitId: visit.id,
-      patientId: visit.patientId,
-      clinicId: visit.clinicId,
-      branchId: visit.branchId ?? 0,
-      doctorId: providerId ?? visit.doctorId,
-    });
+    // Mark the previous station's queue entry as served, best-effort. Done only
+    // after the visit update commits so the queue is never marked served for a
+    // transition that failed to persist.
+    const prevPurpose = QUEUE_PURPOSE_BY_STAGE[visit.careStage];
+    if (prevPurpose) {
+      await QueueIntegrationService.markQueueEntryServedForVisit(
+        visit.id,
+        prevPurpose
+      ).catch(() => {
+        /* best-effort */
+      });
+    }
+
+    if (typeof visit.branchId === "number") {
+      await syncQueueForStage(targetStage, {
+        visitId: visit.id,
+        patientId: visit.patientId,
+        clinicId: visit.clinicId,
+        branchId: visit.branchId,
+        doctorId: providerId ?? visit.doctorId,
+      });
+    }
 
     await invalidateVisitRelatedCaches({
       clinicId: visit.clinicId,

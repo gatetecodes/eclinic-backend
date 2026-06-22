@@ -5,6 +5,7 @@ import { httpCodes } from "@/lib/constants";
 import type { Prisma } from "../../../../../generated/prisma/client";
 import {
   ActivityType,
+  CareStage,
   PaymentType,
   SmsEventType,
   VisitStatus,
@@ -21,6 +22,7 @@ import {
   invalidateVisitRelatedCaches,
 } from "../../../../lib/cache-utils";
 import { translate } from "../../../../lib/i18n";
+import { emitFlowUpdate } from "../../../../services/flow-events.service";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import { SmsService } from "../../../../services/sms.service";
 import { normalizeDrCongoPhoneToE164 } from "../../../../services/twilio.provider";
@@ -77,9 +79,14 @@ export const addExams = async (c: Context) => {
       },
     });
 
+    // Ordering exams parks the patient at the Billing gate: the exam charge
+    // must be settled before the lab runs the tests. Setting PENDING_TESTS
+    // moves the visit into the Billing stage (careStage is auto-derived from
+    // status by the db extension), so it shows up in the cashier's queue.
     await db.visit.update({
       where: { id: visitId },
       data: {
+        status: VisitStatus.PENDING_TESTS,
         payments: { connect: { id: payment.id } },
         exams: { connect: { id: exam.id } },
       },
@@ -126,6 +133,17 @@ export const addExams = async (c: Context) => {
       clinicId: user.clinicId,
       branchId: user.branchId,
       visitId,
+    });
+
+    // Push the patient-flow pipeline so the cashier's Billing queue updates
+    // live, rather than waiting for the next poll.
+    emitFlowUpdate({
+      clinicId: user.clinicId,
+      branchId: user.branchId ?? undefined,
+      type: "visit.advanced",
+      fromStage: CareStage.DOCTOR,
+      toStage: CareStage.BILLING,
+      actorId: Number(user?.id) || undefined,
     });
 
     return c.json({

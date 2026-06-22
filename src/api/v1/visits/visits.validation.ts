@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Priority } from "../../../../generated/prisma/client";
+import { PaymentMode, Priority } from "../../../../generated/prisma/client";
 
 const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{9,14}$/;
 const RWANDAN_CORE_PATTERN = /^7[2389][0-9]{7}$/;
@@ -371,8 +371,14 @@ export const preConsultationSchema = z.object({
   // New flow: the nurse assigns the department + doctor at triage before
   // sending the patient to consultation. Optional so the legacy path (which
   // assigns these at reception) is unaffected.
-  departmentId: z.string().optional(),
-  doctorId: z.string().optional(),
+  departmentId: z
+    .string()
+    .regex(/^\d+$/, "departmentId must be a numeric id")
+    .optional(),
+  doctorId: z
+    .string()
+    .regex(/^\d+$/, "doctorId must be a numeric id")
+    .optional(),
   // Optional acuity/priority set at triage (Routine/Urgent/Emergency).
   priority: z.nativeEnum(Priority).optional(),
 });
@@ -453,11 +459,8 @@ export const editChiefComplaintSchema = z.object({
 
 export const finalizeVisitSchema = z.object({
   // Diagnosis is captured in the consultation note widget, so it's optional at
-  // finalize (already saved). Exam conclusions + treatment comments are part of
-  // the finalize step.
+  // finalize (already saved).
   diagnosis: z.string().optional(),
-  examConclusions: z.string().min(1, "Exam conclusions are required"),
-  treatmentComments: z.string().min(1, "Treatment comments are required"),
   scheduleFollowUp: z.boolean().default(false),
   followUpDate: z.string().optional(),
   // New flow: consultation is selected by the doctor and billed (PENDING) at
@@ -507,7 +510,7 @@ export const flowCheckInSchema = z
       address: z.string().optional(),
     }),
     selectedPatientId: z.string().optional(),
-    paymentMode: z.string().optional(),
+    paymentMode: z.nativeEnum(PaymentMode).optional(),
     insurance: insuranceSchema.optional(),
     priority: z.nativeEnum(Priority).optional(),
   })

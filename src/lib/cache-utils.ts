@@ -26,9 +26,20 @@ export async function invalidateVisitRelatedCaches({
   patientId?: number;
   doctorId?: number;
 }) {
+  const clinicKey = clinicId ?? "ALL";
+  const branchKey = branchId ?? "ALL";
+  const visitPatterns = [
+    // Exact scoped list cache.
+    `${CACHE_KEYS.VISITS}:${clinicKey}:${branchKey}:*`,
+    // Broader fallbacks so transitions still invalidate correctly when the
+    // list was cached under ALL for clinic/branch scope.
+    `${CACHE_KEYS.VISITS}:${clinicKey}:ALL:*`,
+    `${CACHE_KEYS.VISITS}:ALL:${branchKey}:*`,
+    `${CACHE_KEYS.VISITS}:ALL:ALL:*`,
+  ];
   const cacheInvalidationPromises = [
-    // Invalidate all visit listings regardless of role and params
-    invalidateCache(`${CACHE_KEYS.VISITS}:${clinicId}:${branchId}:*`),
+    // Invalidate all visit listings regardless of role and params.
+    ...visitPatterns.map((pattern) => invalidateCache(pattern)),
     // Invalidate dashboard stats
     invalidateDashboardRelatedCaches(clinicId),
   ];

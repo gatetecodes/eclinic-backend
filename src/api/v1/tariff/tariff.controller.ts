@@ -311,7 +311,10 @@ export const getProductsList = async (c: Context) => {
 
     const { departmentIds } = c.req.query();
     const parsedDepartmentIdsRaw = departmentIds
-      ? departmentIds.split(".").map(Number).filter(Number.isFinite)
+      ? departmentIds
+          .split(".")
+          .map((token) => Number(token.trim()))
+          .filter((id) => Number.isInteger(id) && id > 0)
       : [];
     const parsedDepartmentIds =
       parsedDepartmentIdsRaw.length > 0 ? parsedDepartmentIdsRaw : undefined;
