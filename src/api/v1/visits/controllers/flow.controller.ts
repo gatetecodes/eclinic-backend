@@ -195,6 +195,12 @@ export const getStageSummary = async (c: Context) => {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
+    if (!Number.isFinite(visitId)) {
+      return c.json(
+        { error: "Invalid visit id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { clinicId, branchId } = getScope(user, c.req.query());
     const visit = await db.visit.findFirst({
       where: {
@@ -424,6 +430,12 @@ export const advanceVisitStage = async (c: Context) => {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
+    if (!Number.isFinite(visitId)) {
+      return c.json(
+        { error: "Invalid visit id" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
     const { clinicId, branchId } = getScope(user, c.req.query());
 
     const parsed = advanceVisitSchema.safeParse(await c.req.json());
