@@ -1306,6 +1306,10 @@ export const getVisitById = async (c: Context) => {
                 paymentType: true,
                 paymentStatus: true,
                 paymentMethod: true,
+                // Per-product breakdown ({ productName, amount, patientAmount,
+                // insuranceAmount, quantity }) so the invoice can itemise each
+                // charge on its own line.
+                paymentDetails: true,
               },
             },
             prescriptions: {
@@ -1672,13 +1676,7 @@ export const finalizeVisit = async (c: Context) => {
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const data = c.get("validatedJson") as z.infer<typeof finalizeVisitSchema>;
-    const {
-      diagnosis,
-      examConclusions,
-      treatmentComments,
-      followUpDate,
-      consultationProductIds,
-    } = data;
+    const { diagnosis, followUpDate, consultationProductIds } = data;
 
     let parsedFollowUpDate: Date | undefined;
     if (followUpDate) {
@@ -1737,37 +1735,39 @@ export const finalizeVisit = async (c: Context) => {
       .map((pid) => Number.parseInt(pid, 10))
       .filter((pid) => Number.isFinite(pid));
 
-    const updatedVisit = await db.visit.update({
-      where: { id: visitId },
-      data: {
-        // Diagnosis is owned by the consultation note; only overwrite if sent.
-        ...(diagnosis ? { diagnosis } : {}),
-        examConclusions,
-        treatmentComments,
-        followUpDate: parsedFollowUpDate,
-        status: VisitStatus.FINALIZED,
-        // New flow: attach the doctor-selected consultation product(s) so they
-        // can be billed and settled at final clearance.
-        ...(consultationIds.length > 0
-          ? {
-              consultations: {
-                connect: consultationIds.map((cid) => ({ id: cid })),
-              },
-            }
-          : {}),
-      },
-    });
+    const updatedVisit = await db.$transaction(async (tx) => {
+      const finalizedVisit = await tx.visit.update({
+        where: { id: visitId },
+        data: {
+          // Diagnosis is owned by the consultation note; only overwrite if sent.
+          ...(diagnosis ? { diagnosis } : {}),
+          followUpDate: parsedFollowUpDate,
+          status: VisitStatus.FINALIZED,
+          // New flow: attach the doctor-selected consultation product(s) so they
+          // can be billed and settled at final clearance.
+          ...(consultationIds.length > 0
+            ? {
+                consultations: {
+                  connect: consultationIds.map((cid) => ({ id: cid })),
+                },
+              }
+            : {}),
+        },
+      });
 
-    // New flow: create the consultation charge as PENDING (paid at final
-    // billing). No-op when no consultation product was selected.
-    if (consultationIds.length > 0) {
-      await createPaymentForProducts(
-        consultationIds,
-        visitId,
-        PaymentType.CONSULTATION,
-        { allowPartial: false }
-      );
-    }
+      // New flow: create the consultation charge as PENDING (paid at final
+      // billing). No-op when no consultation product was selected.
+      if (consultationIds.length > 0) {
+        await createPaymentForProducts(
+          consultationIds,
+          visitId,
+          PaymentType.CONSULTATION,
+          { allowPartial: false, tx }
+        );
+      }
+
+      return finalizedVisit;
+    });
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,

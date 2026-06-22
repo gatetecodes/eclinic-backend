@@ -67,6 +67,7 @@ function getWhereConditions(
   {
     name,
     status,
+    careStage,
     role,
     gender,
     patient,
@@ -87,6 +88,7 @@ function getWhereConditions(
     ...getPatientNameCondition(patient),
     ...getDateCondition(from, to),
     ...getStatusCondition(status),
+    ...getCareStageCondition(careStage),
     ...getRoleCondition(role),
     ...getGenderCondition(gender),
     ...getDoctorIdCondition(doctorId, includeHandoffs),
@@ -196,6 +198,11 @@ function getStatusCondition(status?: string): {
   return statusArray
     ? { OR: statusArray.map((s) => ({ status: s as unknown })) }
     : {};
+}
+
+function getCareStageCondition(careStage?: string) {
+  const stageArray = careStage?.split(".").filter(Boolean);
+  return stageArray?.length ? { careStage: { in: stageArray } } : {};
 }
 
 function getRoleCondition(role?: string) {

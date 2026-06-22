@@ -193,6 +193,37 @@ export async function getOrCreatePatient(
 }
 
 /**
+ * Clears the clinic-scoped phone-search cache for a patient (both the patient's
+ * own number and the guardian number, across every clinic they belong to). The
+ * cached payload embeds the patient's latest insurance, so it must be cleared
+ * whenever insurance changes to avoid reception seeing stale coverage.
+ * @param {number} patientId - The ID of the patient.
+ */
+async function invalidatePatientPhoneSearchCache(
+  patientId: number
+): Promise<void> {
+  const patient = await db.patient.findUnique({
+    where: { id: patientId },
+    select: {
+      phoneNumber: true,
+      guardianPhoneNumber: true,
+      clinics: { select: { id: true } },
+    },
+  });
+  if (!patient) {
+    return;
+  }
+  const phones = [patient.phoneNumber, patient.guardianPhoneNumber].filter(
+    Boolean
+  ) as string[];
+  await Promise.all(
+    patient.clinics.flatMap((clinic) =>
+      phones.map((pn) => invalidateCache(`patients:phone:${clinic.id}:${pn}`))
+    )
+  );
+}
+
+/**
  * Handles the insurance data for a patient.
  * @param {NonNullable<VisitSchemaType['insurance']>} insuranceData - The insurance data.
  * @param {number} patientId - The ID of the patient.
@@ -243,6 +274,7 @@ export async function handleInsurance(
         principalPhoneNumber: insuranceData.principalPhoneNumber || null,
       },
     });
+    await invalidatePatientPhoneSearchCache(patientId);
     return existingInsurance.id;
   }
 
@@ -263,6 +295,7 @@ export async function handleInsurance(
     },
   });
 
+  await invalidatePatientPhoneSearchCache(patientId);
   return newInsurance.id;
 }
 

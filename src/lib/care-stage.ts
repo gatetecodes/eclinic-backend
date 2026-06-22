@@ -40,8 +40,8 @@ export const CARE_STAGE_ORDER: CareStage[] = [
   CareStage.TRIAGE,
   CareStage.DOCTOR,
   CareStage.LAB,
-  CareStage.PHARMACY,
   CareStage.BILLING,
+  CareStage.PHARMACY,
   CareStage.DONE,
 ];
 

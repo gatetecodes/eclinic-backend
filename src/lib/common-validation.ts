@@ -8,6 +8,7 @@ export const searchParamsSchema = z.object({
   sort: z.string().optional(),
   name: z.string().optional(),
   status: z.string().optional(),
+  careStage: z.string().optional(),
   type: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
