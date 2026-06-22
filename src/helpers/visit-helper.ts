@@ -202,25 +202,31 @@ export async function getOrCreatePatient(
 async function invalidatePatientPhoneSearchCache(
   patientId: number
 ): Promise<void> {
-  const patient = await db.patient.findUnique({
-    where: { id: patientId },
-    select: {
-      phoneNumber: true,
-      guardianPhoneNumber: true,
-      clinics: { select: { id: true } },
-    },
-  });
-  if (!patient) {
-    return;
+  // Best-effort: the insurance write has already committed, so a cache outage
+  // must never fail the caller. Swallow any error from the lookup/eviction.
+  try {
+    const patient = await db.patient.findUnique({
+      where: { id: patientId },
+      select: {
+        phoneNumber: true,
+        guardianPhoneNumber: true,
+        clinics: { select: { id: true } },
+      },
+    });
+    if (!patient) {
+      return;
+    }
+    const phones = [patient.phoneNumber, patient.guardianPhoneNumber].filter(
+      Boolean
+    ) as string[];
+    await Promise.all(
+      patient.clinics.flatMap((clinic) =>
+        phones.map((pn) => invalidateCache(`patients:phone:${clinic.id}:${pn}`))
+      )
+    );
+  } catch {
+    /* cache invalidation is best-effort; never fail the insurance write */
   }
-  const phones = [patient.phoneNumber, patient.guardianPhoneNumber].filter(
-    Boolean
-  ) as string[];
-  await Promise.all(
-    patient.clinics.flatMap((clinic) =>
-      phones.map((pn) => invalidateCache(`patients:phone:${clinic.id}:${pn}`))
-    )
-  );
 }
 
 /**

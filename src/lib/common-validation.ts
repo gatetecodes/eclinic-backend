@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CareStage } from "../../generated/prisma/client";
 
 const PER_PAGE_DEFAULT = 20;
 
@@ -8,7 +9,18 @@ export const searchParamsSchema = z.object({
   sort: z.string().optional(),
   name: z.string().optional(),
   status: z.string().optional(),
-  careStage: z.string().optional(),
+  careStage: z
+    .string()
+    .optional()
+    .refine(
+      (val) =>
+        !val ||
+        val
+          .split(".")
+          .filter(Boolean)
+          .every((v) => (Object.values(CareStage) as string[]).includes(v)),
+      { message: "Invalid care stage" }
+    ),
   type: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
