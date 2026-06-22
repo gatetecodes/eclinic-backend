@@ -723,9 +723,8 @@ export const addPreConsultation = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const { vitals, notes, chiefComplaint } = parsed.data as z.infer<
-      typeof preConsultationSchema
-    >;
+    const { vitals, notes, chiefComplaint, departmentId, doctorId, priority } =
+      parsed.data as z.infer<typeof preConsultationSchema>;
 
     const result = await db.$transaction(async (tx) => {
       const visitRecord = await tx.visit.update({
@@ -733,6 +732,19 @@ export const addPreConsultation = async (c: Context) => {
           notes,
           status: VisitStatus.IN_CONSULTATION,
           ...(chiefComplaint ? { chiefComplaint } : {}),
+          // New flow: triage assigns department + doctor + acuity before the
+          // patient is released to consultation.
+          ...(departmentId
+            ? {
+                department: {
+                  connect: { id: Number.parseInt(departmentId, 10) },
+                },
+              }
+            : {}),
+          ...(doctorId
+            ? { doctor: { connect: { id: Number.parseInt(doctorId, 10) } } }
+            : {}),
+          ...(priority ? { priority } : {}),
         },
         where: { id: visitId },
         select: {
@@ -752,6 +764,25 @@ export const addPreConsultation = async (c: Context) => {
         },
         where: { id: visitRecord.patientId },
         select: { firstName: true, lastName: true },
+      });
+
+      // Additive: persist a structured, per-visit triage snapshot (Sano flow).
+      // Vitals are still mirrored to patient.medicalInfo above for compat.
+      await tx.triage.upsert({
+        where: { visitId },
+        create: {
+          visitId,
+          ...vitals,
+          ...(chiefComplaint ? { chiefComplaint } : {}),
+          notes,
+          recordedById: Number(user.id),
+        },
+        update: {
+          ...vitals,
+          ...(chiefComplaint ? { chiefComplaint } : {}),
+          notes,
+          recordedById: Number(user.id),
+        },
       });
 
       return { updatedVisit: visitRecord, updatedPatient };
@@ -887,6 +918,24 @@ export const editPreConsultation = async (c: Context) => {
         },
         where: {
           id: existingVisit.patientId,
+        },
+      });
+
+      // Keep the structured per-visit triage snapshot in sync (Sano flow).
+      await tx.triage.upsert({
+        where: { visitId },
+        create: {
+          visitId,
+          ...vitals,
+          ...(chiefComplaint ? { chiefComplaint } : {}),
+          notes,
+          recordedById: Number(user.id),
+        },
+        update: {
+          ...vitals,
+          ...(chiefComplaint ? { chiefComplaint } : {}),
+          notes,
+          recordedById: Number(user.id),
         },
       });
 
@@ -1204,6 +1253,8 @@ export const getVisitById = async (c: Context) => {
             transferReason: true,
             chiefComplaint: true,
             basicTriage: true,
+            careStage: true,
+            triage: true,
             diagnosis: true,
             examConclusions: true,
             treatmentComments: true,
@@ -1254,6 +1305,7 @@ export const getVisitById = async (c: Context) => {
                 patientAmount: true,
                 paymentType: true,
                 paymentStatus: true,
+                paymentMethod: true,
               },
             },
             prescriptions: {
@@ -1543,7 +1595,10 @@ export const createConsultationNote = async (c: Context) => {
     }
     const visit = await db.visit.update({
       where: { id: visitId },
-      data: { consultationNote: parsed.data.consultationNote },
+      data: {
+        consultationNote: parsed.data.consultationNote,
+        ...(parsed.data.diagnosis ? { diagnosis: parsed.data.diagnosis } : {}),
+      },
     });
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
@@ -1585,7 +1640,10 @@ export const editConsultationNote = async (c: Context) => {
     }
     const visit = await db.visit.update({
       where: { id: visitId },
-      data: { consultationNote: parsed.data.consultationNote },
+      data: {
+        consultationNote: parsed.data.consultationNote,
+        ...(parsed.data.diagnosis ? { diagnosis: parsed.data.diagnosis } : {}),
+      },
     });
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
@@ -1614,8 +1672,13 @@ export const finalizeVisit = async (c: Context) => {
     const { id } = c.get("validatedParam");
     const visitId = Number.parseInt(id, 10);
     const data = c.get("validatedJson") as z.infer<typeof finalizeVisitSchema>;
-    const { diagnosis, examConclusions, treatmentComments, followUpDate } =
-      data;
+    const {
+      diagnosis,
+      examConclusions,
+      treatmentComments,
+      followUpDate,
+      consultationProductIds,
+    } = data;
 
     let parsedFollowUpDate: Date | undefined;
     if (followUpDate) {
@@ -1670,16 +1733,41 @@ export const finalizeVisit = async (c: Context) => {
       );
     }
 
+    const consultationIds = (consultationProductIds ?? [])
+      .map((pid) => Number.parseInt(pid, 10))
+      .filter((pid) => Number.isFinite(pid));
+
     const updatedVisit = await db.visit.update({
       where: { id: visitId },
       data: {
-        diagnosis,
+        // Diagnosis is owned by the consultation note; only overwrite if sent.
+        ...(diagnosis ? { diagnosis } : {}),
         examConclusions,
         treatmentComments,
         followUpDate: parsedFollowUpDate,
         status: VisitStatus.FINALIZED,
+        // New flow: attach the doctor-selected consultation product(s) so they
+        // can be billed and settled at final clearance.
+        ...(consultationIds.length > 0
+          ? {
+              consultations: {
+                connect: consultationIds.map((cid) => ({ id: cid })),
+              },
+            }
+          : {}),
       },
     });
+
+    // New flow: create the consultation charge as PENDING (paid at final
+    // billing). No-op when no consultation product was selected.
+    if (consultationIds.length > 0) {
+      await createPaymentForProducts(
+        consultationIds,
+        visitId,
+        PaymentType.CONSULTATION,
+        { allowPartial: false }
+      );
+    }
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,

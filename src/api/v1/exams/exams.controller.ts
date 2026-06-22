@@ -87,6 +87,16 @@ export const getExams = async (c: Context) => {
             id: true,
             name: true,
             basePrice: true,
+            // Configured sub-parameters of the lab product, used to seed the
+            // result-entry form's parameter rows.
+            tests: {
+              select: {
+                id: true,
+                name: true,
+                unit: true,
+                normalRange: true,
+              },
+            },
           },
         },
         results: {
@@ -1951,6 +1961,16 @@ export const getExamsByVisitId = async (c: Context) => {
             id: true,
             name: true,
             basePrice: true,
+            // Configured sub-parameters of the lab product, used to seed the
+            // result-entry form's parameter rows.
+            tests: {
+              select: {
+                id: true,
+                name: true,
+                unit: true,
+                normalRange: true,
+              },
+            },
           },
         },
         results: {

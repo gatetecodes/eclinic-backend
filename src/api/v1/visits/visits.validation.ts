@@ -83,6 +83,9 @@ export const vitalsSchema = z.object({
   bloodSugar: z.string().optional(),
   respiratory: z.string().optional(),
   hemoglobin: z.string().optional(),
+  // Sano triage vitals: oxygen saturation + derived BMI.
+  spo2: z.string().optional(),
+  bmi: z.string().optional(),
 });
 export const patientSchema = z
   .object({
@@ -365,6 +368,13 @@ export const preConsultationSchema = z.object({
   vitals: vitalsSchema,
   notes: z.string().optional(),
   chiefComplaint: z.string().optional(),
+  // New flow: the nurse assigns the department + doctor at triage before
+  // sending the patient to consultation. Optional so the legacy path (which
+  // assigns these at reception) is unaffected.
+  departmentId: z.string().optional(),
+  doctorId: z.string().optional(),
+  // Optional acuity/priority set at triage (Routine/Urgent/Emergency).
+  priority: z.nativeEnum(Priority).optional(),
 });
 
 export type PreConsultation = z.infer<typeof preConsultationSchema>;
@@ -442,11 +452,18 @@ export const editChiefComplaintSchema = z.object({
 });
 
 export const finalizeVisitSchema = z.object({
-  diagnosis: z.string().min(1, "Diagnosis is required"),
+  // Diagnosis is captured in the consultation note widget, so it's optional at
+  // finalize (already saved). Exam conclusions + treatment comments are part of
+  // the finalize step.
+  diagnosis: z.string().optional(),
   examConclusions: z.string().min(1, "Exam conclusions are required"),
   treatmentComments: z.string().min(1, "Treatment comments are required"),
   scheduleFollowUp: z.boolean().default(false),
   followUpDate: z.string().optional(),
+  // New flow: consultation is selected by the doctor and billed (PENDING) at
+  // finalize, then settled at final billing. Optional so the legacy flow (which
+  // bills consultation at reception) is unaffected.
+  consultationProductIds: z.array(z.string()).optional(),
 });
 
 export const handoffSchema = z.object({
@@ -467,6 +484,75 @@ export const getHandoffParamsSchema = z.object({ handoffId: z.string() });
 export const rejectHandoffBodySchema = z.object({
   reason: z.string().min(1, "Rejection reason is required"),
 });
+
+// Slim reception check-in for the new flow: capture patient + payment mode
+// only. Department/doctor are assigned at triage; consultation is charged at
+// finalize. Isolated from the legacy initialCheckInSchema so that path is
+// unaffected.
+export const flowCheckInSchema = z
+  .object({
+    patient: z.object({
+      firstName: z.string().min(1, "First name is required"),
+      lastName: z.string().min(1, "Last name is required"),
+      dateOfBirth: z.string().min(1, "Date of birth is required"),
+      gender: z.string().min(1, "Gender is required"),
+      isChild: z.boolean().optional().default(false),
+      phoneNumber: z.string().optional(),
+      guardianPhoneNumber: z.string().optional(),
+      isAForeigner: z.boolean().optional(),
+      foreignerRegion: z
+        .enum(["EAST_AFRICA", "AFRICA", "REST_OF_THE_WORLD"])
+        .nullable()
+        .optional(),
+      address: z.string().optional(),
+    }),
+    selectedPatientId: z.string().optional(),
+    paymentMode: z.string().optional(),
+    insurance: insuranceSchema.optional(),
+    priority: z.nativeEnum(Priority).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.paymentMode === "INSURANCE") {
+      if (!data.insurance?.insuranceNumber) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Insurance number is required",
+          path: ["insurance", "insuranceNumber"],
+        });
+      }
+      if (!data.insurance?.insuranceCompany) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Insurance company is required",
+          path: ["insurance", "insuranceCompany"],
+        });
+      }
+    }
+  });
+
+export type IFlowCheckIn = z.infer<typeof flowCheckInSchema>;
+
+// Advance a visit to a new pipeline stage (drives the visual patient flow).
+export const advanceVisitSchema = z.object({
+  toStage: z.enum([
+    "RECEPTION",
+    "TRIAGE",
+    "DOCTOR",
+    "LAB",
+    "PHARMACY",
+    "BILLING",
+    "DONE",
+  ]),
+  // Optional provider (doctorId) to assign when moving into the DOCTOR stage.
+  providerId: z.number().int().positive().optional(),
+  // Optional note recorded with the transition.
+  note: z.string().max(2000).optional(),
+  // When moving to DONE, mark as discharged-with-prescription instead of plain
+  // discharge (UI sets this when a prescription was issued).
+  withPrescription: z.boolean().optional(),
+});
+
+export type IAdvanceVisit = z.infer<typeof advanceVisitSchema>;
 
 // Update status schema
 export const updateVisitStatusSchema = z.object({
@@ -491,6 +577,9 @@ export const updatePreConsultationRequestSchema = preConsultationSchema;
 // Additional endpoint-specific schemas
 export const consultationNoteSchema = z.object({
   consultationNote: z.string().min(1, "Consultation note is required"),
+  // Diagnosis is documented with the consultation note (History / Examination /
+  // Assessment + Diagnosis). Optional so the note can be saved progressively.
+  diagnosis: z.string().optional(),
 });
 
 export const addVisitTreatmentBodySchema = z.object({
