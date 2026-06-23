@@ -63,7 +63,8 @@ import {
 
 const EMAIL_RETRY_DELAY_MS = 1000;
 
-const generateTemporaryPassword = () => randomBytes(24).toString("base64url");
+const generateTemporaryPassword = () =>
+  process.env.DEFAULT_USER_PASSWORD || randomBytes(24).toString("base64url");
 
 const signUpUserWithBetterAuth = async (
   backendUrl: string,
@@ -1868,7 +1869,20 @@ export const getCurrentUser = async (c: Context) => {
       });
     }
 
-    return c.json({ data: user }, httpCodes.OK as ContentfulStatusCode);
+    const hasReceptionistInBranch = user.branchId
+      ? (await db.user.count({
+          where: {
+            branchId: user.branchId,
+            role: Role.RECEPTIONIST,
+            status: UserStatus.ACTIVE,
+          },
+        })) > 0
+      : false;
+
+    return c.json(
+      { data: { ...user, hasReceptionistInBranch } },
+      httpCodes.OK as ContentfulStatusCode
+    );
   } catch (error) {
     logger.error("Failed to get current user", { error });
     return c.json(
