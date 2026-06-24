@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { PaymentMode, Priority } from "../../../../generated/prisma/client";
+import {
+  PaymentMode,
+  PrescriptionItemFulfilment,
+  Priority,
+} from "../../../../generated/prisma/client";
 
 const INTERNATIONAL_PHONE_PATTERN = /^\+[1-9]\d{9,14}$/;
 const RWANDAN_CORE_PATTERN = /^7[2389][0-9]{7}$/;
@@ -629,6 +633,10 @@ export const getPatientByPhoneSchema = z
   })
   .transform(({ phone }) => phone);
 
+const prescriptionItemFulfilmentSchema = z
+  .nativeEnum(PrescriptionItemFulfilment)
+  .default(PrescriptionItemFulfilment.INTERNAL);
+
 export const createPrescriptionSchema = z.object({
   prescription: z.object({
     items: z.array(
@@ -638,6 +646,11 @@ export const createPrescriptionSchema = z.object({
         frequency: z.string(),
         duration: z.string(),
         instructions: z.string().optional(),
+        fulfilment: prescriptionItemFulfilmentSchema,
+        // Clinic inventory item to dispense from when fulfilment is INTERNAL.
+        inventoryItemId: z.number().int().positive().optional().nullable(),
+        // Units to dispense/bill for INTERNAL lines.
+        quantity: z.number().int().positive().optional().nullable(),
       })
     ),
   }),
@@ -663,6 +676,9 @@ export const updatePrescriptionSchema = z.object({
       frequency: z.string(),
       duration: z.string(),
       instructions: z.string().optional(),
+      fulfilment: prescriptionItemFulfilmentSchema,
+      inventoryItemId: z.number().int().positive().optional().nullable(),
+      quantity: z.number().int().positive().optional().nullable(),
     })
   ),
 });
