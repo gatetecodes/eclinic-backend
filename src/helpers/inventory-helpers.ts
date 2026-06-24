@@ -235,11 +235,22 @@ export function generateReceiptBatchNumber(itemId: number): string {
   return `GRN-${itemId}-${yyyy}${mm}${dd}-${rand}`;
 }
 
+function assertPositiveInventoryQuantity(quantity: number) {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INVALID_QUANTITY",
+      message: "Quantity must be greater than zero",
+      exposeMessage: true,
+    });
+  }
+}
+
 /**
  * Receives a single goods-receipt line into stock: creates a batch, records a
  * PURCHASE transaction, increments aggregate stock and refreshes item status.
  * Shared by ad-hoc goods receipt and purchase-order receiving so both paths
- * behave identically.
+ * behave identically while preserving the correct source type.
  */
 export async function applyGoodsReceiptLine(
   tx: Prisma.TransactionClient,
@@ -251,8 +262,14 @@ export async function applyGoodsReceiptLine(
     expiryDate?: Date | null;
     location?: string | null;
   },
-  ctx: { userId: number; branchId?: number | null; notes?: string | null }
+  ctx: {
+    userId: number;
+    branchId?: number | null;
+    notes?: string | null;
+    sourceType: SourceType;
+  }
 ): Promise<{ batchId: number }> {
+  assertPositiveInventoryQuantity(line.quantity);
   const unitPrice = line.unitPrice != null ? new Decimal(line.unitPrice) : null;
   const batch = await tx.inventoryBatch.create({
     data: {
@@ -275,7 +292,7 @@ export async function applyGoodsReceiptLine(
       quantity: line.quantity,
       unitPrice,
       totalAmount: unitPrice ? unitPrice.mul(line.quantity) : null,
-      sourceType: SourceType.PURCHASE_ORDER,
+      sourceType: ctx.sourceType,
       notes: ctx.notes ?? null,
       userId: ctx.userId,
       status: TransactionStatus.COMPLETED,
@@ -305,6 +322,7 @@ export async function seedOpeningStock(
     userId: number;
   }
 ) {
+  assertPositiveInventoryQuantity(input.quantity);
   const unitPrice =
     input.unitPrice != null ? new Decimal(input.unitPrice) : null;
   const batch = await tx.inventoryBatch.create({
