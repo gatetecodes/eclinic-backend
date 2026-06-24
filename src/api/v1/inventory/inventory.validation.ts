@@ -142,6 +142,29 @@ export const disposalSchema = z.object({
 });
 export type DisposalInput = z.infer<typeof disposalSchema>;
 
+export const ADJUST_STOCK_REASONS = [
+  "received",
+  "damaged",
+  "sold",
+  "correction",
+  "return",
+] as const;
+
+export const adjustStockSchema = z.object({
+  itemId: z.number(),
+  delta: z
+    .number()
+    .int("Adjustment must be a whole number")
+    .refine((val) => val !== 0, { message: "Adjustment cannot be zero" }),
+  reason: z.enum(ADJUST_STOCK_REASONS).default("correction"),
+  visitId: z.number().optional(),
+  notes: z
+    .string()
+    .optional()
+    .transform((val) => val || null),
+});
+export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
+
 export const returnSchema = z.object({
   itemId: z.number(),
   quantity: z.number().positive(),
@@ -193,5 +216,9 @@ export const createInventoryItemSchema = z.object({
   reorderLevel: z.number().int().nonnegative(),
   manufacturer: z.string().optional(),
   minOrderQuantity: z.number().int().nonnegative().optional(),
+  unitPrice: z.number().nonnegative().optional(),
+  costPrice: z.number().nonnegative().optional(),
+  quantity: z.number().int().nonnegative().optional(),
+  insuranceCovered: z.boolean().optional(),
   notes: z.string().optional(),
 });

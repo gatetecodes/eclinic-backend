@@ -50,7 +50,10 @@ import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
 import { summarizeVisitBilling } from "../../../../helpers/payments.helper";
 import { buildQueryOptions } from "../../../../helpers/query-helper";
-import { createPaymentForProducts } from "../../../../helpers/tariff-helpers";
+import {
+  createMedicationPaymentForVisit,
+  createPaymentForProducts,
+} from "../../../../helpers/tariff-helpers";
 import {
   dischargeVisit as dischargeVisitHelper,
   getCachier,
@@ -1197,6 +1200,14 @@ export const listVisits = async (c: Context) => {
                     frequency: true,
                     duration: true,
                     instructions: true,
+                    fulfilment: true,
+                    quantity: true,
+                    pharmacyItemMap: {
+                      select: {
+                        inventoryItemId: true,
+                        inventoryItem: { select: { id: true, itemName: true } },
+                      },
+                    },
                   },
                 },
               },
@@ -1323,6 +1334,14 @@ export const getVisitById = async (c: Context) => {
                     frequency: true,
                     duration: true,
                     instructions: true,
+                    fulfilment: true,
+                    quantity: true,
+                    pharmacyItemMap: {
+                      select: {
+                        inventoryItemId: true,
+                        inventoryItem: { select: { id: true, itemName: true } },
+                      },
+                    },
                   },
                 },
               },
@@ -1529,7 +1548,20 @@ export const getPatientVisits = async (c: Context) => {
           },
         },
         examResults: { include: { createdBy: true } },
-        prescriptions: { include: { items: true } },
+        prescriptions: {
+          include: {
+            items: {
+              include: {
+                pharmacyItemMap: {
+                  select: {
+                    inventoryItemId: true,
+                    inventoryItem: { select: { id: true, itemName: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
         patientInsurance: {
           include: { employer: true, insuranceCompany: true },
         },
@@ -1730,6 +1762,26 @@ export const finalizeVisit = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
+    // Already past the doctor: a finalized/discharged/cancelled visit must not be
+    // re-finalized (guards against double-submits that would re-bill the visit).
+    const alreadyFinalizedStatuses: Array<
+      "FINALIZED" | "DISCHARGED" | "DISCHARGED_WITH_PRESCRIPTION" | "CANCELLED"
+    > = [
+      VisitStatus.FINALIZED,
+      VisitStatus.DISCHARGED,
+      VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
+      VisitStatus.CANCELLED,
+    ];
+    if (
+      alreadyFinalizedStatuses.includes(
+        visit.status as (typeof alreadyFinalizedStatuses)[number]
+      )
+    ) {
+      return c.json(
+        { error: "Visit has already been finalized" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
 
     const consultationIds = (consultationProductIds ?? [])
       .map((pid) => Number.parseInt(pid, 10))
@@ -1765,6 +1817,11 @@ export const finalizeVisit = async (c: Context) => {
           { allowPartial: false, tx }
         );
       }
+
+      // Bill internally-dispensed prescription medicines so they appear on the
+      // cashier's invoice (paid before pharmacy dispensing). No-op when there
+      // are no internal lines with a price and quantity.
+      await createMedicationPaymentForVisit(visitId, { tx });
 
       return finalizedVisit;
     });

@@ -5,6 +5,7 @@ import { validate } from "../../../middlewares/validation.middleware.ts";
 
 import {
   addStock,
+  adjustStock,
   createInventoryItem,
   createSaleTransaction,
   deleteInventoryItem,
@@ -18,6 +19,7 @@ import {
   getLatestTransactions,
   getLowStockItems,
   getNearExpiryBatches,
+  getReorderSuggestions,
   getStockItemDetails,
   getStockTransactions,
   importInventoryItemsFromCSV,
@@ -30,6 +32,7 @@ import {
 } from "./inventory.controller.ts";
 
 import {
+  adjustStockSchema,
   createInventoryItemSchema,
   disposalSchema,
   goodsReceiptSchema,
@@ -65,6 +68,8 @@ router.post(
   stockOutMultiBatch
 );
 router.post("/stocktake", validate(stocktakeSchema, "json"), stocktake);
+router.post("/adjust-stock", validate(adjustStockSchema, "json"), adjustStock);
+router.get("/reorder-suggestions", getReorderSuggestions);
 router.post("/transfer", validate(transferSchema, "json"), transferInventory);
 router.post("/disposal", validate(disposalSchema, "json"), disposeInventory);
 router.post("/return", validate(returnSchema, "json"), returnToStock);

@@ -6,6 +6,7 @@ import {
   AppointmentType,
   type Event,
   EventType,
+  PrescriptionItemFulfilment,
 } from "../../../../../generated/prisma/client";
 import { db } from "../../../../database/db";
 import { logActivity } from "../../../../helpers/activity-helpers";
@@ -15,6 +16,23 @@ import type {
   UpdatePrescription,
   UpdateSpectaclePrescription,
 } from "../visits.validation";
+
+// Returns the subset of the requested inventory item ids that actually belong
+// to the given clinic, so prescription mappings can never point at another
+// clinic's stock.
+async function resolveClinicInventoryIds(
+  clinicId: number,
+  inventoryItemIds: number[]
+): Promise<Set<number>> {
+  if (inventoryItemIds.length === 0) {
+    return new Set();
+  }
+  const rows = await db.inventoryItem.findMany({
+    where: { clinicId, id: { in: inventoryItemIds } },
+    select: { id: true },
+  });
+  return new Set(rows.map((row) => row.id));
+}
 
 export const createPrescription = async (c: Context) => {
   try {
@@ -65,6 +83,35 @@ export const createPrescription = async (c: Context) => {
       );
     }
     const resolvedBranchId = visit.branchId ?? user.branchId ?? null;
+
+    // Validate that every internal medication points at an inventory item that
+    // actually belongs to this clinic before we create any mappings.
+    const requestedInventoryIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.inventoryItemId)
+          .filter((id): id is number => typeof id === "number")
+      )
+    );
+    const validInventoryIds = await resolveClinicInventoryIds(
+      user.clinicId,
+      requestedInventoryIds
+    );
+    const invalidInternalItem = items.find(
+      (item) =>
+        item.fulfilment === PrescriptionItemFulfilment.INTERNAL &&
+        typeof item.inventoryItemId === "number" &&
+        !validInventoryIds.has(item.inventoryItemId)
+    );
+    if (invalidInternalItem) {
+      return c.json(
+        {
+          error: `Inventory item not found in this clinic for "${invalidInternalItem.medicationName}"`,
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
     const result = await db.$transaction(async (tx) => {
       const newPrescription = await tx.prescription.create({
         data: {
@@ -74,13 +121,34 @@ export const createPrescription = async (c: Context) => {
           visitId: visitIdNum,
           items: {
             create: items.map(
-              (item: CreatePrescription["prescription"]["items"][number]) => ({
-                medicationName: item.medicationName,
-                dosage: item.dosage,
-                frequency: item.frequency,
-                duration: item.duration,
-                instructions: item.instructions,
-              })
+              (item: CreatePrescription["prescription"]["items"][number]) => {
+                const linkInventory =
+                  item.fulfilment === PrescriptionItemFulfilment.INTERNAL &&
+                  typeof item.inventoryItemId === "number" &&
+                  validInventoryIds.has(item.inventoryItemId);
+                return {
+                  medicationName: item.medicationName,
+                  dosage: item.dosage,
+                  frequency: item.frequency,
+                  duration: item.duration,
+                  instructions: item.instructions,
+                  fulfilment: item.fulfilment,
+                  quantity:
+                    item.fulfilment === PrescriptionItemFulfilment.INTERNAL
+                      ? (item.quantity ?? null)
+                      : null,
+                  ...(linkInventory
+                    ? {
+                        pharmacyItemMap: {
+                          create: {
+                            inventoryItemId: item.inventoryItemId as number,
+                            clinicId: user.clinicId,
+                          },
+                        },
+                      }
+                    : {}),
+                };
+              }
             ),
           },
         },
@@ -177,25 +245,78 @@ export const updatePrescription = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
-    const result = await db.$transaction(async (tx) => {
-      const updatedPrescription = await tx.prescription.update({
-        where: { id: prescriptionId },
-        data: {
-          items: {
-            update: items.map((item) => ({
-              where: { id: item.id },
-              data: {
-                medicationName: item.medicationName,
-                dosage: item.dosage,
-                frequency: item.frequency,
-                duration: item.duration,
-                instructions: item.instructions,
-              },
-            })),
-          },
+
+    const requestedInventoryIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.inventoryItemId)
+          .filter((id): id is number => typeof id === "number")
+      )
+    );
+    const validInventoryIds = await resolveClinicInventoryIds(
+      prescription.clinicId,
+      requestedInventoryIds
+    );
+    const invalidInternalItem = items.find(
+      (item) =>
+        item.fulfilment === PrescriptionItemFulfilment.INTERNAL &&
+        typeof item.inventoryItemId === "number" &&
+        !validInventoryIds.has(item.inventoryItemId)
+    );
+    if (invalidInternalItem) {
+      return c.json(
+        {
+          error: `Inventory item not found in this clinic for "${invalidInternalItem.medicationName}"`,
         },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      for (const item of items) {
+        await tx.prescriptionItem.update({
+          where: { id: item.id },
+          data: {
+            medicationName: item.medicationName,
+            dosage: item.dosage,
+            frequency: item.frequency,
+            duration: item.duration,
+            instructions: item.instructions,
+            fulfilment: item.fulfilment,
+            quantity:
+              item.fulfilment === PrescriptionItemFulfilment.INTERNAL
+                ? (item.quantity ?? null)
+                : null,
+          },
+        });
+
+        const linkInventory =
+          item.fulfilment === PrescriptionItemFulfilment.INTERNAL &&
+          typeof item.inventoryItemId === "number" &&
+          validInventoryIds.has(item.inventoryItemId);
+        if (linkInventory) {
+          await tx.pharmacyPrescriptionItemMap.upsert({
+            where: { prescriptionItemId: item.id },
+            create: {
+              prescriptionItemId: item.id,
+              inventoryItemId: item.inventoryItemId as number,
+              clinicId: prescription.clinicId,
+            },
+            update: { inventoryItemId: item.inventoryItemId as number },
+          });
+        } else {
+          // External (or internal-without-stock) lines must not retain a stale
+          // inventory mapping from a previous edit.
+          await tx.pharmacyPrescriptionItemMap.deleteMany({
+            where: { prescriptionItemId: item.id },
+          });
+        }
+      }
+
+      return tx.prescription.findUnique({
+        where: { id: prescriptionId },
+        include: { items: true },
       });
-      return updatedPrescription;
     });
     await invalidateVisitRelatedCaches({
       visitId: prescription.visitId,

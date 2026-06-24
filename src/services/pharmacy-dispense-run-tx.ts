@@ -8,6 +8,7 @@ import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import type { Prisma } from "../../generated/prisma/client";
 import {
+  PrescriptionItemFulfilment,
   PrescriptionStatus,
   SourceType,
   TransactionType,
@@ -116,7 +117,13 @@ async function updatePrescriptionAggregateStatus(
     select: {
       id: true,
       status: true,
-      items: { select: { id: true } },
+      // Only internally-fulfilled items are dispensed from clinic stock, so
+      // only they count toward the served/fully-served aggregate. External
+      // lines are filled by the patient outside and never get a dispense line.
+      items: {
+        where: { fulfilment: PrescriptionItemFulfilment.INTERNAL },
+        select: { id: true },
+      },
     },
   });
   if (!prescription || prescription.status === PrescriptionStatus.CANCELLED) {

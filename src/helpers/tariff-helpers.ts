@@ -3,7 +3,8 @@ import {
   ItemType,
   PaymentMode,
   PaymentStatus,
-  type PaymentType,
+  PaymentType,
+  PrescriptionItemFulfilment,
   PriceType,
   type Prisma,
   Role,
@@ -1718,6 +1719,138 @@ export const createPaymentForProducts = async (
       });
 
   return payment;
+};
+
+/**
+ * Creates a single PENDING MEDICATION payment for a visit's internally-dispensed
+ * prescription lines, priced at each inventory item's unit price × quantity.
+ *
+ * Insurance split: on an INSURANCE visit, lines whose inventory item is
+ * `insuranceCovered` are split by the visit's coverage %; non-covered items (and
+ * all cash visits) are billed fully to the patient. Returns null when there is
+ * nothing internal to bill, so callers can no-op silently.
+ */
+type MedicationLineForBilling = {
+  medicationName: string;
+  quantity: number | null;
+  pharmacyItemMap: {
+    inventoryItem: {
+      id: number;
+      itemName: string;
+      unitPrice: Prisma.Decimal | null;
+      insuranceCovered: boolean;
+    };
+  } | null;
+};
+
+// Prices one internal prescription line, splitting patient/insurance share.
+// Returns null for lines that can't be billed (no mapped item / qty / price).
+const priceMedicationLine = (
+  item: MedicationLineForBilling,
+  isInsurance: boolean,
+  coverage: number
+): PaymentDetail | null => {
+  const inventoryItem = item.pharmacyItemMap?.inventoryItem;
+  const qty = item.quantity ?? 0;
+  const unitPrice = Number(inventoryItem?.unitPrice ?? 0);
+  if (!inventoryItem || qty <= 0 || unitPrice <= 0) {
+    return null;
+  }
+
+  const lineAmount = unitPrice * qty;
+  const covered = isInsurance && inventoryItem.insuranceCovered;
+  const insuranceShare = covered ? lineAmount * coverage : 0;
+
+  return {
+    productName: inventoryItem.itemName,
+    amount: lineAmount,
+    patientAmount: lineAmount - insuranceShare,
+    insuranceAmount: insuranceShare,
+    productId: inventoryItem.id,
+    quantity: qty,
+  };
+};
+
+export const createMedicationPaymentForVisit = async (
+  visitId: number,
+  options?: { tx?: Prisma.TransactionClient }
+) => {
+  const client = options?.tx ?? db;
+
+  const visit = await client.visit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      clinicId: true,
+      branchId: true,
+      paymentMode: true,
+      patientInsurance: { select: { coveragePercentage: true } },
+      prescriptions: {
+        select: {
+          items: {
+            where: { fulfilment: PrescriptionItemFulfilment.INTERNAL },
+            select: {
+              medicationName: true,
+              quantity: true,
+              pharmacyItemMap: {
+                select: {
+                  inventoryItem: {
+                    select: {
+                      id: true,
+                      itemName: true,
+                      unitPrice: true,
+                      insuranceCovered: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!visit) {
+    throw new Error("Visit not found");
+  }
+
+  const isInsurance = visit.paymentMode === PaymentMode.INSURANCE;
+  const coverage =
+    Number(visit.patientInsurance?.coveragePercentage ?? 0) / 100;
+
+  const paymentDetails = visit.prescriptions
+    .flatMap((rx) => rx.items)
+    .map((item) => priceMedicationLine(item, isInsurance, coverage))
+    .filter((detail): detail is PaymentDetail => detail !== null);
+
+  if (paymentDetails.length === 0) {
+    return null;
+  }
+
+  const amount = paymentDetails.reduce((sum, d) => sum + d.amount, 0);
+  const patientAmount = paymentDetails.reduce(
+    (sum, d) => sum + d.patientAmount,
+    0
+  );
+  const insuranceAmount = paymentDetails.reduce(
+    (sum, d) => sum + d.insuranceAmount,
+    0
+  );
+
+  return client.payment.create({
+    data: {
+      clinic: { connect: { id: visit.clinicId } },
+      branch: { connect: visit.branchId ? { id: visit.branchId } : undefined },
+      visit: { connect: { id: visit.id } },
+      paymentMode: visit.paymentMode,
+      paymentStatus: PaymentStatus.PENDING,
+      paymentType: PaymentType.MEDICATION,
+      paymentDetails,
+      amount,
+      patientAmount,
+      insuranceAmount,
+    },
+  });
 };
 
 export function getTargetClinicId(

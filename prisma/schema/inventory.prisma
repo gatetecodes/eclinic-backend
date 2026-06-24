@@ -12,6 +12,10 @@ model InventoryItem {
     minOrderQuantity Int?
     notes            String?
     unitPrice        Decimal?        @db.Decimal(10, 2)
+    costPrice        Decimal?        @db.Decimal(10, 2)
+    // Whether insurance covers this item. When false, the patient pays the full
+    // amount even on an insured visit.
+    insuranceCovered Boolean         @default(true)
     status           InventoryStatus @default(IN_STOCK)
     createdAt        DateTime        @default(now())
     updatedAt        DateTime        @updatedAt

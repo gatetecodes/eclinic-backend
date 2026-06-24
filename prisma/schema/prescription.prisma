@@ -30,6 +30,13 @@ model PrescriptionItem {
     frequency      String
     duration       String
     instructions        String?
+    // Where the doctor intends this medication to be dispensed: from the
+    // clinic's own pharmacy (INTERNAL, requires an inventory mapping) or filled
+    // by the patient at an outside pharmacy (EXTERNAL, no clinic stock involved).
+    fulfilment          PrescriptionItemFulfilment @default(INTERNAL)
+    // Units to dispense/bill for INTERNAL lines (priced at the inventory item's
+    // unit price). Null for external lines, which the clinic doesn't dispense.
+    quantity            Int?
     createdAt           DateTime                   @default(now())
     updatedAt           DateTime                   @updatedAt
     pharmacyDispenseLines PharmacyDispenseLine[]
@@ -44,4 +51,9 @@ enum PrescriptionStatus {
     PARTIALLY_SERVED // Patient has been given some of the medication
     FULLY_SERVED // Patient has been given all the medication
     CANCELLED // Prescription has been cancelled
+}
+
+enum PrescriptionItemFulfilment {
+    INTERNAL // Dispense from the clinic's own pharmacy inventory
+    EXTERNAL // Patient fills this at an external pharmacy
 }
