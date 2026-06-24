@@ -5,6 +5,7 @@ import {
   PaymentStatus,
   PaymentType,
   PrescriptionItemFulfilment,
+  PrescriptionStatus,
   PriceType,
   type Prisma,
   Role,
@@ -1743,6 +1744,8 @@ type MedicationLineForBilling = {
   } | null;
 };
 
+const roundMedicationMoney = (value: number) => Number(value.toFixed(2));
+
 // Prices one internal prescription line, splitting patient/insurance share.
 // Returns null for lines that can't be billed (no mapped item / qty / price).
 const priceMedicationLine = (
@@ -1757,14 +1760,17 @@ const priceMedicationLine = (
     return null;
   }
 
-  const lineAmount = unitPrice * qty;
+  const lineAmount = roundMedicationMoney(unitPrice * qty);
   const covered = isInsurance && inventoryItem.insuranceCovered;
-  const insuranceShare = covered ? lineAmount * coverage : 0;
+  const insuranceShare = covered
+    ? roundMedicationMoney(lineAmount * coverage)
+    : 0;
+  const patientShare = roundMedicationMoney(lineAmount - insuranceShare);
 
   return {
     productName: inventoryItem.itemName,
     amount: lineAmount,
-    patientAmount: lineAmount - insuranceShare,
+    patientAmount: patientShare,
     insuranceAmount: insuranceShare,
     productId: inventoryItem.id,
     quantity: qty,
@@ -1786,6 +1792,7 @@ export const createMedicationPaymentForVisit = async (
       paymentMode: true,
       patientInsurance: { select: { coveragePercentage: true } },
       prescriptions: {
+        where: { status: { not: PrescriptionStatus.CANCELLED } },
         select: {
           items: {
             where: { fulfilment: PrescriptionItemFulfilment.INTERNAL },
@@ -1827,14 +1834,14 @@ export const createMedicationPaymentForVisit = async (
     return null;
   }
 
-  const amount = paymentDetails.reduce((sum, d) => sum + d.amount, 0);
-  const patientAmount = paymentDetails.reduce(
-    (sum, d) => sum + d.patientAmount,
-    0
+  const amount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.amount, 0)
   );
-  const insuranceAmount = paymentDetails.reduce(
-    (sum, d) => sum + d.insuranceAmount,
-    0
+  const patientAmount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.patientAmount, 0)
+  );
+  const insuranceAmount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.insuranceAmount, 0)
   );
 
   return client.payment.create({

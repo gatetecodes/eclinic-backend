@@ -12,7 +12,7 @@ import {
   type InventoryItem,
   InventoryStatus,
   POStatus,
-  type Prisma,
+  Prisma,
   SourceType,
   type Transaction,
   TransactionStatus,
@@ -21,7 +21,7 @@ import {
 import { db } from "../../../database/db";
 import {
   applyGoodsReceiptLine,
-  generateSku, // Corrected import
+  generateSku,
   processInventoryItemRecord,
   refreshItemStatus,
   seedOpeningStock,
@@ -104,6 +104,13 @@ export const createInventoryItem = async (c: Context) => {
           unitPrice: batchUnitPrice,
           branchId: user.branchId ?? null,
           userId: Number(user.id),
+        });
+
+        return tx.inventoryItem.findUniqueOrThrow({
+          where: { id: created.id },
+          include: {
+            currentStock: true,
+          },
         });
       }
 
@@ -1061,6 +1068,29 @@ async function applyNegativeAdjustment(
   const byId = new Map(batches.map((b) => [b.id, b]));
   for (const a of allocations) {
     const b = byId.get(a.batchId);
+    await tx.$queryRaw`
+      SELECT id
+      FROM "InventoryBatch"
+      WHERE id = ${a.batchId}
+        AND "itemId" = ${input.itemId}
+      FOR UPDATE
+    `;
+    const batchUpdate = await tx.inventoryBatch.updateMany({
+      where: {
+        id: a.batchId,
+        itemId: input.itemId,
+        currentQuantity: { gte: a.quantity },
+      },
+      data: { currentQuantity: { decrement: a.quantity } },
+    });
+    if (batchUpdate.count !== 1) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        code: "INSUFFICIENT_STOCK",
+        message: `Insufficient quantity in batch ${a.batchId}`,
+        exposeMessage: true,
+      });
+    }
     await tx.transaction.create({
       data: {
         itemId: input.itemId,
@@ -1077,10 +1107,6 @@ async function applyNegativeAdjustment(
         userId: input.userId,
         status: TransactionStatus.COMPLETED,
       },
-    });
-    await tx.inventoryBatch.update({
-      where: { id: a.batchId },
-      data: { currentQuantity: { decrement: a.quantity } },
     });
   }
 }
@@ -1651,6 +1677,7 @@ export const receiveGoods = async (c: Context) => {
           userId: Number(user.id),
           branchId: user.branchId ?? null,
           notes,
+          sourceType: SourceType.MANUAL,
         });
         totalQty += line.quantity;
       }
@@ -1763,6 +1790,10 @@ export const adjustStock = async (c: Context) => {
   try {
     const user = c.get("user");
     const { itemId, delta, reason, notes, visitId } = c.get("validatedJson");
+    const tenantScope = {
+      clinicId: user.clinicId,
+      ...(typeof user.branchId === "number" ? { branchId: user.branchId } : {}),
+    };
     const idemKey = c.req.header("Idempotency-Key");
     if (idemKey) {
       const key = `idem:inventory:adjust:${idemKey}`;
@@ -1775,60 +1806,118 @@ export const adjustStock = async (c: Context) => {
       }
     }
 
-    const result = await db.$transaction(async (tx) => {
-      const stock = await tx.inventoryStock.findUnique({
-        where: { itemId },
-        select: { quantity: true },
-      });
-      const currentQty = stock?.quantity ?? 0;
+    const [item, visit] = await Promise.all([
+      db.inventoryItem.findFirst({
+        where: {
+          id: itemId,
+          ...tenantScope,
+        },
+        select: { id: true },
+      }),
+      visitId
+        ? db.visit.findFirst({
+            where: {
+              id: visitId,
+              ...tenantScope,
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
 
-      if (delta > 0) {
-        await createPositiveAdjustment(tx, {
-          userId: Number(user.id),
-          itemId,
-          diff: delta,
-          reason,
-          notes,
-          branchId: user.branchId ?? null,
-          sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
-          location: "ADJUSTMENT",
-          visitId,
-        });
-        await tx.inventoryStock.upsert({
+    if (!item) {
+      return c.json(
+        { error: "Item not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    if (visitId && !visit) {
+      return c.json(
+        { error: "Visit not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const result = await db.$transaction(
+      async (tx) => {
+        const stock = await tx.inventoryStock.findUnique({
           where: { itemId },
-          create: { itemId, quantity: delta },
-          update: { quantity: { increment: delta } },
+          select: { quantity: true },
         });
-      } else {
-        const decrease = Math.abs(delta);
-        if (decrease > currentQty) {
-          return Promise.reject(
-            new AppError({
-              status: httpCodes.BAD_REQUEST,
-              code: "INSUFFICIENT_STOCK",
-              message: `Cannot reduce stock by ${decrease}; only ${currentQty} on hand`,
-              exposeMessage: true,
-            })
-          );
+        const currentQty = stock?.quantity ?? 0;
+        let quantityBeforeAdjustment = currentQty;
+
+        if (delta > 0) {
+          await createPositiveAdjustment(tx, {
+            userId: Number(user.id),
+            itemId,
+            diff: delta,
+            reason,
+            notes,
+            branchId: user.branchId ?? null,
+            sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
+            location: "ADJUSTMENT",
+            visitId,
+          });
+          await tx.inventoryStock.upsert({
+            where: { itemId },
+            create: { itemId, quantity: delta },
+            update: { quantity: { increment: delta } },
+          });
+        } else {
+          const decrease = Math.abs(delta);
+          const [lockedStock] = await tx.$queryRaw<Array<{ quantity: number }>>`
+            SELECT quantity
+            FROM "InventoryStock"
+            WHERE "itemId" = ${itemId}
+            FOR UPDATE
+          `;
+          const lockedQty = lockedStock?.quantity ?? 0;
+          quantityBeforeAdjustment = lockedQty;
+          if (decrease > lockedQty) {
+            return Promise.reject(
+              new AppError({
+                status: httpCodes.BAD_REQUEST,
+                code: "INSUFFICIENT_STOCK",
+                message: `Cannot reduce stock by ${decrease}; only ${lockedQty} on hand`,
+                exposeMessage: true,
+              })
+            );
+          }
+          await applyNegativeAdjustment(tx, {
+            userId: Number(user.id),
+            itemId,
+            quantity: decrease,
+            reason,
+            notes,
+            sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
+            visitId,
+          });
+          const stockUpdate = await tx.inventoryStock.updateMany({
+            where: {
+              itemId,
+              quantity: { gte: decrease },
+            },
+            data: { quantity: { decrement: decrease } },
+          });
+          if (stockUpdate.count !== 1) {
+            return Promise.reject(
+              new AppError({
+                status: httpCodes.BAD_REQUEST,
+                code: "INSUFFICIENT_STOCK",
+                message: `Cannot reduce stock by ${decrease}; insufficient stock on hand`,
+                exposeMessage: true,
+              })
+            );
+          }
         }
-        await applyNegativeAdjustment(tx, {
-          userId: Number(user.id),
-          itemId,
-          quantity: decrease,
-          reason,
-          notes,
-          sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
-          visitId,
-        });
-        await tx.inventoryStock.update({
-          where: { itemId },
-          data: { quantity: { decrement: decrease } },
-        });
-      }
 
-      await refreshItemStatus(tx, itemId);
-      return { itemId, delta, newQuantity: currentQty + delta };
-    });
+        await refreshItemStatus(tx, itemId);
+        return { itemId, delta, newQuantity: quantityBeforeAdjustment + delta };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
 
     await invalidateInventoryRelatedCaches({
       clinicId: user.clinicId,

@@ -16,7 +16,8 @@
     "test": "bun test",
     "lint": "bunx eslint src --ext .ts",
     "format": "bunx prettier --write src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "prepare": "husky"
   },
   "devDependencies": {

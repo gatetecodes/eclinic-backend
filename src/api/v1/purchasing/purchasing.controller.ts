@@ -6,7 +6,11 @@ import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
 import { httpCodes } from "@/lib/constants";
 import { getScope } from "@/lib/request-scope";
-import { POStatus, type Prisma } from "../../../../generated/prisma/client";
+import {
+  POStatus,
+  type Prisma,
+  SourceType,
+} from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { applyGoodsReceiptLine } from "../../../helpers/inventory-helpers";
 import redis from "../../../services/redis.service";
@@ -539,7 +543,12 @@ async function persistGoodsReceipt(
         expiryDate: entry.expiryDate,
         location: entry.location,
       },
-      { userId: args.userId, branchId: args.branchId, notes: args.notes }
+      {
+        userId: args.userId,
+        branchId: args.branchId,
+        notes: args.notes,
+        sourceType: SourceType.PURCHASE_ORDER,
+      }
     );
   }
 
