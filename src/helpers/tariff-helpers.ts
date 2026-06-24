@@ -3,7 +3,9 @@ import {
   ItemType,
   PaymentMode,
   PaymentStatus,
-  type PaymentType,
+  PaymentType,
+  PrescriptionItemFulfilment,
+  PrescriptionStatus,
   PriceType,
   type Prisma,
   Role,
@@ -31,6 +33,9 @@ export type ProductCSVRow = {
   EAST_AFRICA?: string;
   AFRICA?: string;
   REST_OF_THE_WORLD?: string;
+  ICD11?: string;
+  LOINC?: string;
+  NATIONAL_TARIFF_CODE?: string;
 };
 
 type MinimalProduct = { id: number; name: string };
@@ -936,6 +941,7 @@ const handleLabTestUpdates = async ({
 };
 
 // Helper function to handle existing product updates
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Import reconciliation touches pricing, departments, standardized codes, and lab-specific updates in one pass.
 export async function handleExistingProduct(
   existingProduct: IExistingProduct,
   record: ProductCSVRow,
@@ -984,6 +990,16 @@ export async function handleExistingProduct(
     newDepartments = record.DEPARTMENT.split(",").map((item) => {
       return item.trim();
     });
+  }
+
+  if (record.ICD11 !== undefined) {
+    productUpdateData.icd11Code = record.ICD11 || null;
+  }
+  if (record.LOINC !== undefined) {
+    productUpdateData.loincCode = record.LOINC || null;
+  }
+  if (record.NATIONAL_TARIFF_CODE !== undefined) {
+    productUpdateData.nationalTariffCode = record.NATIONAL_TARIFF_CODE || null;
   }
 
   const isLabTest = newDepartments.includes("LABORATOIRE");
@@ -1279,6 +1295,9 @@ export async function createNewProduct(
       restOfWorldPrice: record.REST_OF_THE_WORLD
         ? Number.parseFloat(record.REST_OF_THE_WORLD)
         : undefined,
+      icd11Code: record.ICD11 || undefined,
+      loincCode: record.LOINC || undefined,
+      nationalTariffCode: record.NATIONAL_TARIFF_CODE || undefined,
     },
     select: { id: true, name: true },
   });
@@ -1344,10 +1363,11 @@ export const createPaymentForProducts = async (
   visitId: number,
   paymentType: PaymentType,
   options?: boolean | { allowPartial?: boolean; tx?: Prisma.TransactionClient }
+  //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 ) => {
   const allowPartial =
     typeof options === "boolean" ? options : options?.allowPartial;
-  const txClient = typeof options === "object" ? (options?.tx ?? db) : db;
+  const tx = typeof options === "object" ? options?.tx : undefined;
 
   type SimpleProductForPayment = ProductForPayment;
   type SimpleVisitForPayment = VisitForPayment;
@@ -1446,14 +1466,23 @@ export const createPaymentForProducts = async (
     };
   };
   // First get the visit to know the clinicId
-  const visitForClinic = await txClient.visit.findUnique({
-    where: {
-      id: visitId,
-    },
-    select: {
-      clinicId: true,
-    },
-  });
+  const visitForClinic = tx
+    ? await tx.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          clinicId: true,
+        },
+      })
+    : await db.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          clinicId: true,
+        },
+      });
 
   if (!visitForClinic) {
     throw new Error("Visit not found");
@@ -1461,66 +1490,127 @@ export const createPaymentForProducts = async (
 
   const clinicId = visitForClinic.clinicId;
 
-  const products = await txClient.product.findMany({
-    where: {
-      id: {
-        in: productIds,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      basePrice: true,
-      eastAfricaPrice: true,
-      africaPrice: true,
-      restOfWorldPrice: true,
-      insurancePrices: {
+  const products = tx
+    ? await tx.product.findMany({
         where: {
-          OR: [{ clinicId }, { clinicId: null }],
+          id: {
+            in: productIds,
+          },
         },
         select: {
-          price: true,
-          clinicId: true,
-          insuranceCompany: {
+          id: true,
+          name: true,
+          basePrice: true,
+          eastAfricaPrice: true,
+          africaPrice: true,
+          restOfWorldPrice: true,
+          insurancePrices: {
+            where: {
+              OR: [{ clinicId }, { clinicId: null }],
+            },
             select: {
-              id: true,
-              companyName: true,
+              price: true,
+              clinicId: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
             },
           },
         },
-      },
-    },
-  });
+      })
+    : await db.product.findMany({
+        where: {
+          id: {
+            in: productIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          basePrice: true,
+          eastAfricaPrice: true,
+          africaPrice: true,
+          restOfWorldPrice: true,
+          insurancePrices: {
+            where: {
+              OR: [{ clinicId }, { clinicId: null }],
+            },
+            select: {
+              price: true,
+              clinicId: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
-  const visit = await txClient.visit.findUnique({
-    where: {
-      id: visitId,
-    },
-    select: {
-      id: true,
-      paymentMode: true,
-      clinicId: true,
-      branchId: true,
-      patient: {
-        select: {
-          nationality: true,
-          isAForeigner: true,
-          foreignerRegion: true,
+  const visit = tx
+    ? await tx.visit.findUnique({
+        where: {
+          id: visitId,
         },
-      },
-      patientInsurance: {
         select: {
-          coveragePercentage: true,
-          insuranceCompany: {
+          id: true,
+          paymentMode: true,
+          clinicId: true,
+          branchId: true,
+          patient: {
             select: {
-              id: true,
-              companyName: true,
+              nationality: true,
+              isAForeigner: true,
+              foreignerRegion: true,
+            },
+          },
+          patientInsurance: {
+            select: {
+              coveragePercentage: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
             },
           },
         },
-      },
-    },
-  });
+      })
+    : await db.visit.findUnique({
+        where: {
+          id: visitId,
+        },
+        select: {
+          id: true,
+          paymentMode: true,
+          clinicId: true,
+          branchId: true,
+          patient: {
+            select: {
+              nationality: true,
+              isAForeigner: true,
+              foreignerRegion: true,
+            },
+          },
+          patientInsurance: {
+            select: {
+              coveragePercentage: true,
+              insuranceCompany: {
+                select: {
+                  id: true,
+                  companyName: true,
+                },
+              },
+            },
+          },
+        },
+      });
 
   if (!visit) {
     throw new Error("Visit not found");
@@ -1559,42 +1649,215 @@ export const createPaymentForProducts = async (
     throw new Error("Amount is 0");
   }
 
-  const payment = await txClient.payment.create({
+  const payment = tx
+    ? await tx.payment.create({
+        data: {
+          clinic: {
+            connect: {
+              id: visit.clinicId,
+            },
+          },
+          branch: {
+            connect: visit.branchId
+              ? {
+                  id: visit.branchId,
+                }
+              : undefined,
+          },
+          visit: {
+            connect: {
+              id: visit.id,
+            },
+          },
+          paymentMode: visit.paymentMode as PaymentMode,
+          products: {
+            connect: products.map((product: { id: number }) => ({
+              id: product.id,
+            })),
+          },
+          paymentStatus: PaymentStatus.PENDING,
+          paymentDetails,
+          paymentType,
+          amount,
+          patientAmount,
+          insuranceAmount,
+          allowPartial,
+        },
+      })
+    : await db.payment.create({
+        data: {
+          clinic: {
+            connect: {
+              id: visit.clinicId,
+            },
+          },
+          branch: {
+            connect: visit.branchId
+              ? {
+                  id: visit.branchId,
+                }
+              : undefined,
+          },
+          visit: {
+            connect: {
+              id: visit.id,
+            },
+          },
+          paymentMode: visit.paymentMode as PaymentMode,
+          products: {
+            connect: products.map((product: { id: number }) => ({
+              id: product.id,
+            })),
+          },
+          paymentStatus: PaymentStatus.PENDING,
+          paymentDetails,
+          paymentType,
+          amount,
+          patientAmount,
+          insuranceAmount,
+          allowPartial,
+        },
+      });
+
+  return payment;
+};
+
+/**
+ * Creates a single PENDING MEDICATION payment for a visit's internally-dispensed
+ * prescription lines, priced at each inventory item's unit price × quantity.
+ *
+ * Insurance split: on an INSURANCE visit, lines whose inventory item is
+ * `insuranceCovered` are split by the visit's coverage %; non-covered items (and
+ * all cash visits) are billed fully to the patient. Returns null when there is
+ * nothing internal to bill, so callers can no-op silently.
+ */
+type MedicationLineForBilling = {
+  medicationName: string;
+  quantity: number | null;
+  pharmacyItemMap: {
+    inventoryItem: {
+      id: number;
+      itemName: string;
+      unitPrice: Prisma.Decimal | null;
+      insuranceCovered: boolean;
+    };
+  } | null;
+};
+
+const roundMedicationMoney = (value: number) => Number(value.toFixed(2));
+
+// Prices one internal prescription line, splitting patient/insurance share.
+// Returns null for lines that can't be billed (no mapped item / qty / price).
+const priceMedicationLine = (
+  item: MedicationLineForBilling,
+  isInsurance: boolean,
+  coverage: number
+): PaymentDetail | null => {
+  const inventoryItem = item.pharmacyItemMap?.inventoryItem;
+  const qty = item.quantity ?? 0;
+  const unitPrice = Number(inventoryItem?.unitPrice ?? 0);
+  if (!inventoryItem || qty <= 0 || unitPrice <= 0) {
+    return null;
+  }
+
+  const lineAmount = roundMedicationMoney(unitPrice * qty);
+  const covered = isInsurance && inventoryItem.insuranceCovered;
+  const insuranceShare = covered
+    ? roundMedicationMoney(lineAmount * coverage)
+    : 0;
+  const patientShare = roundMedicationMoney(lineAmount - insuranceShare);
+
+  return {
+    productName: inventoryItem.itemName,
+    amount: lineAmount,
+    patientAmount: patientShare,
+    insuranceAmount: insuranceShare,
+    productId: inventoryItem.id,
+    quantity: qty,
+  };
+};
+
+export const createMedicationPaymentForVisit = async (
+  visitId: number,
+  options?: { tx?: Prisma.TransactionClient }
+) => {
+  const client = options?.tx ?? db;
+
+  const visit = await client.visit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      clinicId: true,
+      branchId: true,
+      paymentMode: true,
+      patientInsurance: { select: { coveragePercentage: true } },
+      prescriptions: {
+        where: { status: { not: PrescriptionStatus.CANCELLED } },
+        select: {
+          items: {
+            where: { fulfilment: PrescriptionItemFulfilment.INTERNAL },
+            select: {
+              medicationName: true,
+              quantity: true,
+              pharmacyItemMap: {
+                select: {
+                  inventoryItem: {
+                    select: {
+                      id: true,
+                      itemName: true,
+                      unitPrice: true,
+                      insuranceCovered: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!visit) {
+    throw new Error("Visit not found");
+  }
+
+  const isInsurance = visit.paymentMode === PaymentMode.INSURANCE;
+  const coverage =
+    Number(visit.patientInsurance?.coveragePercentage ?? 0) / 100;
+
+  const paymentDetails = visit.prescriptions
+    .flatMap((rx) => rx.items)
+    .map((item) => priceMedicationLine(item, isInsurance, coverage))
+    .filter((detail): detail is PaymentDetail => detail !== null);
+
+  if (paymentDetails.length === 0) {
+    return null;
+  }
+
+  const amount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.amount, 0)
+  );
+  const patientAmount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.patientAmount, 0)
+  );
+  const insuranceAmount = roundMedicationMoney(
+    paymentDetails.reduce((sum, d) => sum + d.insuranceAmount, 0)
+  );
+
+  return client.payment.create({
     data: {
-      clinic: {
-        connect: {
-          id: visit.clinicId,
-        },
-      },
-      branch: {
-        connect: visit.branchId
-          ? {
-              id: visit.branchId,
-            }
-          : undefined,
-      },
-      visit: {
-        connect: {
-          id: visit.id,
-        },
-      },
-      paymentMode: visit.paymentMode as PaymentMode,
-      products: {
-        connect: products.map((product: { id: number }) => ({
-          id: product.id,
-        })),
-      },
+      clinic: { connect: { id: visit.clinicId } },
+      branch: { connect: visit.branchId ? { id: visit.branchId } : undefined },
+      visit: { connect: { id: visit.id } },
+      paymentMode: visit.paymentMode,
       paymentStatus: PaymentStatus.PENDING,
+      paymentType: PaymentType.MEDICATION,
       paymentDetails,
-      paymentType,
       amount,
       patientAmount,
       insuranceAmount,
-      allowPartial,
     },
   });
-
-  return payment;
 };
 
 export function getTargetClinicId(

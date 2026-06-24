@@ -19,6 +19,9 @@ model Product {
     normalRange             String?
     consumables             Json? // Json array of consumable items, each item has a name and quantity
     isActive                Boolean                  @default(true)
+    icd11Code               String? // ICD-11 diagnosis/procedure code (RHIP/insurer standard)
+    loincCode               String? // LOINC code for lab & exam tests (RHIP/insurer standard)
+    nationalTariffCode      String? // RSSB/MoH national nomenclature code
     clinics                 Clinic[]
     category                ProductCategory?         @default(TREATMENT)
     departments             Department[]
@@ -37,6 +40,8 @@ model Product {
     refunds                 Refund[]
     createdAt               DateTime                 @default(now())
     updatedAt               DateTime                 @updatedAt
+
+    @@index([nationalTariffCode])
 }
 
 model InsurancePrice {
@@ -50,6 +55,7 @@ model InsurancePrice {
     clinic             Clinic?          @relation(fields: [clinicId], references: [id])
     clinicId           Int?
     priceType          PriceType?
+    insurerItemCode    String? // This insurer's own code for the item, when it differs from the national code
 
     @@unique([productId, insuranceCompanyId, clinicId])
     @@index([clinicId])

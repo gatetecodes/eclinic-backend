@@ -137,6 +137,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     visits: {
       create: true,
       read: true,
+      update: true,
       addPaymentMethod: true,
       dischargePatient: true,
       updateInitialCheckin: true,

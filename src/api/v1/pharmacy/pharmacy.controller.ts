@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import { getScope } from "@/lib/request-scope";
 import {
   DispenseOrderSource,
+  PrescriptionItemFulfilment,
   PrescriptionStatus,
   type Prisma,
 } from "../../../../generated/prisma/client";
@@ -325,6 +326,9 @@ export const getPharmacyQueue = async (c: Context) => {
         status: {
           in: [PrescriptionStatus.ISSUED, PrescriptionStatus.PARTIALLY_SERVED],
         },
+        // Only show prescriptions that have something to dispense from clinic
+        // stock; fully-external prescriptions never enter the pharmacy queue.
+        items: { some: { fulfilment: PrescriptionItemFulfilment.INTERNAL } },
         ...getPrescriptionBranchScope(branchId),
       },
       getQueueExtraWhere({
@@ -403,6 +407,7 @@ export const getPharmacyQueue = async (c: Context) => {
         dosage: it.dosage,
         frequency: it.frequency,
         duration: it.duration,
+        fulfilment: it.fulfilment,
         mappedInventoryItemId: it.pharmacyItemMap?.inventoryItemId ?? null,
         mappedItemName: it.pharmacyItemMap?.inventoryItem.itemName ?? null,
         isDispensed: dispensedItemIds.has(it.id),
@@ -560,6 +565,8 @@ export const getPharmacyPrescriptionDetail = async (c: Context) => {
           frequency: it.frequency,
           duration: it.duration,
           instructions: it.instructions,
+          fulfilment: it.fulfilment,
+          quantity: it.quantity,
           mappedInventoryItem: it.pharmacyItemMap?.inventoryItem ?? null,
           isDispensed: dispensedSet.has(it.id),
           availableBatches:

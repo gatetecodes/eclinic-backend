@@ -30,9 +30,10 @@ enum QueueEventType {
 
 enum QueuePurpose {
     DOCTOR // doctorId required
-    PRE_CONSULTATION // departmentId required
+    PRE_CONSULTATION // departmentId required (Triage stage)
     LAB // branch-scoped, optional departmentId for Lab dept
-    CASHIER // branch-scoped
+    PHARMACY // branch-scoped (Pharmacy stage — dispensing queue)
+    CASHIER // branch-scoped (Billing stage)
     RECEPTION // branch-scoped
 }
 

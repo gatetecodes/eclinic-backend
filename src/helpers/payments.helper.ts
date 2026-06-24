@@ -330,6 +330,69 @@ export const calculatePaymentTotals = (payment: PaymentWithVisit) => {
   };
 };
 
+type BillablePayment = {
+  patientAmount: Prisma.Decimal | number;
+  paidAmount: Prisma.Decimal | number;
+  insuranceAmount: Prisma.Decimal | number | null;
+  paymentStatus: PaymentStatus;
+  discounts: {
+    amount: Prisma.Decimal | number;
+    approval: { status: ApprovalStatus } | null;
+  }[];
+};
+
+// Summarize a visit's billing into patient vs insurance responsibility.
+// The patient portion (patientAmount minus approved discounts) is what gates
+// discharge; the insurance portion is what gets claimed and reconciled later.
+export const summarizeVisitBilling = (payments: BillablePayment[]) => {
+  let patientTotal = 0;
+  let patientPaid = 0;
+  let insuranceTotal = 0;
+  let insuranceOutstanding = 0;
+
+  for (const payment of payments) {
+    if (
+      payment.paymentStatus === PaymentStatus.CANCELLED ||
+      payment.paymentStatus === PaymentStatus.DELETED
+    ) {
+      continue;
+    }
+
+    const approvedDiscount = payment.discounts.reduce(
+      (total, discount) =>
+        discount.approval?.status === ApprovalStatus.APPROVED
+          ? total + Number(discount.amount)
+          : total,
+      0
+    );
+
+    const patientDue = Math.max(
+      Number(payment.patientAmount) - approvedDiscount,
+      0
+    );
+    patientTotal += patientDue;
+    patientPaid += Math.min(Number(payment.paidAmount), patientDue);
+
+    const insuranceAmount = Number(payment.insuranceAmount ?? 0);
+    insuranceTotal += insuranceAmount;
+    // Insurance is settled only once the claim is paid (FULLY_PAID).
+    if (payment.paymentStatus !== PaymentStatus.FULLY_PAID) {
+      insuranceOutstanding += insuranceAmount;
+    }
+  }
+
+  const patientOutstanding = Math.max(patientTotal - patientPaid, 0);
+
+  return {
+    patientTotal,
+    patientPaid,
+    patientOutstanding,
+    insuranceTotal,
+    insuranceOutstanding,
+    canDischarge: patientOutstanding <= 0,
+  };
+};
+
 export const validatePaymentAmountInput = ({
   paymentAmount,
   remainingAmount,

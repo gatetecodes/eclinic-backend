@@ -11,7 +11,8 @@ import {
   type InventoryBatch,
   type InventoryItem,
   InventoryStatus,
-  type Prisma,
+  POStatus,
+  Prisma,
   SourceType,
   type Transaction,
   TransactionStatus,
@@ -19,9 +20,11 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import {
-  generateSku, // Corrected import
+  applyGoodsReceiptLine,
+  generateSku,
   processInventoryItemRecord,
   refreshItemStatus,
+  seedOpeningStock,
 } from "../../../helpers/inventory-helpers";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
@@ -51,30 +54,67 @@ export const createInventoryItem = async (c: Context) => {
       reorderLevel,
       manufacturer,
       minOrderQuantity,
+      unitPrice,
+      costPrice,
+      quantity,
+      insuranceCovered,
       notes,
     } = await c.req.json();
-    const inventoryItem = await db.inventoryItem.create({
-      data: {
-        clinicId: user.clinicId,
-        branchId: user.branchId,
-        itemName,
-        sku: sku || generateSku(itemName),
-        itemType,
-        unit,
-        reorderLevel,
-        manufacturer,
-        minOrderQuantity,
-        notes,
-        status: InventoryStatus.OUT_OF_STOCK,
-        currentStock: {
-          create: {
-            quantity: 0,
+
+    const openingQty =
+      typeof quantity === "number" && quantity > 0 ? Math.trunc(quantity) : 0;
+    const batchUnitPrice = costPrice ?? unitPrice ?? null;
+
+    const inventoryItem = await db.$transaction(async (tx) => {
+      const created = await tx.inventoryItem.create({
+        data: {
+          clinicId: user.clinicId,
+          branchId: user.branchId,
+          itemName,
+          sku: sku || generateSku(itemName),
+          itemType,
+          unit,
+          reorderLevel,
+          manufacturer,
+          minOrderQuantity,
+          unitPrice: unitPrice != null ? new Decimal(unitPrice) : null,
+          costPrice: costPrice != null ? new Decimal(costPrice) : null,
+          ...(typeof insuranceCovered === "boolean"
+            ? { insuranceCovered }
+            : {}),
+          notes,
+          status: InventoryStatus.OUT_OF_STOCK,
+          currentStock: {
+            create: {
+              quantity: openingQty,
+            },
           },
         },
-      },
-      include: {
-        currentStock: true,
-      },
+        include: {
+          currentStock: true,
+        },
+      });
+
+      // Seed opening stock as a proper batch + ledger entry so FEFO,
+      // valuation and stock-out stay consistent.
+      if (openingQty > 0) {
+        await seedOpeningStock(tx, {
+          itemId: created.id,
+          quantity: openingQty,
+          unitPrice: batchUnitPrice,
+          branchId: user.branchId ?? null,
+          userId: Number(user.id),
+        });
+
+        return tx.inventoryItem.findUniqueOrThrow({
+          where: { id: created.id },
+          include: {
+            currentStock: true,
+          },
+        });
+      }
+
+      return created;
     });
 
     await invalidateInventoryRelatedCaches({
@@ -154,9 +194,11 @@ export const updateInventoryItem = async (c: Context) => {
       itemType,
       unit,
       unitPrice,
+      costPrice,
       reorderLevel,
       manufacturer,
       minOrderQuantity,
+      insuranceCovered,
       notes,
     } = await c.req.json();
 
@@ -173,9 +215,13 @@ export const updateInventoryItem = async (c: Context) => {
           itemType,
           unit,
           unitPrice,
+          costPrice,
           reorderLevel,
           manufacturer,
           minOrderQuantity,
+          ...(typeof insuranceCovered === "boolean"
+            ? { insuranceCovered }
+            : {}),
           notes,
         },
       });
@@ -733,14 +779,21 @@ export const getInventoryTransactions = async (c: Context) => {
     const { clinicId, branchId } = getScope(user, params);
     const queryOptions = buildQueryOptions<Transaction>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
-    const transactions = await db.transaction.findMany({
-      where: {
-        ...where,
-        item: {
-          ...(typeof clinicId === "number" ? { clinicId } : {}),
-          ...(typeof branchId === "number" ? { branchId } : {}),
-        },
+    const typeFilter =
+      params.type &&
+      (Object.values(TransactionType) as string[]).includes(params.type)
+        ? { type: params.type as TransactionType }
+        : {};
+    const transactionWhere: Prisma.TransactionWhereInput = {
+      ...where,
+      ...typeFilter,
+      item: {
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
       },
+    };
+    const transactions = await db.transaction.findMany({
+      where: transactionWhere,
       orderBy: orderBy as Prisma.TransactionOrderByWithRelationInput,
       ...restOptions,
       include: {
@@ -770,13 +823,7 @@ export const getInventoryTransactions = async (c: Context) => {
       },
     });
     const totalCount = await db.transaction.count({
-      where: {
-        ...where,
-        item: {
-          ...(typeof clinicId === "number" ? { clinicId } : {}),
-          ...(typeof branchId === "number" ? { branchId } : {}),
-        },
-      },
+      where: transactionWhere,
     });
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
@@ -962,6 +1009,9 @@ async function createPositiveAdjustment(
     reason: string;
     notes?: string | null;
     branchId?: number | null;
+    sourceType?: SourceType;
+    location?: string;
+    visitId?: number;
   }
 ) {
   const batch = await tx.inventoryBatch.create({
@@ -971,7 +1021,7 @@ async function createPositiveAdjustment(
       initialQuantity: input.diff,
       currentQuantity: input.diff,
       unitPrice: null,
-      location: "STOCKTAKE",
+      location: input.location ?? "STOCKTAKE",
       branchId: input.branchId ?? null,
     },
     select: { id: true },
@@ -984,7 +1034,8 @@ async function createPositiveAdjustment(
       quantity: input.diff,
       unitPrice: null,
       totalAmount: null,
-      sourceType: SourceType.STOCKTAKE,
+      visitId: input.visitId,
+      sourceType: input.sourceType ?? SourceType.STOCKTAKE,
       notes: input.notes ? `${input.reason} — ${input.notes}` : input.reason,
       userId: input.userId,
       status: TransactionStatus.COMPLETED,
@@ -1000,6 +1051,8 @@ async function applyNegativeAdjustment(
     quantity: number;
     reason: string;
     notes?: string | null;
+    sourceType?: SourceType;
+    visitId?: number;
   }
 ) {
   const allocations = await allocateBatchesForItem(
@@ -1015,6 +1068,29 @@ async function applyNegativeAdjustment(
   const byId = new Map(batches.map((b) => [b.id, b]));
   for (const a of allocations) {
     const b = byId.get(a.batchId);
+    await tx.$queryRaw`
+      SELECT id
+      FROM "InventoryBatch"
+      WHERE id = ${a.batchId}
+        AND "itemId" = ${input.itemId}
+      FOR UPDATE
+    `;
+    const batchUpdate = await tx.inventoryBatch.updateMany({
+      where: {
+        id: a.batchId,
+        itemId: input.itemId,
+        currentQuantity: { gte: a.quantity },
+      },
+      data: { currentQuantity: { decrement: a.quantity } },
+    });
+    if (batchUpdate.count !== 1) {
+      throw new AppError({
+        status: httpCodes.BAD_REQUEST,
+        code: "INSUFFICIENT_STOCK",
+        message: `Insufficient quantity in batch ${a.batchId}`,
+        exposeMessage: true,
+      });
+    }
     await tx.transaction.create({
       data: {
         itemId: input.itemId,
@@ -1025,15 +1101,12 @@ async function applyNegativeAdjustment(
         totalAmount: b?.unitPrice
           ? new Decimal(b.unitPrice).mul(a.quantity)
           : null,
-        sourceType: SourceType.STOCKTAKE,
+        visitId: input.visitId,
+        sourceType: input.sourceType ?? SourceType.STOCKTAKE,
         notes: input.notes ? `${input.reason} — ${input.notes}` : input.reason,
         userId: input.userId,
         status: TransactionStatus.COMPLETED,
       },
-    });
-    await tx.inventoryBatch.update({
-      where: { id: a.batchId },
-      data: { currentQuantity: { decrement: a.quantity } },
     });
   }
 }
@@ -1597,58 +1670,16 @@ export const receiveGoods = async (c: Context) => {
         exposeMessage: true,
       });
     }
-    //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
     const result = await db.$transaction(async (tx) => {
       let totalQty = 0;
       for (const line of items) {
-        const batch = await tx.inventoryBatch.create({
-          data: {
-            itemId: line.itemId,
-            batchNumber:
-              line.batchNumber ??
-              generateAdjustmentBatchNumber(line.itemId).replace("ADJ", "GRN"),
-            expiryDate: line.expiryDate ?? null,
-            initialQuantity: line.quantity,
-            currentQuantity: line.quantity,
-            unitPrice:
-              line.unitPrice != null ? new Decimal(line.unitPrice) : null,
-            location: line.location ?? "RECEIVING",
-            branchId: user.branchId ?? null,
-          },
-          select: { id: true },
-        });
-        await tx.transaction.create({
-          data: {
-            itemId: line.itemId,
-            batchId: batch.id,
-            type: TransactionType.PURCHASE,
-            quantity: line.quantity,
-            unitPrice:
-              line.unitPrice != null ? new Decimal(line.unitPrice) : null,
-            totalAmount:
-              line.unitPrice != null
-                ? new Decimal(line.unitPrice).mul(line.quantity)
-                : null,
-            sourceType: SourceType.PURCHASE_ORDER,
-            notes,
-            userId: Number(user.id),
-            status: TransactionStatus.COMPLETED,
-          },
-        });
-        await tx.inventoryStock.upsert({
-          where: { itemId: line.itemId },
-          create: { itemId: line.itemId, quantity: line.quantity },
-          update: { quantity: { increment: line.quantity } },
+        await applyGoodsReceiptLine(tx, line, {
+          userId: Number(user.id),
+          branchId: user.branchId ?? null,
+          notes,
+          sourceType: SourceType.MANUAL,
         });
         totalQty += line.quantity;
-      }
-
-      //Keep status in synch after goods receipt
-      // Get all unique item IDs from the receipt
-      const uniqueItemIds = [...new Set(items.map((item) => item.itemId))];
-
-      for (const itemId of uniqueItemIds) {
-        await refreshItemStatus(tx, itemId);
       }
       return { received: items.length, totalQuantity: totalQty };
     });
@@ -1740,6 +1771,260 @@ export const getLowStockItems = async (c: Context) => {
       },
     });
     return c.json({ data: items }, httpCodes.OK as ContentfulStatusCode);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * Delta-based stock adjustment with a structured reason. Positive deltas create
+ * an adjustment batch; negative deltas are FEFO-allocated across existing
+ * batches. Distinct from the absolute-set stocktake.
+ */
+export const adjustStock = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { itemId, delta, reason, notes, visitId } = c.get("validatedJson");
+    const tenantScope = {
+      clinicId: user.clinicId,
+      ...(typeof user.branchId === "number" ? { branchId: user.branchId } : {}),
+    };
+    const idemKey = c.req.header("Idempotency-Key");
+    if (idemKey) {
+      const key = `idem:inventory:adjust:${idemKey}`;
+      const wasSet = await redis.set(key, "1", "EX", 60 * 5, "NX");
+      if (!wasSet) {
+        return c.json(
+          { error: "Duplicate request" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+    }
+
+    const [item, visit] = await Promise.all([
+      db.inventoryItem.findFirst({
+        where: {
+          id: itemId,
+          ...tenantScope,
+        },
+        select: { id: true },
+      }),
+      visitId
+        ? db.visit.findFirst({
+            where: {
+              id: visitId,
+              ...tenantScope,
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (!item) {
+      return c.json(
+        { error: "Item not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    if (visitId && !visit) {
+      return c.json(
+        { error: "Visit not found or access denied" },
+        httpCodes.NOT_FOUND as ContentfulStatusCode
+      );
+    }
+
+    const result = await db.$transaction(
+      async (tx) => {
+        const stock = await tx.inventoryStock.findUnique({
+          where: { itemId },
+          select: { quantity: true },
+        });
+        const currentQty = stock?.quantity ?? 0;
+        let quantityBeforeAdjustment = currentQty;
+
+        if (delta > 0) {
+          await createPositiveAdjustment(tx, {
+            userId: Number(user.id),
+            itemId,
+            diff: delta,
+            reason,
+            notes,
+            branchId: user.branchId ?? null,
+            sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
+            location: "ADJUSTMENT",
+            visitId,
+          });
+          await tx.inventoryStock.upsert({
+            where: { itemId },
+            create: { itemId, quantity: delta },
+            update: { quantity: { increment: delta } },
+          });
+        } else {
+          const decrease = Math.abs(delta);
+          const [lockedStock] = await tx.$queryRaw<Array<{ quantity: number }>>`
+            SELECT quantity
+            FROM "InventoryStock"
+            WHERE "itemId" = ${itemId}
+            FOR UPDATE
+          `;
+          const lockedQty = lockedStock?.quantity ?? 0;
+          quantityBeforeAdjustment = lockedQty;
+          if (decrease > lockedQty) {
+            return Promise.reject(
+              new AppError({
+                status: httpCodes.BAD_REQUEST,
+                code: "INSUFFICIENT_STOCK",
+                message: `Cannot reduce stock by ${decrease}; only ${lockedQty} on hand`,
+                exposeMessage: true,
+              })
+            );
+          }
+          await applyNegativeAdjustment(tx, {
+            userId: Number(user.id),
+            itemId,
+            quantity: decrease,
+            reason,
+            notes,
+            sourceType: visitId ? SourceType.VISIT : SourceType.MANUAL,
+            visitId,
+          });
+          const stockUpdate = await tx.inventoryStock.updateMany({
+            where: {
+              itemId,
+              quantity: { gte: decrease },
+            },
+            data: { quantity: { decrement: decrease } },
+          });
+          if (stockUpdate.count !== 1) {
+            return Promise.reject(
+              new AppError({
+                status: httpCodes.BAD_REQUEST,
+                code: "INSUFFICIENT_STOCK",
+                message: `Cannot reduce stock by ${decrease}; insufficient stock on hand`,
+                exposeMessage: true,
+              })
+            );
+          }
+        }
+
+        await refreshItemStatus(tx, itemId);
+        return { itemId, delta, newQuantity: quantityBeforeAdjustment + delta };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+
+    await invalidateInventoryRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+    });
+    return c.json(
+      { success: true, message: "Stock adjusted successfully", data: result },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (error) {
+    if (error instanceof AppError) {
+      return error.toResponse(c);
+    }
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * Items at or below their reorder point, with a suggested reorder quantity and
+ * the latest still-open purchase order (if any). Powers the "Reordering" tab.
+ */
+export const getReorderSuggestions = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const params = searchParamsSchema.parse(c.req.query());
+    const { clinicId, branchId } = getScope(user, params);
+
+    const items = await db.inventoryItem.findMany({
+      where: {
+        status: {
+          in: [InventoryStatus.LOW_STOCK, InventoryStatus.OUT_OF_STOCK],
+        },
+        ...(typeof clinicId === "number" ? { clinicId } : {}),
+        ...(typeof branchId === "number" ? { branchId } : {}),
+      },
+      select: {
+        id: true,
+        itemName: true,
+        sku: true,
+        unit: true,
+        status: true,
+        reorderLevel: true,
+        minOrderQuantity: true,
+        unitPrice: true,
+        currentStock: { select: { quantity: true } },
+      },
+    });
+
+    const itemIds = items.map((i) => i.id);
+    const openLines = itemIds.length
+      ? await db.purchaseOrderLine.findMany({
+          where: {
+            itemId: { in: itemIds },
+            purchaseOrder: {
+              status: { in: [POStatus.DRAFT, POStatus.APPROVED] },
+              ...(typeof clinicId === "number" ? { clinicId } : {}),
+            },
+          },
+          select: {
+            itemId: true,
+            quantity: true,
+            purchaseOrder: {
+              select: { id: true, status: true, createdAt: true },
+            },
+          },
+          orderBy: { purchaseOrder: { createdAt: "desc" } },
+        })
+      : [];
+
+    const latestPoByItem = new Map<
+      number,
+      { id: number; status: POStatus; createdAt: Date }
+    >();
+    for (const line of openLines) {
+      if (!latestPoByItem.has(line.itemId)) {
+        latestPoByItem.set(line.itemId, line.purchaseOrder);
+      }
+    }
+
+    const data = items.map((item) => {
+      const onHand = item.currentStock?.quantity ?? 0;
+      const reorderPoint = item.reorderLevel ?? 0;
+      const suggestedQuantity = Math.max(
+        reorderPoint * 2 - onHand,
+        item.minOrderQuantity ?? reorderPoint,
+        1
+      );
+      return {
+        itemId: item.id,
+        itemName: item.itemName,
+        sku: item.sku,
+        unit: item.unit,
+        status: item.status,
+        onHandQuantity: onHand,
+        reorderPoint,
+        suggestedQuantity,
+        unitPrice: item.unitPrice ? Number(item.unitPrice) : null,
+        latestPurchaseOrder: latestPoByItem.get(item.id) ?? null,
+      };
+    });
+
+    return c.json({ data }, httpCodes.OK as ContentfulStatusCode);
   } catch (error) {
     return c.json(
       {

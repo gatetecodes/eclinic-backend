@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger";
 
 let io: Server;
 
-const JOIN_ROOM_REGEX = /^(queue|entry):(\d+)$/;
+const JOIN_ROOM_REGEX = /^(queue|entry|flow):(\d+)$/;
 
 // Define types for update payloads
 type QueueUpdateData = {
@@ -40,7 +40,7 @@ type SocketUser = {
 };
 
 type JoinRoomResult =
-  | { ok: true; kind: "queue" | "entry"; id: number; room: string }
+  | { ok: true; kind: "queue" | "entry" | "flow"; id: number; room: string }
   | { ok: false; reason: string };
 
 function parseJoinRoom(room: string): JoinRoomResult {
@@ -48,7 +48,7 @@ function parseJoinRoom(room: string): JoinRoomResult {
   if (!match) {
     return { ok: false, reason: "invalid_room_format" };
   }
-  const kind = match[1] as "queue" | "entry";
+  const kind = match[1] as "queue" | "entry" | "flow";
   const id = Number(match[2]);
   if (!Number.isFinite(id) || id <= 0) {
     return { ok: false, reason: "invalid_room_id" };
@@ -117,6 +117,13 @@ async function canJoinRoom(
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   if (!user.clinicId) {
     return { allowed: false, reason: "missing_clinic_context" };
+  }
+  if (parsed.kind === "flow") {
+    // flow:{clinicId} — patient-flow pipeline room, scoped to the user's clinic.
+    if (parsed.id !== user.clinicId) {
+      return { allowed: false, reason: "flow_not_in_clinic" };
+    }
+    return { allowed: true };
   }
   if (parsed.kind === "queue") {
     const queue = await db.queue.findUnique({
@@ -324,6 +331,36 @@ export const notifyQueueUpdate = (queueId: number, data: QueueUpdateData) => {
     status: data.status,
     count: data.count,
     entryId: data.entryId,
+  });
+};
+
+export type FlowUpdatePayload = {
+  type: string;
+  fromStage?: string;
+  toStage?: string;
+  visit?: unknown;
+  branchId?: number;
+  actorId?: number;
+};
+
+/**
+ * Broadcast a patient-flow pipeline change to everyone watching a clinic's
+ * flow room (`flow:{clinicId}`). No-op when sockets are not initialised (e.g.
+ * headless/cron) — the frontend falls back to polling /visits/pipeline.
+ */
+export const notifyFlowUpdate = (clinicId: number, data: FlowUpdatePayload) => {
+  if (!io) {
+    return;
+  }
+  io.of("/queueless").to(`flow:${clinicId}`).emit("flow:update", data);
+  logger.debug("socket.emit.flow_update", {
+    module: "socket",
+    namespace: "/queueless",
+    room: `flow:${clinicId}`,
+    clinicId,
+    type: data.type,
+    fromStage: data.fromStage,
+    toStage: data.toStage,
   });
 };
 

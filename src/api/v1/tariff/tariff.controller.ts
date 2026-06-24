@@ -219,6 +219,9 @@ export const getTariff = async (c: Context) => {
         },
         unit: true,
         normalRange: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         isActive: true,
         departments: {
           select: {
@@ -238,6 +241,7 @@ export const getTariff = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -306,9 +310,14 @@ export const getProductsList = async (c: Context) => {
     }
 
     const { departmentIds } = c.req.query();
-    const parsedDepartmentIds = departmentIds
-      ? departmentIds.split(".").map(Number)
-      : undefined;
+    const parsedDepartmentIdsRaw = departmentIds
+      ? departmentIds
+          .split(".")
+          .map((token) => Number(token.trim()))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      : [];
+    const parsedDepartmentIds =
+      parsedDepartmentIdsRaw.length > 0 ? parsedDepartmentIdsRaw : undefined;
 
     const { clinicId } = getScope(user, c.req.query());
     let targetClinicId: number | undefined;
@@ -348,6 +357,9 @@ export const getProductsList = async (c: Context) => {
         code: true,
         category: true,
         basePrice: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         departments: {
           select: {
             id: true,
@@ -375,9 +387,11 @@ export const getProductsListWithPricing = async (c: Context) => {
     const user = c.get("user");
 
     const { departmentIds } = c.req.query();
-    const parsedDepartmentIds = departmentIds
-      ? departmentIds.split(".").map(Number)
-      : undefined;
+    const parsedDepartmentIdsRaw = departmentIds
+      ? departmentIds.split(".").map(Number).filter(Number.isFinite)
+      : [];
+    const parsedDepartmentIds =
+      parsedDepartmentIdsRaw.length > 0 ? parsedDepartmentIdsRaw : undefined;
 
     const { clinicId } = getScope(user, c.req.query());
     let targetClinicId: number | undefined;
@@ -422,6 +436,9 @@ export const getProductsListWithPricing = async (c: Context) => {
         eastAfricaPrice: true,
         africaPrice: true,
         restOfWorldPrice: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         clinicProductPrices: scopedClinicId
           ? {
               where: {
@@ -447,6 +464,7 @@ export const getProductsListWithPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             clinicId: true,
             insuranceCompany: {
               select: {
@@ -540,6 +558,9 @@ export const getProductById = async (c: Context) => {
         restOfWorldPrice: true,
         unit: true,
         normalRange: true,
+        icd11Code: true,
+        loincCode: true,
+        nationalTariffCode: true,
         consumables: true,
         isActive: true,
         clinicProductPrices: clinicId
@@ -579,6 +600,7 @@ export const getProductById = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             clinicId: true,
             insuranceCompany: {
               select: {
@@ -655,6 +677,7 @@ export const getProductById = async (c: Context) => {
   }
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Sequential validation guards before product creation
 export const createProduct = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -686,6 +709,9 @@ export const createProduct = async (c: Context) => {
       restOfWorldPrice,
       unit,
       normalRange,
+      icd11Code,
+      loincCode,
+      nationalTariffCode,
       consumables,
       departmentIds,
     } = validatedData;
@@ -727,6 +753,9 @@ export const createProduct = async (c: Context) => {
         restOfWorldPrice: restOfWorldPrice ?? null,
         unit,
         normalRange,
+        icd11Code: icd11Code ?? null,
+        loincCode: loincCode ?? null,
+        nationalTariffCode: nationalTariffCode ?? null,
         consumables: consumables
           ? (consumables as Prisma.InputJsonValue)
           : undefined,
@@ -869,6 +898,7 @@ export const updateProduct = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -900,7 +930,6 @@ export const updateProduct = async (c: Context) => {
   }
 };
 
-//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const updateProductPricing = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -965,39 +994,27 @@ export const updateProductPricing = async (c: Context) => {
       eastAfricaPrice,
       africaPrice,
       restOfWorldPrice,
+      icd11Code,
+      loincCode,
+      nationalTariffCode,
       insurancePrices,
     } = validatedData;
 
-    // Update or create clinic-specific product prices
-    await db.clinicProductPrice.upsert({
-      where: {
-        clinicId_productId: {
-          clinicId,
-          productId,
-        },
-      },
-      update: {
-        basePrice: basePrice ?? null,
-        eastAfricaPrice: eastAfricaPrice ?? null,
-        africaPrice: africaPrice ?? null,
-        restOfWorldPrice: restOfWorldPrice ?? null,
-      },
-      create: {
-        clinicId,
-        productId,
-        basePrice: basePrice ?? null,
-        eastAfricaPrice: eastAfricaPrice ?? null,
-        africaPrice: africaPrice ?? null,
-        restOfWorldPrice: restOfWorldPrice ?? null,
-      },
-    });
+    let insuranceCompanyIds: number[] = [];
 
     // Only replace insurance prices when payload explicitly includes them.
     if (insurancePrices) {
-      // Verify insurance companies exist (no clinic relation in backend schema)
-      const insuranceCompanyIds = insurancePrices.map((ip) =>
+      insuranceCompanyIds = insurancePrices.map((ip) =>
         Number.parseInt(ip.companyId, 10)
       );
+      if (insuranceCompanyIds.some(Number.isNaN)) {
+        return c.json(
+          { error: "One or more insurance company IDs are invalid" },
+          httpCodes.BAD_REQUEST as ContentfulStatusCode
+        );
+      }
+
+      // Verify insurance companies exist (no clinic relation in backend schema)
       const insuranceCompanies = await db.insuranceCompany.findMany({
         where: { id: { in: insuranceCompanyIds } },
       });
@@ -1008,9 +1025,58 @@ export const updateProductPricing = async (c: Context) => {
           httpCodes.NOT_FOUND as ContentfulStatusCode
         );
       }
+    }
 
-      // Replace delete-then-insert with a single atomic transaction
-      await db.$transaction(async (tx) => {
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Transaction keeps related writes atomic after pre-validation.
+    await db.$transaction(async (tx) => {
+      // Standardized codes are global product attributes; persist on the Product
+      // itself only when at least one was provided in the payload.
+      if (
+        icd11Code !== undefined ||
+        loincCode !== undefined ||
+        nationalTariffCode !== undefined
+      ) {
+        await tx.product.update({
+          where: { id: productId },
+          data: {
+            ...(icd11Code !== undefined
+              ? { icd11Code: icd11Code || null }
+              : {}),
+            ...(loincCode !== undefined
+              ? { loincCode: loincCode || null }
+              : {}),
+            ...(nationalTariffCode !== undefined
+              ? { nationalTariffCode: nationalTariffCode || null }
+              : {}),
+          },
+        });
+      }
+
+      // Update or create clinic-specific product prices.
+      await tx.clinicProductPrice.upsert({
+        where: {
+          clinicId_productId: {
+            clinicId,
+            productId,
+          },
+        },
+        update: {
+          basePrice: basePrice ?? null,
+          eastAfricaPrice: eastAfricaPrice ?? null,
+          africaPrice: africaPrice ?? null,
+          restOfWorldPrice: restOfWorldPrice ?? null,
+        },
+        create: {
+          clinicId,
+          productId,
+          basePrice: basePrice ?? null,
+          eastAfricaPrice: eastAfricaPrice ?? null,
+          africaPrice: africaPrice ?? null,
+          restOfWorldPrice: restOfWorldPrice ?? null,
+        },
+      });
+
+      if (insurancePrices) {
         // Delete existing insurance prices within the transaction to prevent races
         await tx.insurancePrice.deleteMany({
           where: {
@@ -1022,18 +1088,19 @@ export const updateProductPricing = async (c: Context) => {
         // Insert new clinic-specific insurance prices if provided
         if (insurancePrices.length > 0) {
           await tx.insurancePrice.createMany({
-            data: insurancePrices.map((ip) => ({
+            data: insurancePrices.map((ip, index) => ({
               price: ip.price,
               priceWithCo: ip.priceWithCo ?? undefined,
               priceType: ip.priceType ?? PriceType.PRIVATE,
-              insuranceCompanyId: Number.parseInt(ip.companyId, 10),
+              insurerItemCode: ip.insurerItemCode ?? undefined,
+              insuranceCompanyId: insuranceCompanyIds[index],
               productId,
               clinicId,
             })),
           });
         }
-      });
-    }
+      }
+    });
 
     // Fetch updated product with clinic-specific pricing
     const updatedProduct = await db.product.findUnique({
@@ -1071,6 +1138,7 @@ export const updateProductPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,
@@ -1248,6 +1316,7 @@ export const getConsultationProductsWithPricing = async (c: Context) => {
             price: true,
             priceWithCo: true,
             priceType: true,
+            insurerItemCode: true,
             insuranceCompany: {
               select: {
                 id: true,

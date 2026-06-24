@@ -29,6 +29,10 @@ import patientsRouter from "./patients/routes.ts";
 import paymentsRouter from "./payments/payments.routes.ts";
 import performanceReportsRouter from "./performance-reports/performance-reports.routes.ts";
 import pharmacyRouter from "./pharmacy/pharmacy.routes.ts";
+import {
+  purchaseOrdersRouter,
+  suppliersRouter,
+} from "./purchasing/purchasing.routes.ts";
 import publicQueuesRouter from "./queues/public.routes.ts";
 import queuesRouter from "./queues/routes.ts";
 import smsRouter from "./sms/sms.routes";
@@ -85,6 +89,8 @@ v1.route("/tariff", tariffRouter);
 v1.route("/visits", visitsRouter);
 v1.route("/payments", paymentsRouter);
 v1.route("/inventory", inventoryRouter);
+v1.route("/suppliers", suppliersRouter);
+v1.route("/purchase-orders", purchaseOrdersRouter);
 v1.route("/analytics", analyticsRouter);
 v1.route("/notifications", notificationsRouter);
 v1.route("/admin", adminRouter);

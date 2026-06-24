@@ -226,6 +226,134 @@ export async function refreshItemStatus(
   }
 }
 
+export function generateReceiptBatchNumber(itemId: number): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `GRN-${itemId}-${yyyy}${mm}${dd}-${rand}`;
+}
+
+function assertPositiveInventoryQuantity(quantity: number) {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "INVALID_QUANTITY",
+      message: "Quantity must be greater than zero",
+      exposeMessage: true,
+    });
+  }
+}
+
+/**
+ * Receives a single goods-receipt line into stock: creates a batch, records a
+ * PURCHASE transaction, increments aggregate stock and refreshes item status.
+ * Shared by ad-hoc goods receipt and purchase-order receiving so both paths
+ * behave identically while preserving the correct source type.
+ */
+export async function applyGoodsReceiptLine(
+  tx: Prisma.TransactionClient,
+  line: {
+    itemId: number;
+    quantity: number;
+    unitPrice?: number | string | Decimal | null;
+    batchNumber?: string | null;
+    expiryDate?: Date | null;
+    location?: string | null;
+  },
+  ctx: {
+    userId: number;
+    branchId?: number | null;
+    notes?: string | null;
+    sourceType: SourceType;
+  }
+): Promise<{ batchId: number }> {
+  assertPositiveInventoryQuantity(line.quantity);
+  const unitPrice = line.unitPrice != null ? new Decimal(line.unitPrice) : null;
+  const batch = await tx.inventoryBatch.create({
+    data: {
+      itemId: line.itemId,
+      batchNumber: line.batchNumber || generateReceiptBatchNumber(line.itemId),
+      expiryDate: line.expiryDate ?? null,
+      initialQuantity: line.quantity,
+      currentQuantity: line.quantity,
+      unitPrice,
+      location: line.location ?? "RECEIVING",
+      branchId: ctx.branchId ?? null,
+    },
+    select: { id: true },
+  });
+  await tx.transaction.create({
+    data: {
+      itemId: line.itemId,
+      batchId: batch.id,
+      type: TransactionType.PURCHASE,
+      quantity: line.quantity,
+      unitPrice,
+      totalAmount: unitPrice ? unitPrice.mul(line.quantity) : null,
+      sourceType: ctx.sourceType,
+      notes: ctx.notes ?? null,
+      userId: ctx.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+  await tx.inventoryStock.upsert({
+    where: { itemId: line.itemId },
+    create: { itemId: line.itemId, quantity: line.quantity },
+    update: { quantity: { increment: line.quantity } },
+  });
+  await refreshItemStatus(tx, line.itemId);
+  return { batchId: batch.id };
+}
+
+/**
+ * Seed an item's opening stock as a proper batch + ADJUSTMENT ledger entry so
+ * FEFO, valuation and stock-out stay consistent. Assumes the item's aggregate
+ * stock has already been set to `quantity`; this only adds the batch/ledger.
+ */
+export async function seedOpeningStock(
+  tx: Prisma.TransactionClient,
+  input: {
+    itemId: number;
+    quantity: number;
+    unitPrice?: number | string | Decimal | null;
+    branchId?: number | null;
+    userId: number;
+  }
+) {
+  assertPositiveInventoryQuantity(input.quantity);
+  const unitPrice =
+    input.unitPrice != null ? new Decimal(input.unitPrice) : null;
+  const batch = await tx.inventoryBatch.create({
+    data: {
+      itemId: input.itemId,
+      batchNumber: `OPENING-${input.itemId}-${Date.now().toString(36).toUpperCase()}`,
+      initialQuantity: input.quantity,
+      currentQuantity: input.quantity,
+      unitPrice,
+      location: "OPENING",
+      branchId: input.branchId ?? null,
+    },
+    select: { id: true },
+  });
+  await tx.transaction.create({
+    data: {
+      itemId: input.itemId,
+      batchId: batch.id,
+      type: TransactionType.ADJUSTMENT,
+      quantity: input.quantity,
+      unitPrice,
+      totalAmount: unitPrice ? unitPrice.mul(input.quantity) : null,
+      sourceType: SourceType.MANUAL,
+      notes: "Opening stock",
+      userId: input.userId,
+      status: TransactionStatus.COMPLETED,
+    },
+  });
+  await refreshItemStatus(tx, input.itemId);
+}
+
 export function generateSku(itemName: string): string {
   const prefix = itemName
     .substring(0, 3)
