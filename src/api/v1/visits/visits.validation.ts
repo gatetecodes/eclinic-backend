@@ -517,6 +517,11 @@ export const flowCheckInSchema = z
     paymentMode: z.nativeEnum(PaymentMode).optional(),
     insurance: insuranceSchema.optional(),
     priority: z.nativeEnum(Priority).optional(),
+    // Doctor/department assignment. Normally done at triage, but a triage-less
+    // clinic assigns here at reception (the controller requires both when the
+    // clinic's flow routes Reception → Doctor).
+    departmentId: z.string().optional(),
+    doctorId: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.paymentMode === "INSURANCE") {
@@ -560,6 +565,30 @@ export const advanceVisitSchema = z.object({
 });
 
 export type IAdvanceVisit = z.infer<typeof advanceVisitSchema>;
+
+// Admin care-flow configuration: enable/disable optional stages per clinic.
+// Only OPTIONAL stages may actually be toggled — the controller rejects any
+// attempt to disable a mandatory/conditional stage with a clear error.
+export const flowConfigUpdateSchema = z.object({
+  stages: z
+    .array(
+      z.object({
+        stage: z.enum([
+          "RECEPTION",
+          "TRIAGE",
+          "DOCTOR",
+          "LAB",
+          "PHARMACY",
+          "BILLING",
+          "DONE",
+        ]),
+        enabled: z.boolean(),
+      })
+    )
+    .min(1, "At least one stage update is required"),
+});
+
+export type IFlowConfigUpdate = z.infer<typeof flowConfigUpdateSchema>;
 
 // Update status schema
 export const updateVisitStatusSchema = z.object({

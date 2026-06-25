@@ -97,7 +97,11 @@ router.put(
   assignDepartmentsToDoctor
 );
 router.get("/:id/timesheet", crudAccess("users"), getUserTimesheet);
-router.get("/me", crudAccess("users"), getCurrentUser);
+router.get(
+  "/me",
+  ...withAccess({ resource: "users", action: "readMyProfile" }),
+  getCurrentUser
+);
 router.put(
   "/me/preferences",
   validate(updateLocalePreferenceSchema, "json"),
