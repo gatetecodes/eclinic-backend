@@ -1840,6 +1840,7 @@ export const adjustStock = async (c: Context) => {
     }
 
     const result = await db.$transaction(
+      //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
       async (tx) => {
         const stock = await tx.inventoryStock.findUnique({
           where: { itemId },

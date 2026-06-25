@@ -10,6 +10,7 @@ import {
 import { db } from "../../../database/db";
 import { hashCredentialPassword } from "../../../helpers/auth-helper";
 import { buildQueryOptions } from "../../../helpers/query-helper";
+import { defaultFlowConfigRows } from "../../../lib/clinic-flow";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
@@ -95,6 +96,13 @@ export const createClinic = async (c: Context) => {
           createdAt: new Date(),
           updatedAt: new Date(),
         },
+      });
+
+      // Seed the default care-flow config (all stages enabled, canonical order)
+      // so the clinic starts with the standard pipeline and the admin can toggle
+      // optional stages from day one.
+      await tx.clinicFlowConfig.createMany({
+        data: defaultFlowConfigRows(newClinic.id),
       });
       const adminUser = await tx.user.create({
         data: {

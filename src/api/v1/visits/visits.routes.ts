@@ -36,8 +36,10 @@ import {
 import {
   advanceVisitStage,
   createFlowCheckIn,
+  getFlowConfig,
   getPipeline,
   getStageSummary,
+  updateFlowConfig,
 } from "./controllers/flow.controller.ts";
 //Patient controllers
 import { getPatientsByPhone } from "./controllers/patient.controller.ts";
@@ -74,6 +76,7 @@ import {
   editChiefComplaintSchema,
   finalizeVisitSchema,
   flowCheckInSchema,
+  flowConfigUpdateSchema,
   getHandoffParamsSchema,
   getPatientByPhoneSchema,
   getPatientVisitsParamsSchema,
@@ -96,6 +99,21 @@ const router = new Hono<AppEnv>();
 router.get("/", listVisits);
 // Patient-flow pipeline (live snapshot grouped by stage)
 router.get("/pipeline", getPipeline);
+// Admin care-flow configuration. Reading which stages a clinic runs is needed
+// operationally (e.g. reception must know whether triage is skipped), so the GET
+// is open to any clinical staff via `visits:read`. Changing the config is
+// admin-only, gated on `clinics:update`.
+router.get(
+  "/flow/config",
+  ...withAccess({ resource: "visits", action: "read" }),
+  getFlowConfig
+);
+router.put(
+  "/flow/config",
+  validate(flowConfigUpdateSchema, "json"),
+  ...withAccess({ resource: "clinics", action: "update" }),
+  updateFlowConfig
+);
 // Slim reception check-in (new flow): patient + payment mode only
 router.post(
   "/flow/check-in",
