@@ -156,12 +156,13 @@ export const careStageOrderFor = (
 
 /**
  * Derives the legal transition graph when optional stages are disabled, by
- * "splicing out" each disabled stage: every edge that pointed *to* it is
- * rewired to its own targets, and its outgoing edges are dropped. Optional
- * stages are linear backbone stages, so this splice is well-defined (e.g.
- * removing TRIAGE rewires RECEPTION → [TRIAGE, DONE] into RECEPTION →
- * [DOCTOR, DONE]). With no stages disabled this returns the canonical graph
- * unchanged.
+ * "splicing out" each disabled stage as a target: every edge that pointed *to*
+ * it is rewired to its own targets, while visits already parked there may
+ * still move onward. Optional stages are linear backbone stages, so this splice
+ * is well-defined (e.g. removing TRIAGE rewires RECEPTION → [TRIAGE, DONE]
+ * into RECEPTION → [DOCTOR, DONE], while TRIAGE itself can still move to
+ * DOCTOR for in-flight visits). With no stages disabled this returns the
+ * canonical graph unchanged.
  */
 export const allowedTransitionsFor = (
   disabledOptional: CareStage[]
@@ -194,9 +195,6 @@ export const allowedTransitionsFor = (
 
   const result = {} as Record<CareStage, CareStage[]>;
   for (const stage of CARE_STAGE_ORDER) {
-    if (disabled.has(stage)) {
-      continue;
-    }
     const rewired = resolveTargets(
       ALLOWED_TRANSITIONS[stage] ?? [],
       new Set([stage])

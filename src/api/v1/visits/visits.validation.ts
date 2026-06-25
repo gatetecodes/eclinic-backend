@@ -520,8 +520,14 @@ export const flowCheckInSchema = z
     // Doctor/department assignment. Normally done at triage, but a triage-less
     // clinic assigns here at reception (the controller requires both when the
     // clinic's flow routes Reception → Doctor).
-    departmentId: z.string().optional(),
-    doctorId: z.string().optional(),
+    departmentId: z
+      .string()
+      .regex(/^\d+$/, "departmentId must be a numeric id")
+      .optional(),
+    doctorId: z
+      .string()
+      .regex(/^\d+$/, "doctorId must be a numeric id")
+      .optional(),
   })
   .superRefine((data, ctx) => {
     if (data.paymentMode === "INSURANCE") {

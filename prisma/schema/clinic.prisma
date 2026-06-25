@@ -135,6 +135,7 @@ model Branch {
     pharmacyDispenseOrders PharmacyDispenseOrder[]
     flowConfigs            ClinicFlowConfig[]
 
+    @@unique([id, clinicId])
     @@index([clinicId])
     @@index([code])
 }
@@ -154,7 +155,7 @@ model ClinicFlowConfig {
     id        Int       @id @default(autoincrement())
     clinic    Clinic    @relation(fields: [clinicId], references: [id])
     clinicId  Int
-    branch    Branch?   @relation(fields: [branchId], references: [id])
+    branch    Branch?   @relation(fields: [branchId, clinicId], references: [id, clinicId], onDelete: Cascade)
     branchId  Int?
     stage     CareStage
     position  Int       @default(0)
