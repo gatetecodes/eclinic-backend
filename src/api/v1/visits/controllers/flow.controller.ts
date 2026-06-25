@@ -36,7 +36,7 @@ import { QueueIntegrationService } from "../../../../services/queue-integration.
 import {
   advanceVisitSchema,
   flowCheckInSchema,
-  flowConfigUpdateSchema,
+  type IFlowConfigUpdate,
 } from "../visits.validation";
 
 /**
@@ -725,16 +725,10 @@ export const updateFlowConfig = async (c: Context) => {
       );
     }
 
-    const parsed = flowConfigUpdateSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.flatten().fieldErrors },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
-      );
-    }
+    const payload = c.get("validatedJson") as IFlowConfigUpdate;
 
     // Reject toggles on stages the engine owns — only optional stages vary.
-    const illegal = parsed.data.stages.filter(
+    const illegal = payload.stages.filter(
       (s) => !isOptionalStage(s.stage as CareStage)
     );
     if (illegal.length > 0) {
@@ -748,11 +742,17 @@ export const updateFlowConfig = async (c: Context) => {
       );
     }
 
-    // Upsert each clinic-wide (branchId = null) row. updateMany + create-if-none
-    // is used instead of upsert because the compound unique includes the
-    // nullable branchId, where Postgres treats NULL as distinct.
+    // Serialize clinic-wide config writes per clinic so updateMany + create
+    // cannot race for branchId = null rows under concurrent requests.
     await db.$transaction(async (tx) => {
-      for (const { stage, enabled } of parsed.data.stages) {
+      await tx.$executeRaw`
+        SELECT id
+        FROM "Clinic"
+        WHERE id = ${clinicId}
+        FOR UPDATE
+      `;
+
+      for (const { stage, enabled } of payload.stages) {
         const stageEnum = stage as CareStage;
         const res = await tx.clinicFlowConfig.updateMany({
           where: { clinicId, branchId: null, stage: stageEnum },
