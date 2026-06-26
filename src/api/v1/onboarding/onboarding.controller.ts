@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { db } from "@/database/db";
 import { hashCredentialPassword } from "@/helpers/auth-helper";
 import { AppError } from "@/lib/app-error";
+import { defaultFlowConfigRows } from "@/lib/clinic-flow";
 import { httpCodes } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import {
@@ -65,6 +66,11 @@ export const OnboardingController = {
           contactEmail: email,
           contactPhone: phone,
         },
+      });
+
+      // Seed the default care-flow config (all stages enabled, canonical order).
+      await tx.clinicFlowConfig.createMany({
+        data: defaultFlowConfigRows(clinic.id),
       });
 
       // 3. Create Admin User

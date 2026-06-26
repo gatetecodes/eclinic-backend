@@ -8,15 +8,31 @@ import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
 import type { Prisma } from "../../generated/prisma/client";
 import {
+  CareStage,
   PrescriptionItemFulfilment,
   PrescriptionStatus,
   SourceType,
   TransactionType,
+  VisitStatus,
 } from "../../generated/prisma/client";
 import type {
   DispenseLineInput,
   ExecuteDispenseParams,
 } from "../types/pharmacy-dispense.types.ts";
+
+/**
+ * A visit that was automatically completed as a side-effect of dispensing the
+ * last clinic-stock line of its prescription. Returned up the call stack so the
+ * controller can fire the same best-effort side-effects (queue served, cache
+ * invalidation, live flow event) the manual `/advance` endpoint does.
+ */
+export type AutoCompletedVisit = {
+  id: number;
+  clinicId: number;
+  branchId: number | null;
+  patientId: number;
+  doctorId: number | null;
+};
 
 export const PHARMACY_ORDER_INCLUDE = {
   lines: {
@@ -111,12 +127,13 @@ async function assertInventoryItemInScope(
 async function updatePrescriptionAggregateStatus(
   tx: Prisma.TransactionClient,
   prescriptionId: number
-) {
+): Promise<AutoCompletedVisit | null> {
   const prescription = await tx.prescription.findUnique({
     where: { id: prescriptionId },
     select: {
       id: true,
       status: true,
+      visitId: true,
       // Only internally-fulfilled items are dispensed from clinic stock, so
       // only they count toward the served/fully-served aggregate. External
       // lines are filled by the patient outside and never get a dispense line.
@@ -127,11 +144,11 @@ async function updatePrescriptionAggregateStatus(
     },
   });
   if (!prescription || prescription.status === PrescriptionStatus.CANCELLED) {
-    return;
+    return null;
   }
   const itemIds = prescription.items.map((i) => i.id);
   if (itemIds.length === 0) {
-    return;
+    return null;
   }
   const dispensed = await tx.pharmacyDispenseLine.findMany({
     where: { prescriptionItemId: { in: itemIds } },
@@ -153,6 +170,44 @@ async function updatePrescriptionAggregateStatus(
       data: { status: next },
     });
   }
+
+  // Pharmacy is the patient's last station: once every clinic-dispensed
+  // (INTERNAL) line is served there is nothing left to collect, so dispensing
+  // the final line completes the visit automatically — no manual "Complete
+  // visit" click by the pharmacist. Guard on the visit actually being parked at
+  // PHARMACY so we never short-circuit an earlier stage or re-complete a visit.
+  if (next !== PrescriptionStatus.FULLY_SERVED) {
+    return null;
+  }
+  const visit = await tx.visit.findUnique({
+    where: { id: prescription.visitId },
+    select: {
+      id: true,
+      careStage: true,
+      clinicId: true,
+      branchId: true,
+      patientId: true,
+      doctorId: true,
+    },
+  });
+  if (!visit || visit.careStage !== CareStage.PHARMACY) {
+    return null;
+  }
+  await tx.visit.update({
+    where: { id: visit.id },
+    data: {
+      status: VisitStatus.DISCHARGED_WITH_PRESCRIPTION,
+      careStage: CareStage.DONE,
+      endTime: new Date(),
+    },
+  });
+  return {
+    id: visit.id,
+    clinicId: visit.clinicId,
+    branchId: visit.branchId,
+    patientId: visit.patientId,
+    doctorId: visit.doctorId,
+  };
 }
 
 async function tryReturnIdempotentOrder(
@@ -356,8 +411,12 @@ async function finalizeDispenseOrder(args: {
   key: string | undefined;
 }) {
   const { tx, orderId, params, userId, clinicId, key } = args;
+  let autoCompletedVisit: AutoCompletedVisit | null = null;
   if (typeof params.prescriptionId === "number") {
-    await updatePrescriptionAggregateStatus(tx, params.prescriptionId);
+    autoCompletedVisit = await updatePrescriptionAggregateStatus(
+      tx,
+      params.prescriptionId
+    );
   }
   if (key) {
     await tx.pharmacyIdempotencyRecord.create({
@@ -381,7 +440,7 @@ async function finalizeDispenseOrder(args: {
       exposeMessage: false,
     });
   }
-  return full;
+  return { order: full, autoCompletedVisit };
 }
 
 export async function runPharmacyDispenseInTransaction(
@@ -395,7 +454,11 @@ export async function runPharmacyDispenseInTransaction(
   if (key) {
     const replay = await tryReturnIdempotentOrder(tx, key, clinicId, userId);
     if (replay) {
-      return { order: replay, replayed: true as const };
+      return {
+        order: replay,
+        replayed: true as const,
+        autoCompletedVisit: null,
+      };
     }
   }
 
@@ -436,7 +499,7 @@ export async function runPharmacyDispenseInTransaction(
     });
   }
 
-  const full = await finalizeDispenseOrder({
+  const { order: full, autoCompletedVisit } = await finalizeDispenseOrder({
     tx,
     orderId: order.id,
     params,
@@ -444,5 +507,5 @@ export async function runPharmacyDispenseInTransaction(
     clinicId,
     key,
   });
-  return { order: full, replayed: false as const };
+  return { order: full, replayed: false as const, autoCompletedVisit };
 }

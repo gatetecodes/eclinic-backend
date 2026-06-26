@@ -4,6 +4,7 @@ import { httpCodes } from "@/lib/constants";
 import { DispenseOrderSource, Prisma } from "../../generated/prisma/client";
 import type { ExecuteDispenseParams } from "../types/pharmacy-dispense.types.ts";
 import {
+  type AutoCompletedVisit,
   PHARMACY_ORDER_INCLUDE,
   runPharmacyDispenseInTransaction,
 } from "./pharmacy-dispense-run-tx.ts";
@@ -12,6 +13,7 @@ export type {
   DispenseLineInput,
   ExecuteDispenseParams,
 } from "../types/pharmacy-dispense.types.ts";
+export type { AutoCompletedVisit } from "./pharmacy-dispense-run-tx.ts";
 
 function isPrismaUniqueViolation(
   error: unknown
@@ -87,9 +89,13 @@ export async function executeDispense(params: ExecuteDispenseParams) {
 
   validateDispenseParams(params);
 
+  // Replays mean the dispense already committed on an earlier request, so any
+  // visit auto-completion was handled then — never re-fire it here.
+  const noAutoComplete: AutoCompletedVisit | null = null;
+
   const earlyReplay = await tryReplayFromIdempotencyKey(clinicId, userId, key);
   if (earlyReplay) {
-    return earlyReplay;
+    return { ...earlyReplay, autoCompletedVisit: noAutoComplete };
   }
 
   try {
@@ -104,7 +110,7 @@ export async function executeDispense(params: ExecuteDispenseParams) {
         key
       );
       if (lateReplay) {
-        return lateReplay;
+        return { ...lateReplay, autoCompletedVisit: noAutoComplete };
       }
     }
     throw error;

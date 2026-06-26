@@ -23,10 +23,7 @@
     },
     "strictNullChecks": true
   },
-  "include": [
-    "src/index.ts",
-    "prisma.config.ts"
-  ],
+  "include": ["src/index.ts", "prisma.config.ts"],
   "exclude": [
     "node_modules",
     "dist",

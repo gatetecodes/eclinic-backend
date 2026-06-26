@@ -19,15 +19,39 @@ import {
 } from "../../../../helpers/visit-helper";
 import { invalidateVisitRelatedCaches } from "../../../../lib/cache-utils";
 import {
-  ALLOWED_TRANSITIONS,
   CARE_STAGE_ORDER,
-  isAllowedTransition,
+  isOptionalStage,
+  STAGE_CLASS,
   STAGE_TARGET_STATUS,
 } from "../../../../lib/care-stage";
+import {
+  canonicalFlow,
+  invalidateClinicFlowCache,
+  type ResolvedFlow,
+  resolveClinicFlow,
+} from "../../../../lib/clinic-flow";
 import { getScope } from "../../../../lib/request-scope";
 import { emitFlowUpdate } from "../../../../services/flow-events.service";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
-import { advanceVisitSchema, flowCheckInSchema } from "../visits.validation";
+import {
+  advanceVisitSchema,
+  flowCheckInSchema,
+  type IFlowConfigUpdate,
+} from "../visits.validation";
+
+/**
+ * Resolves the active care flow for a scope. A concrete clinic resolves its
+ * per-clinic config (cached); when there is no clinic in scope (e.g. a
+ * super-admin viewing all clinics) we fall back to the canonical all-stages
+ * flow.
+ */
+const flowForScope = (
+  clinicId?: number,
+  branchId?: number | null
+): Promise<ResolvedFlow> =>
+  typeof clinicId === "number"
+    ? resolveClinicFlow(clinicId, branchId)
+    : Promise.resolve(canonicalFlow());
 
 const ACUITY_BY_PRIORITY: Record<Priority, "Routine" | "Urgent" | "Emergency"> =
   {
@@ -160,15 +184,31 @@ export const getPipeline = async (c: Context) => {
       take: 500,
     });
 
+    const flow = await flowForScope(
+      typeof clinicId === "number" ? clinicId : undefined,
+      typeof branchId === "number" ? branchId : undefined
+    );
+
     const byStage = new Map<CareStage, ReturnType<typeof toFlowVisit>[]>();
-    for (const stage of CARE_STAGE_ORDER) {
+    for (const stage of flow.order) {
       byStage.set(stage, []);
     }
     for (const v of visits) {
+      // Safety: a visit parked at a stage the clinic has since disabled (e.g.
+      // TRIAGE turned off while a patient was in triage) must still surface, so
+      // create a bucket on demand rather than dropping the patient.
+      if (!byStage.has(v.careStage)) {
+        byStage.set(v.careStage, []);
+      }
       byStage.get(v.careStage)?.push(toFlowVisit(v));
     }
 
-    const stages = CARE_STAGE_ORDER.map((stage) => {
+    // Render in the clinic's flow order, then append any extra stages that only
+    // exist because of in-flight visits at a now-disabled stage.
+    const extraStages = [...byStage.keys()].filter(
+      (s) => !flow.order.includes(s)
+    );
+    const stages = [...flow.order, ...extraStages].map((stage) => {
       const list = byStage.get(stage) ?? [];
       return { stage, count: list.length, visits: list };
     });
@@ -208,7 +248,14 @@ export const getStageSummary = async (c: Context) => {
         ...(typeof clinicId === "number" ? { clinicId } : {}),
         ...(typeof branchId === "number" ? { branchId } : {}),
       },
-      select: { id: true, status: true, careStage: true, doctorId: true },
+      select: {
+        id: true,
+        status: true,
+        careStage: true,
+        doctorId: true,
+        clinicId: true,
+        branchId: true,
+      },
     });
     if (!visit) {
       return c.json(
@@ -216,11 +263,12 @@ export const getStageSummary = async (c: Context) => {
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
+    const flow = await flowForScope(visit.clinicId, visit.branchId);
     return c.json({
       visitId: visit.id,
       status: visit.status,
       stage: visit.careStage,
-      allowedStages: ALLOWED_TRANSITIONS[visit.careStage] ?? [],
+      allowedStages: flow.transitions[visit.careStage] ?? [],
     });
   } catch (_error) {
     return c.json(
@@ -326,11 +374,13 @@ const QUEUE_PURPOSE_BY_STAGE: Partial<Record<CareStage, QueuePurpose>> = {
 
 /**
  * POST /visits/flow/check-in
- * Slim reception check-in for the new flow: registers/attaches the patient and
- * records payment mode only. No department/doctor (assigned at triage) and no
- * consultation charge (created at finalize). Reception is just the front door:
- * once recorded, the visit moves straight into Triage & Vitals.
+ * Reception check-in for the new flow: registers/attaches the patient and
+ * records payment mode. No consultation charge (created at finalize). The visit
+ * then moves to the clinic's first post-reception stage — Triage when enabled,
+ * otherwise straight to the Doctor, in which case the doctor + department (which
+ * triage would normally assign) must be provided here.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear check-in with a few additive branches
 export const createFlowCheckIn = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -341,8 +391,15 @@ export const createFlowCheckIn = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const { patient, selectedPatientId, paymentMode, insurance, priority } =
-      parsed.data;
+    const {
+      patient,
+      selectedPatientId,
+      paymentMode,
+      insurance,
+      priority,
+      departmentId,
+      doctorId,
+    } = parsed.data;
 
     const { patientId, isNewPatient } = await getOrCreatePatient(
       patient,
@@ -362,11 +419,39 @@ export const createFlowCheckIn = async (c: Context) => {
       );
     }
 
+    // Route to the clinic's first station after Reception. With Triage enabled
+    // that's TRIAGE (status IN_PRE_CONSULTATION); a triage-less clinic sends the
+    // patient straight to the doctor, ready for consultation (TRIAGE_COMPLETED).
+    const flow = await resolveClinicFlow(user.clinicId, user.branchId);
+    const firstStage = flow.firstAfterReception;
+    const goingStraightToDoctor = firstStage === CareStage.DOCTOR;
+
+    // When the clinic has no triage stage, the doctor/department assignment that
+    // triage normally performs must happen here at reception — so both are
+    // required to check in. (With triage enabled they're assigned later.)
+    if (goingStraightToDoctor && !(doctorId && departmentId)) {
+      return c.json(
+        {
+          error:
+            "A doctor and department must be assigned at reception because this clinic has no triage stage.",
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const checkInStatus = goingStraightToDoctor
+      ? VisitStatus.TRIAGE_COMPLETED
+      : VisitStatus.IN_PRE_CONSULTATION;
+    const assignedDoctorId = doctorId ? Number.parseInt(doctorId, 10) : null;
+    const assignedDeptId = departmentId
+      ? Number.parseInt(departmentId, 10)
+      : null;
+
     const visit = await db.visit.create({
       data: {
         patient: { connect: { id: patientId } },
-        status: VisitStatus.IN_PRE_CONSULTATION,
-        careStage: CareStage.TRIAGE,
+        status: checkInStatus,
+        careStage: firstStage,
         priority: priority ?? Priority.LOW,
         isNewPatient,
         requiresConsultation: true,
@@ -376,6 +461,12 @@ export const createFlowCheckIn = async (c: Context) => {
           : {}),
         checkedInBy: { connect: { id: Number(user.id) } },
         paymentMode: paymentMode as PaymentMode | undefined,
+        ...(assignedDeptId
+          ? { department: { connect: { id: assignedDeptId } } }
+          : {}),
+        ...(assignedDoctorId
+          ? { doctor: { connect: { id: assignedDoctorId } } }
+          : {}),
         ...(patientInsuranceId
           ? { patientInsurance: { connect: { id: patientInsuranceId } } }
           : {}),
@@ -384,12 +475,12 @@ export const createFlowCheckIn = async (c: Context) => {
     });
 
     if (typeof user.branchId === "number") {
-      await syncQueueForStage(CareStage.TRIAGE, {
+      await syncQueueForStage(firstStage, {
         visitId: visit.id,
         patientId,
         clinicId: user.clinicId,
         branchId: user.branchId,
-        doctorId: null,
+        doctorId: assignedDoctorId,
       });
     }
 
@@ -404,7 +495,7 @@ export const createFlowCheckIn = async (c: Context) => {
       clinicId: user.clinicId,
       branchId: user.branchId ?? undefined,
       type: "visit.created",
-      toStage: CareStage.TRIAGE,
+      toStage: firstStage,
       visit: flowVisit,
       actorId: Number(user?.id) || undefined,
     });
@@ -472,11 +563,13 @@ export const advanceVisitStage = async (c: Context) => {
       );
     }
 
-    if (!isAllowedTransition(visit.careStage, targetStage)) {
+    const flow = await flowForScope(visit.clinicId, visit.branchId);
+    const allowedStages = flow.transitions[visit.careStage] ?? [];
+    if (!allowedStages.includes(targetStage)) {
       return c.json(
         {
           error: `Cannot move a visit from ${visit.careStage} to ${targetStage}.`,
-          allowedStages: ALLOWED_TRANSITIONS[visit.careStage] ?? [],
+          allowedStages,
         },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
@@ -571,6 +664,126 @@ export const advanceVisitStage = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Failed to advance visit stage" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/** Serializes a clinic's care flow as a per-stage config the admin UI renders. */
+const toFlowConfigView = (flow: ResolvedFlow) =>
+  CARE_STAGE_ORDER.map((stage) => ({
+    stage,
+    stageClass: STAGE_CLASS[stage],
+    // Only `configurable` stages expose a real toggle in the UI; the rest are
+    // shown locked (mandatory) or "automatic" (conditional, data-driven).
+    configurable: isOptionalStage(stage),
+    enabled: isOptionalStage(stage)
+      ? !flow.disabledOptional.includes(stage)
+      : true,
+  }));
+
+/**
+ * GET /visits/flow/config
+ * The clinic's care-flow configuration: every stage with its class and whether
+ * it is enabled. Admin-only (gated at the route via the `clinics` resource).
+ */
+export const getFlowConfig = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { clinicId, branchId } = getScope(user, c.req.query());
+    if (typeof clinicId !== "number") {
+      return c.json(
+        { error: "A clinic must be in scope to read flow configuration." },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const flow = await resolveClinicFlow(clinicId, branchId);
+    return c.json({ clinicId, stages: toFlowConfigView(flow) });
+  } catch (_error) {
+    return c.json(
+      { error: "Failed to load flow configuration" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * PUT /visits/flow/config
+ * Enable/disable optional stages for the caller's clinic (clinic-wide; branch
+ * overrides are not exposed in phase 1). Only OPTIONAL stages may be toggled —
+ * any attempt to flip a mandatory/conditional stage is rejected so the billing
+ * gates and pipeline invariants can never be configured away.
+ */
+export const updateFlowConfig = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { clinicId } = getScope(user, c.req.query());
+    if (typeof clinicId !== "number") {
+      return c.json(
+        { error: "A clinic must be in scope to update flow configuration." },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const payload = c.get("validatedJson") as IFlowConfigUpdate;
+
+    // Reject toggles on stages the engine owns — only optional stages vary.
+    const illegal = payload.stages.filter(
+      (s) => !isOptionalStage(s.stage as CareStage)
+    );
+    if (illegal.length > 0) {
+      return c.json(
+        {
+          error: `These stages cannot be configured: ${illegal
+            .map((s) => `${s.stage} (${STAGE_CLASS[s.stage as CareStage]})`)
+            .join(", ")}. Only optional stages can be enabled or disabled.`,
+        },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    // Serialize clinic-wide config writes per clinic so updateMany + create
+    // cannot race for branchId = null rows under concurrent requests.
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT id
+        FROM "Clinic"
+        WHERE id = ${clinicId}
+        FOR UPDATE
+      `;
+
+      for (const { stage, enabled } of payload.stages) {
+        const stageEnum = stage as CareStage;
+        const res = await tx.clinicFlowConfig.updateMany({
+          where: { clinicId, branchId: null, stage: stageEnum },
+          data: { enabled },
+        });
+        if (res.count === 0) {
+          await tx.clinicFlowConfig.create({
+            data: {
+              clinicId,
+              branchId: null,
+              stage: stageEnum,
+              enabled,
+              position: CARE_STAGE_ORDER.indexOf(stageEnum),
+            },
+          });
+        }
+      }
+    });
+
+    await invalidateClinicFlowCache(clinicId);
+
+    const flow = await resolveClinicFlow(clinicId);
+    return c.json({
+      success: true,
+      message: "Flow configuration updated.",
+      clinicId,
+      stages: toFlowConfigView(flow),
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Failed to update flow configuration" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }

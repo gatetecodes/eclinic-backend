@@ -96,6 +96,129 @@ export const isAllowedTransition = (from: CareStage, to: CareStage): boolean =>
   ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
 
 /**
+ * How each stage is allowed to vary per clinic. This classification is the
+ * safety boundary for admin configuration:
+ *
+ *  - MANDATORY  — always present; an admin can never disable these. Disabling
+ *                 them would orphan the pipeline (no front door / no clinician /
+ *                 no terminal state).
+ *  - OPTIONAL   — the admin may turn these on or off per clinic. This is the
+ *                 only knob the config UI exposes. TRIAGE is the sole member in
+ *                 phase 1 (covers the "clinic has no vitals & triage" case).
+ *  - CONDITIONAL— present-by-data, never by config. Whether a visit touches LAB,
+ *                 BILLING or PHARMACY is decided per-visit from clinical/billing
+ *                 state (see `nextStageAfterBilling` + the billing gates), NOT by
+ *                 a clinic toggle. Disabling BILLING, say, would silently defeat
+ *                 the pay-before-lab / pay-before-dispense gates, so it is not
+ *                 disable-able.
+ */
+export const StageClass = {
+  MANDATORY: "MANDATORY",
+  OPTIONAL: "OPTIONAL",
+  CONDITIONAL: "CONDITIONAL",
+} as const;
+
+export type StageClass = (typeof StageClass)[keyof typeof StageClass];
+
+export const STAGE_CLASS: Record<CareStage, StageClass> = {
+  [CareStage.RECEPTION]: StageClass.MANDATORY,
+  [CareStage.TRIAGE]: StageClass.OPTIONAL,
+  [CareStage.DOCTOR]: StageClass.MANDATORY,
+  [CareStage.LAB]: StageClass.CONDITIONAL,
+  [CareStage.BILLING]: StageClass.CONDITIONAL,
+  [CareStage.PHARMACY]: StageClass.CONDITIONAL,
+  [CareStage.DONE]: StageClass.MANDATORY,
+};
+
+/** Stages the admin may toggle on/off. Anything else is rejected server-side. */
+export const OPTIONAL_STAGES: CareStage[] = CARE_STAGE_ORDER.filter(
+  (s) => STAGE_CLASS[s] === StageClass.OPTIONAL
+);
+
+export const isOptionalStage = (stage: CareStage): boolean =>
+  STAGE_CLASS[stage] === StageClass.OPTIONAL;
+
+/**
+ * Derives the left-to-right pipeline order for a clinic by removing any disabled
+ * optional stages from the canonical order. Mandatory and conditional stages are
+ * always retained — `disabledOptional` may only contain optional stages (the
+ * caller / endpoint validation guarantees this; non-optional entries are ignored
+ * defensively).
+ */
+export const careStageOrderFor = (
+  disabledOptional: CareStage[]
+): CareStage[] => {
+  const disabled = new Set(
+    disabledOptional.filter((s) => STAGE_CLASS[s] === StageClass.OPTIONAL)
+  );
+  return CARE_STAGE_ORDER.filter((s) => !disabled.has(s));
+};
+
+/**
+ * Derives the legal transition graph when optional stages are disabled, by
+ * "splicing out" each disabled stage as a target: every edge that pointed *to*
+ * it is rewired to its own targets, while visits already parked there may
+ * still move onward. Optional stages are linear backbone stages, so this splice
+ * is well-defined (e.g. removing TRIAGE rewires RECEPTION → [TRIAGE, DONE]
+ * into RECEPTION → [DOCTOR, DONE], while TRIAGE itself can still move to
+ * DOCTOR for in-flight visits). With no stages disabled this returns the
+ * canonical graph unchanged.
+ */
+export const allowedTransitionsFor = (
+  disabledOptional: CareStage[]
+): Record<CareStage, CareStage[]> => {
+  const disabled = new Set(
+    disabledOptional.filter((s) => STAGE_CLASS[s] === StageClass.OPTIONAL)
+  );
+  if (disabled.size === 0) {
+    return ALLOWED_TRANSITIONS;
+  }
+
+  // Resolve a target through any chain of disabled stages to its first enabled
+  // landing stage(s), guarding against revisiting a stage (no infinite loops).
+  const resolveTargets = (
+    targets: CareStage[],
+    seen: Set<CareStage>
+  ): CareStage[] => {
+    const out: CareStage[] = [];
+    for (const t of targets) {
+      if (disabled.has(t) && !seen.has(t)) {
+        out.push(
+          ...resolveTargets(ALLOWED_TRANSITIONS[t] ?? [], new Set([...seen, t]))
+        );
+      } else if (!disabled.has(t)) {
+        out.push(t);
+      }
+    }
+    return out;
+  };
+
+  const result = {} as Record<CareStage, CareStage[]>;
+  for (const stage of CARE_STAGE_ORDER) {
+    const rewired = resolveTargets(
+      ALLOWED_TRANSITIONS[stage] ?? [],
+      new Set([stage])
+    );
+    // De-dupe while preserving order.
+    result[stage] = [...new Set(rewired)];
+  }
+  return result;
+};
+
+/**
+ * The first stage a patient reaches after RECEPTION for a given clinic flow —
+ * TRIAGE when enabled, otherwise the next enabled stage (DOCTOR). Used by the
+ * reception check-in to route the new visit to the right first station.
+ */
+export const firstStageAfterReception = (
+  disabledOptional: CareStage[]
+): CareStage => {
+  const order = careStageOrderFor(disabledOptional);
+  const idx = order.indexOf(CareStage.RECEPTION);
+  return order[idx + 1] ?? CareStage.DOCTOR;
+};
+
+/**
  * Decides where a visit goes when it leaves the Billing hub, based on its
  * status and whether a prescription was issued:
  *  - PENDING_TESTS  → exam payment just settled → LAB (run the tests)

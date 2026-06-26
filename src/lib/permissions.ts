@@ -10,6 +10,9 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     // SUPER_ADMIN has implicit allow via hasPermission; matrix here can remain sparse
   },
   CLINIC_ADMIN: {
+    // Clinic-level configuration (e.g. care-flow stage config). Scoped to the
+    // admin's own clinic by the controllers, not arbitrary clinics.
+    clinics: { read: true, update: true },
     exams: { read: true, create: true, update: true },
     visits: {
       read: true,
@@ -40,6 +43,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     pharmacy: { read: true, update: true, dispense: true, delete: true },
   },
   BRANCH_ADMIN: {
+    clinics: { read: true, update: true },
     exams: { read: true, create: true, update: true },
     visits: { read: true, create: true, update: true, readVisitDetails: true },
     patients: { read: true, create: true, update: true },
@@ -109,14 +113,17 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     tariff: { read: true },
-    users: { read: true },
+    users: { read: true, readMyProfile: true },
   },
   RECEPTIONIST: {
     visits: { read: true, create: true, update: true },
     patients: { read: true, create: true, update: true },
     appointments: { read: true, create: true, update: true, delete: true },
+    insurance: { read: true, create: true, update: true },
     payments: { read: true, create: true },
     notifications: { read: true, create: true, update: true, delete: true },
+    users: { read: true, readMyProfile: true },
+    departments: { read: true },
   },
   PHARMACIST: {
     inventory: { read: true, update: true },
@@ -124,6 +131,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     visits: { read: true, readVisitDetails: true },
     notifications: { read: true, create: true, update: true, delete: true },
     pharmacy: { read: true, update: true, dispense: true },
+    users: { readMyProfile: true },
   },
   CASHIER: {
     payments: { read: true, create: true, update: true },
@@ -133,7 +141,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     tariff: { read: true },
-    users: { read: true },
+    users: { read: true, readMyProfile: true },
     visits: {
       create: true,
       read: true,
@@ -147,17 +155,20 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
   MARKETING: {
     analytics: { read: true },
     notifications: { read: true, create: true, update: true, delete: true },
+    users: { readMyProfile: true },
   },
   FLOW_MANAGER: {
     visits: { read: true, update: true, readVisitDetails: true, process: true },
     approvals: { read: true },
     notifications: { read: true, create: true, update: true, delete: true },
+    users: { readMyProfile: true },
   },
   STOCK_MANAGER: {
     inventory: { read: true, create: true, update: true },
     notifications: { read: true, create: true, update: true, delete: true },
     analytics: { read: true },
     pharmacy: { read: true },
+    users: { readMyProfile: true },
   },
   PATIENT: {
     appointments: { read: true, create: true, update: true, delete: true },
