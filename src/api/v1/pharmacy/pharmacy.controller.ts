@@ -1,23 +1,31 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError } from "@/lib/app-error";
-import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
+import {
+  invalidateInventoryRelatedCaches,
+  invalidateVisitRelatedCaches,
+} from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
 import { httpCodes } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import { getScope } from "@/lib/request-scope";
 import {
+  CareStage,
   DispenseOrderSource,
   PrescriptionItemFulfilment,
   PrescriptionStatus,
   type Prisma,
+  QueuePurpose,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { emitFlowUpdate } from "../../../services/flow-events.service";
 import {
+  type AutoCompletedVisit,
   deletePrescriptionItemMap,
   executeDispense,
   upsertPrescriptionItemMap,
 } from "../../../services/pharmacy-dispense.service";
+import { QueueIntegrationService } from "../../../services/queue-integration.service";
 import type { PharmacyDispenseInput } from "./pharmacy.validation.ts";
 
 function jsonError(
@@ -583,6 +591,48 @@ export const getPharmacyPrescriptionDetail = async (c: Context) => {
   }
 };
 
+/**
+ * Best-effort side-effects after a dispense auto-completes a visit (its last
+ * clinic-stock line was just served). The visit row was already moved to DONE
+ * inside the dispense transaction; here we only mirror the non-transactional
+ * fan-out the manual `/advance` endpoint performs — mark the pharmacy queue
+ * entry served, bust visit caches, and push a live flow event so the pipeline
+ * UI drops the patient from the Pharmacy column immediately. None of these may
+ * fail the already-committed dispense.
+ */
+const onVisitAutoCompleted = async (
+  visit: AutoCompletedVisit,
+  actorId?: number
+) => {
+  try {
+    await QueueIntegrationService.markQueueEntryServedForVisit(
+      visit.id,
+      QueuePurpose.PHARMACY
+    );
+  } catch {
+    /* best-effort */
+  }
+  try {
+    await invalidateVisitRelatedCaches({
+      clinicId: visit.clinicId,
+      branchId: visit.branchId ?? undefined,
+      visitId: visit.id,
+      patientId: visit.patientId,
+      doctorId: visit.doctorId ?? undefined,
+    });
+  } catch {
+    /* best-effort */
+  }
+  emitFlowUpdate({
+    clinicId: visit.clinicId,
+    branchId: visit.branchId ?? undefined,
+    type: "visit.advanced",
+    fromStage: CareStage.PHARMACY,
+    toStage: CareStage.DONE,
+    actorId,
+  });
+};
+
 export const postPharmacyDispense = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -615,6 +665,13 @@ export const postPharmacyDispense = async (c: Context) => {
     });
 
     await invalidateInventoryRelatedCaches({ clinicId, branchId });
+
+    if (result.autoCompletedVisit) {
+      await onVisitAutoCompleted(
+        result.autoCompletedVisit,
+        typeof user?.id === "number" ? user.id : undefined
+      );
+    }
 
     const status = result.replayed ? httpCodes.OK : httpCodes.CREATED;
 
