@@ -365,6 +365,16 @@ export const getPharmacyQueue = async (c: Context) => {
                   firstName: true,
                   lastName: true,
                   phoneNumber: true,
+                  // Most-recent insurance policy, surfaced as the "Cover" column
+                  // in the dispensing queue. A patient may hold several; expose
+                  // the latest (same pattern as the patient registry).
+                  patientInsurance: {
+                    take: 1,
+                    orderBy: { id: "desc" },
+                    include: {
+                      insuranceCompany: { select: { companyName: true } },
+                    },
+                  },
                 },
               },
             },
@@ -401,26 +411,43 @@ export const getPharmacyQueue = async (c: Context) => {
         .filter((id): id is number => typeof id === "number")
     );
 
-    const data = rows.map((rx) => ({
-      id: rx.id,
-      status: rx.status,
-      visitId: rx.visitId,
-      branchId: rx.branchId,
-      updatedAt: rx.updatedAt,
-      doctor: rx.doctor,
-      patient: rx.visit?.patient ?? null,
-      items: rx.items.map((it) => ({
-        id: it.id,
-        medicationName: it.medicationName,
-        dosage: it.dosage,
-        frequency: it.frequency,
-        duration: it.duration,
-        fulfilment: it.fulfilment,
-        mappedInventoryItemId: it.pharmacyItemMap?.inventoryItemId ?? null,
-        mappedItemName: it.pharmacyItemMap?.inventoryItem.itemName ?? null,
-        isDispensed: dispensedItemIds.has(it.id),
-      })),
-    }));
+    const data = rows.map((rx) => {
+      const patient = rx.visit?.patient ?? null;
+      const policy = patient?.patientInsurance?.[0];
+      const flatPatient = patient
+        ? {
+            id: patient.id,
+            firstName: patient.firstName,
+            lastName: patient.lastName,
+            phoneNumber: patient.phoneNumber,
+            insurer: policy?.insuranceCompany?.companyName ?? null,
+            coveragePercentage:
+              policy?.coveragePercentage != null
+                ? Number(policy.coveragePercentage)
+                : null,
+          }
+        : null;
+      return {
+        id: rx.id,
+        status: rx.status,
+        visitId: rx.visitId,
+        branchId: rx.branchId,
+        updatedAt: rx.updatedAt,
+        doctor: rx.doctor,
+        patient: flatPatient,
+        items: rx.items.map((it) => ({
+          id: it.id,
+          medicationName: it.medicationName,
+          dosage: it.dosage,
+          frequency: it.frequency,
+          duration: it.duration,
+          fulfilment: it.fulfilment,
+          mappedInventoryItemId: it.pharmacyItemMap?.inventoryItemId ?? null,
+          mappedItemName: it.pharmacyItemMap?.inventoryItem.itemName ?? null,
+          isDispensed: dispensedItemIds.has(it.id),
+        })),
+      };
+    });
 
     const pageCount = perPage > 0 ? Math.ceil(total / perPage) : 0;
 

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { ExamStatus } from "../../../../generated/prisma/client";
 
+const optionalNullableText = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? undefined);
+
 export const getExamParamsSchema = z.object({
   id: z.string().regex(/^\d+$/, "ID must be a number"),
 });
@@ -18,17 +23,17 @@ export type GetExamTestParams = z.infer<typeof getExamTestParamsSchema>;
 export type GetVisitIdParams = z.infer<typeof getVisitIdParamsSchema>;
 
 export const parameterSchema = z.object({
-  name: z.string().optional(),
-  value: z.string().optional(),
-  unit: z.string().optional(),
-  referenceRange: z.string().optional(),
+  name: optionalNullableText,
+  value: z.string().trim().min(1, "Result value is required"),
+  unit: optionalNullableText,
+  referenceRange: optionalNullableText,
 });
 
 export const examResultSchema = z.object({
   productName: z.string().min(1, "Product name is required"),
   parameters: z.array(parameterSchema).optional(),
-  conclusion: z.string().optional(),
-  notes: z.string().optional(),
+  conclusion: optionalNullableText,
+  notes: optionalNullableText,
 });
 
 export const createExamSchema = z.object({
@@ -52,15 +57,15 @@ export const createExamResultSchema = z.object({
   examDate: z.string().datetime().optional(),
   productName: z.string().min(1, "Product name is required"),
   parameters: z.array(parameterSchema).optional(),
-  conclusion: z.string().optional(),
-  notes: z.string().optional(),
+  conclusion: optionalNullableText,
+  notes: optionalNullableText,
 });
 
 export const updateExamResultSchema = z.object({
   productName: z.string().min(1, "Product name is required").optional(),
   parameters: z.array(parameterSchema).optional(),
-  conclusion: z.string().optional(),
-  notes: z.string().optional(),
+  conclusion: optionalNullableText,
+  notes: optionalNullableText,
 });
 
 export const createExamTestSchema = z.object({
