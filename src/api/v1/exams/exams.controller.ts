@@ -6,11 +6,14 @@ import {
   type ExamResult,
   ExamStatus,
   type ExamTest,
+  PaymentStatus,
+  PaymentType,
   Prisma,
   Role,
   SourceType,
   TransactionStatus,
   TransactionType,
+  VisitStatus,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { refreshItemStatus } from "../../../helpers/inventory-helpers";
@@ -32,6 +35,11 @@ import {
   updateExamTestSchema,
   updateExamTestUnitsSchema,
 } from "./exams.validation";
+
+const UNSETTLED_EXAM_PAYMENT_STATUSES = [
+  PaymentStatus.PENDING,
+  PaymentStatus.PARTIALLY_PAID,
+] as const;
 
 export const getExams = async (c: Context) => {
   try {
@@ -60,6 +68,19 @@ export const getExams = async (c: Context) => {
           {}) as Prisma.VisitWhereInput),
         ...(typeof clinicId === "number" ? { clinicId } : {}),
         ...(typeof branchId === "number" ? { branchId } : {}),
+        ...(user.role === Role.LAB_TECHNICIAN
+          ? {
+              status: VisitStatus.PENDING_TESTS,
+              payments: {
+                some: { paymentType: PaymentType.ADDITIONAL_EXAM },
+                none: {
+                  paymentType: PaymentType.ADDITIONAL_EXAM,
+                  paymentStatus: { in: [...UNSETTLED_EXAM_PAYMENT_STATUSES] },
+                  patientAmount: { gt: 0 },
+                },
+              },
+            }
+          : {}),
       },
     };
 
@@ -619,6 +640,21 @@ const validateExamAccess = async (
   return exam;
 };
 
+const assertExamChargesSettled = async (visitId: number) => {
+  const unpaidExamBills = await db.payment.count({
+    where: {
+      visitId,
+      paymentType: PaymentType.ADDITIONAL_EXAM,
+      paymentStatus: { in: [...UNSETTLED_EXAM_PAYMENT_STATUSES] },
+      patientAmount: { gt: 0 },
+    },
+  });
+
+  if (unpaidExamBills > 0) {
+    throw new Error("Exam charges must be paid before results can be entered");
+  }
+};
+
 // Helper function to find product by name
 const findProductByName = async (productName: string, clinicId: number) => {
   const product = await db.product.findFirst({
@@ -742,6 +778,10 @@ const handleExamResultError = (error: Error, c: Context) => {
       httpCodes.BAD_REQUEST,
     ],
     "Product not found": ["Product not found", httpCodes.NOT_FOUND],
+    "Exam charges must be paid before results can be entered": [
+      "Exam charges must be paid before results can be entered",
+      httpCodes.BAD_REQUEST,
+    ],
     "Insufficient stock": ["Insufficient stock", httpCodes.BAD_REQUEST],
   };
 
@@ -962,6 +1002,7 @@ export const createExamResult = async (c: Context) => {
 
     // Validate exam access
     await validateExamAccess(examId, visitId, user);
+    await assertExamChargesSettled(visitId);
 
     // Find product by name
     const product = await findProductByName(productName, user.clinicId);
@@ -1186,6 +1227,7 @@ export const getExamResultById = async (c: Context) => {
   }
 };
 
+//biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const updateExamResult = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1238,6 +1280,26 @@ export const updateExamResult = async (c: Context) => {
         { error: "Forbidden" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
       );
+    }
+
+    if (user.role === Role.LAB_TECHNICIAN) {
+      const existingResultVisit = await db.examResult.findUnique({
+        where: { id: resultId },
+        select: { visitId: true },
+      });
+
+      if (!existingResultVisit) {
+        return c.json(
+          { error: "Exam result not found" },
+          httpCodes.NOT_FOUND as ContentfulStatusCode
+        );
+      }
+
+      try {
+        await assertExamChargesSettled(existingResultVisit.visitId);
+      } catch (error) {
+        return handleExamResultError(error as Error, c);
+      }
     }
 
     const flatUpdate = validatedFields.data as Record<string, unknown>;
