@@ -3,6 +3,8 @@ import type { Prisma } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import type { AppEnv } from "../../../middlewares/auth.middleware";
 
+const PATIENT_PARAM_TEST_REGEX = /^[1-9]\d*$/;
+
 export const listPatients = async (c: Context<AppEnv>) => {
   try {
     const { page = "1", limit = "10", search = "" } = c.req.query();
@@ -96,6 +98,8 @@ type StaffRef = { id: number; name: string; role: string } | null | undefined;
 const BP_SYSTOLIC_RE = /(\d{2,3})\s*\/\s*\d{2,3}/;
 const FIRST_NUMBER_RE = /\d{2,3}/;
 const SIXTY_DAYS = 60 * 24 * 3600 * 1000;
+const CHART_VISIT_LIMIT = 100;
+const CHART_VISIT_LOOKBACK_YEARS = 2;
 
 /** Parse the systolic component out of a "120/80"-style blood-pressure string. */
 const systolicOf = (bp?: string | null): number | null => {
@@ -204,43 +208,54 @@ const careRoleLabel = (role: string): string => {
   }
 };
 
-// Relations needed to assemble the chart. Declared once so the derived
-// `ChartVisit` type stays in sync with the query.
-const CHART_INCLUDE = {
-  patientInsurance: {
-    take: 1,
-    orderBy: { id: "desc" },
-    include: { insuranceCompany: { select: { companyName: true } } },
-  },
-  visits: {
-    orderBy: { startTime: "desc" },
-    include: {
-      doctor: { select: { id: true, name: true, role: true } },
-      department: { select: { name: true } },
-      triage: {
-        include: {
-          recordedBy: { select: { id: true, name: true, role: true } },
+const chartVisitWindowStart = () => {
+  const start = new Date();
+  start.setFullYear(start.getFullYear() - CHART_VISIT_LOOKBACK_YEARS);
+  return start;
+};
+
+// Relations needed to assemble the chart. Bound the visit graph to recent
+// history so long-lived patients cannot load an unbounded response.
+const buildChartInclude = (visitWindowStart: Date) =>
+  ({
+    patientInsurance: {
+      take: 1,
+      orderBy: { id: "desc" },
+      include: { insuranceCompany: { select: { companyName: true } } },
+    },
+    visits: {
+      where: { startTime: { gte: visitWindowStart } },
+      take: CHART_VISIT_LIMIT,
+      orderBy: { startTime: "desc" },
+      include: {
+        doctor: { select: { id: true, name: true, role: true } },
+        department: { select: { name: true } },
+        triage: {
+          include: {
+            recordedBy: { select: { id: true, name: true, role: true } },
+          },
         },
-      },
-      visitDiagnoses: true,
-      prescriptions: {
-        include: {
-          doctor: { select: { id: true, name: true, role: true } },
-          items: true,
+        visitDiagnoses: true,
+        prescriptions: {
+          include: {
+            doctor: { select: { id: true, name: true, role: true } },
+            items: true,
+          },
         },
-      },
-      examResults: {
-        include: {
-          product: { select: { name: true, normalRange: true, unit: true } },
-          exam: { select: { name: true } },
-          createdBy: { select: { id: true, name: true, role: true } },
+        examResults: {
+          include: {
+            product: { select: { name: true, normalRange: true, unit: true } },
+            exam: { select: { name: true } },
+            createdBy: { select: { id: true, name: true, role: true } },
+          },
         },
       },
     },
-  },
-} satisfies Prisma.PatientInclude;
+  }) satisfies Prisma.PatientInclude;
 
-type ChartPatient = Prisma.PatientGetPayload<{ include: typeof CHART_INCLUDE }>;
+type ChartPatient = Prisma.PatientGetPayload<{
+  include: ReturnType<typeof buildChartInclude>;
+}>;
 type ChartVisit = ChartPatient["visits"][number];
 
 /** Most-recent systolic reading per month, oldest→newest, capped at 6 months. */
@@ -375,6 +390,7 @@ const deriveMedications = (visits: ChartVisit[]) =>
 const deriveCurrentMedications = (visits: ChartVisit[]) => {
   const newestRx = visits
     .flatMap((v) => v.prescriptions)
+    .filter((rx) => medicationStatus(rx.status) === "Active")
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   if (!newestRx) {
     return [];
@@ -471,11 +487,16 @@ const deriveCareTeam = (visits: ChartVisit[]) => {
 
 export const getPatientChart = async (c: Context<AppEnv>) => {
   try {
-    const patientId = Number.parseInt(c.req.param("id"), 10);
-    if (!Number.isInteger(patientId)) {
+    const patientIdParam = c.req.param("id");
+    if (!PATIENT_PARAM_TEST_REGEX.test(patientIdParam)) {
+      return c.json({ error: "Invalid patient id" }, 400);
+    }
+    const patientId = Number(patientIdParam);
+    if (!Number.isSafeInteger(patientId)) {
       return c.json({ error: "Invalid patient id" }, 400);
     }
     const clinicId = c.get("clinicId");
+    const chartInclude = buildChartInclude(chartVisitWindowStart());
 
     const patient = await db.patient.findFirst({
       where: {
@@ -483,7 +504,7 @@ export const getPatientChart = async (c: Context<AppEnv>) => {
         clinics:
           typeof clinicId === "number" ? { some: { id: clinicId } } : undefined,
       },
-      include: CHART_INCLUDE,
+      include: chartInclude,
     });
 
     if (!patient) {
