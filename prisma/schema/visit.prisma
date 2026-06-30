@@ -180,7 +180,7 @@ model VisitDiagnosis {
     id          Int      @id @default(autoincrement())
     visit       Visit    @relation(fields: [visitId], references: [id])
     visitId     Int
-    icd11Code   String
+    icd11Code   String?
     description String
     isPrimary   Boolean  @default(false)
     createdAt   DateTime @default(now())
