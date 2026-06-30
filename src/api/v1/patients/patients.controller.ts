@@ -436,18 +436,118 @@ const deriveVitals = (visits: ChartVisit[]) =>
       bloodSugar: v.triage?.bloodSugar ?? null,
     }));
 
+const RANGE_RE = /(-?\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(-?\d+(?:\.\d+)?)/i;
+// Qualitative results that read as "concerning" when they shouldn't be present.
+const POSITIVE_TERMS = ["positive", "reactive", "detected", "abnormal"];
+
+type LabFlag = "Normal" | "Low" | "High" | "Critical";
+
+type ResultParameter = {
+  name?: string;
+  value?: string;
+  unit?: string;
+  referenceRange?: string;
+};
+type ParsedResults = {
+  productName?: string;
+  conclusion?: string;
+  parameters?: ResultParameter[];
+};
+
+/** Exam results are stored as JSON (sometimes a JSON string). Parse defensively. */
+const parseResults = (raw: unknown): ParsedResults => {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" ? (value as ParsedResults) : {};
+};
+
+/** Flag a parameter's value against its reference range (numeric or qualitative). */
+const flagFor = (
+  value: string | undefined,
+  reference: string | null | undefined,
+  conclusion: string | undefined
+): LabFlag | null => {
+  const numValue = value != null ? Number.parseFloat(value) : Number.NaN;
+  const rangeMatch = reference?.match(RANGE_RE);
+  if (rangeMatch && !Number.isNaN(numValue)) {
+    const min = Number.parseFloat(rangeMatch[1]);
+    const max = Number.parseFloat(rangeMatch[2]);
+    if (numValue < min) {
+      return "Low";
+    }
+    if (numValue > max) {
+      return "High";
+    }
+    return "Normal";
+  }
+  // Qualitative: compare against a non-numeric reference (e.g. "Negative").
+  if (value && reference && Number.isNaN(Number.parseFloat(reference))) {
+    const v = value.trim().toLowerCase();
+    const r = reference.trim().toLowerCase();
+    if (v === r) {
+      return "Normal";
+    }
+    return POSITIVE_TERMS.includes(v) ? "Critical" : "High";
+  }
+  switch ((conclusion ?? "").toLowerCase()) {
+    case "critical":
+      return "Critical";
+    case "abnormal":
+    case "suspicious":
+      return "High";
+    case "normal":
+      return "Normal";
+    default:
+      return null;
+  }
+};
+
+// One row per measured parameter (Test · Result · Reference · Date · Flag).
 const deriveLabResults = (visits: ChartVisit[]) =>
   visits.flatMap((visit) =>
-    visit.examResults.map((result) => ({
-      id: result.id,
-      test: result.product?.name ?? result.exam?.name ?? "Result",
-      normalRange: result.product?.normalRange ?? null,
-      unit: result.product?.unit ?? null,
-      results: result.results,
-      notes: result.notes,
-      status: result.status,
-      date: result.examDate,
-    }))
+    visit.examResults.flatMap((result) => {
+      const parsed = parseResults(result.results);
+      const date = result.examDate;
+      const params = parsed.parameters ?? [];
+      if (params.length === 0) {
+        // No per-parameter breakdown — surface the exam's overall conclusion.
+        const test =
+          parsed.productName ??
+          result.product?.name ??
+          result.exam?.name ??
+          "Result";
+        return [
+          {
+            id: `${result.id}`,
+            test,
+            value: parsed.conclusion ?? "—",
+            unit: result.product?.unit ?? null,
+            reference: result.product?.normalRange ?? null,
+            flag: flagFor(parsed.conclusion, null, parsed.conclusion),
+            date,
+          },
+        ];
+      }
+      return params.map((p, i) => {
+        const reference =
+          p.referenceRange ?? result.product?.normalRange ?? null;
+        return {
+          id: `${result.id}-${i}`,
+          test: p.name ?? result.product?.name ?? "Result",
+          value: p.value ?? "—",
+          unit: p.unit ?? null,
+          reference,
+          flag: flagFor(p.value, reference, parsed.conclusion),
+          date,
+        };
+      });
+    })
   );
 
 /** Distinct staff across the patient's visits, labeled by system role. */

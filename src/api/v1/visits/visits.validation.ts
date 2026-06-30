@@ -621,7 +621,21 @@ export const consultationNoteSchema = z.object({
   consultationNote: z.string().min(1, "Consultation note is required"),
   // Diagnosis is documented with the consultation note (History / Examination /
   // Assessment + Diagnosis). Optional so the note can be saved progressively.
+  // Legacy free-text diagnosis (retained for backward compatibility); the
+  // structured `diagnoses` list below is the new source of truth.
   diagnosis: z.string().optional(),
+  // Structured diagnoses: each is a free-text description with an optional
+  // ICD-11 code. The primary diagnosis (or the first, if none is flagged) is
+  // mirrored into the legacy `Visit.diagnosis` column.
+  diagnoses: z
+    .array(
+      z.object({
+        description: z.string().min(1, "Diagnosis description is required"),
+        icd11Code: z.string().optional(),
+        isPrimary: z.boolean().optional(),
+      })
+    )
+    .optional(),
 });
 
 export const addVisitTreatmentBodySchema = z.object({
