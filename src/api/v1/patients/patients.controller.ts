@@ -451,7 +451,7 @@ type ResultParameter = {
 type ParsedResults = {
   productName?: string;
   conclusion?: string;
-  parameters?: ResultParameter[];
+  parameters: ResultParameter[];
 };
 
 /** Exam results are stored as JSON (sometimes a JSON string). Parse defensively. */
@@ -461,10 +461,21 @@ const parseResults = (raw: unknown): ParsedResults => {
     try {
       value = JSON.parse(value);
     } catch {
-      return {};
+      return { parameters: [] };
     }
   }
-  return value && typeof value === "object" ? (value as ParsedResults) : {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { parameters: [] };
+  }
+
+  const parsed = value as Omit<ParsedResults, "parameters"> & {
+    parameters?: unknown;
+  };
+
+  return {
+    ...parsed,
+    parameters: Array.isArray(parsed.parameters) ? parsed.parameters : [],
+  };
 };
 
 /** Flag a parameter's value against its reference range (numeric or qualitative). */
@@ -529,7 +540,11 @@ const deriveLabResults = (visits: ChartVisit[]) =>
             value: parsed.conclusion ?? "—",
             unit: result.product?.unit ?? null,
             reference: result.product?.normalRange ?? null,
-            flag: flagFor(parsed.conclusion, null, parsed.conclusion),
+            flag: flagFor(
+              parsed.conclusion,
+              result.product?.normalRange ?? null,
+              parsed.conclusion
+            ),
             date,
           },
         ];

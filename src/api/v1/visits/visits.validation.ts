@@ -630,7 +630,10 @@ export const consultationNoteSchema = z.object({
   diagnoses: z
     .array(
       z.object({
-        description: z.string().min(1, "Diagnosis description is required"),
+        description: z
+          .string()
+          .trim()
+          .min(1, "Diagnosis description is required"),
         icd11Code: z.string().optional(),
         isPrimary: z.boolean().optional(),
       })

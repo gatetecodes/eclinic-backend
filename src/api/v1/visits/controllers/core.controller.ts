@@ -1695,8 +1695,10 @@ export const createConsultationNote = async (c: Context) => {
         data.diagnosis =
           (await syncVisitDiagnoses(tx, visitId, parsed.data.diagnoses)) ??
           null;
-      } else if (parsed.data.diagnosis) {
-        data.diagnosis = parsed.data.diagnosis;
+      } else if (Object.hasOwn(parsed.data, "diagnosis")) {
+        data.diagnosis = parsed.data.diagnosis?.trim()
+          ? parsed.data.diagnosis
+          : null;
       }
       return tx.visit.update({ where: { id: visitId }, data });
     });
@@ -1752,8 +1754,10 @@ export const editConsultationNote = async (c: Context) => {
         data.diagnosis =
           (await syncVisitDiagnoses(tx, visitId, parsed.data.diagnoses)) ??
           null;
-      } else if (parsed.data.diagnosis) {
-        data.diagnosis = parsed.data.diagnosis;
+      } else if (Object.hasOwn(parsed.data, "diagnosis")) {
+        data.diagnosis = parsed.data.diagnosis?.trim()
+          ? parsed.data.diagnosis
+          : null;
       }
       return tx.visit.update({ where: { id: visitId }, data });
     });
