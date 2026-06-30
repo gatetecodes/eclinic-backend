@@ -1267,6 +1267,15 @@ export const getVisitById = async (c: Context) => {
             careStage: true,
             triage: true,
             diagnosis: true,
+            visitDiagnoses: {
+              select: {
+                id: true,
+                icd11Code: true,
+                description: true,
+                isPrimary: true,
+              },
+              orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+            },
             examConclusions: true,
             treatmentComments: true,
             followUpDate: true,
@@ -1617,6 +1626,49 @@ export const getPatientVisits = async (c: Context) => {
   }
 };
 
+// Replace a visit's structured diagnoses with the provided list and return the
+// primary diagnosis description so it can be mirrored into the legacy
+// Visit.diagnosis column. Exactly one diagnosis is marked primary: the first one
+// flagged isPrimary, else the first in the list. Blank descriptions are dropped;
+// an empty result clears all structured diagnoses for the visit.
+const syncVisitDiagnoses = async (
+  tx: Prisma.TransactionClient,
+  visitId: number,
+  diagnoses: Array<{
+    description: string;
+    icd11Code?: string;
+    isPrimary?: boolean;
+  }>
+): Promise<string | undefined> => {
+  const cleaned = diagnoses
+    .map((d) => ({
+      description: d.description.trim(),
+      icd11Code: d.icd11Code?.trim() || null,
+      isPrimary: Boolean(d.isPrimary),
+    }))
+    .filter((d) => d.description.length > 0);
+
+  await tx.visitDiagnosis.deleteMany({ where: { visitId } });
+
+  if (cleaned.length === 0) {
+    return;
+  }
+
+  const flaggedIndex = cleaned.findIndex((d) => d.isPrimary);
+  const primaryIndex = flaggedIndex >= 0 ? flaggedIndex : 0;
+
+  await tx.visitDiagnosis.createMany({
+    data: cleaned.map((d, i) => ({
+      visitId,
+      description: d.description,
+      icd11Code: d.icd11Code,
+      isPrimary: i === primaryIndex,
+    })),
+  });
+
+  return cleaned[primaryIndex].description;
+};
+
 export const createConsultationNote = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1629,12 +1681,26 @@ export const createConsultationNote = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const visit = await db.visit.update({
-      where: { id: visitId },
-      data: {
+    const visit = await db.$transaction(async (tx) => {
+      // Structured diagnoses (when provided) are the source of truth; the
+      // primary one is mirrored into the legacy free-text Visit.diagnosis so
+      // existing reads and the finalize guard keep working unchanged.
+      const data: Prisma.VisitUpdateInput = {
         consultationNote: parsed.data.consultationNote,
-        ...(parsed.data.diagnosis ? { diagnosis: parsed.data.diagnosis } : {}),
-      },
+      };
+      // When `diagnoses` is sent it owns the mirror: write the primary's
+      // description (or null to clear when the list is emptied). Otherwise fall
+      // back to the legacy free-text field, overwriting only if it was sent.
+      if (parsed.data.diagnoses) {
+        data.diagnosis =
+          (await syncVisitDiagnoses(tx, visitId, parsed.data.diagnoses)) ??
+          null;
+      } else if (Object.hasOwn(parsed.data, "diagnosis")) {
+        data.diagnosis = parsed.data.diagnosis?.trim()
+          ? parsed.data.diagnosis
+          : null;
+      }
+      return tx.visit.update({ where: { id: visitId }, data });
     });
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
@@ -1674,12 +1740,26 @@ export const editConsultationNote = async (c: Context) => {
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
-    const visit = await db.visit.update({
-      where: { id: visitId },
-      data: {
+    const visit = await db.$transaction(async (tx) => {
+      // Structured diagnoses (when provided) are the source of truth; the
+      // primary one is mirrored into the legacy free-text Visit.diagnosis so
+      // existing reads and the finalize guard keep working unchanged.
+      const data: Prisma.VisitUpdateInput = {
         consultationNote: parsed.data.consultationNote,
-        ...(parsed.data.diagnosis ? { diagnosis: parsed.data.diagnosis } : {}),
-      },
+      };
+      // When `diagnoses` is sent it owns the mirror: write the primary's
+      // description (or null to clear when the list is emptied). Otherwise fall
+      // back to the legacy free-text field, overwriting only if it was sent.
+      if (parsed.data.diagnoses) {
+        data.diagnosis =
+          (await syncVisitDiagnoses(tx, visitId, parsed.data.diagnoses)) ??
+          null;
+      } else if (Object.hasOwn(parsed.data, "diagnosis")) {
+        data.diagnosis = parsed.data.diagnosis?.trim()
+          ? parsed.data.diagnosis
+          : null;
+      }
+      return tx.visit.update({ where: { id: visitId }, data });
     });
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,
@@ -1727,6 +1807,7 @@ export const finalizeVisit = async (c: Context) => {
       select: {
         id: true,
         status: true,
+        diagnosis: true,
         doctor: { select: { id: true, name: true } },
         clinicId: true,
         patientId: true,
@@ -1779,6 +1860,21 @@ export const finalizeVisit = async (c: Context) => {
     ) {
       return c.json(
         { error: "Visit has already been finalized" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    // A diagnosis is required before a visit can be finalized: it's the single
+    // most important clinical datum of the encounter. Accept it from the
+    // finalize payload (taking precedence) or from a diagnosis already saved on
+    // the visit via the consultation-note widget; reject when neither is present.
+    const effectiveDiagnosis = (diagnosis ?? visit.diagnosis ?? "").trim();
+    if (!effectiveDiagnosis) {
+      return c.json(
+        {
+          error:
+            "A diagnosis is required before finalizing the visit. Please record the diagnosis in the consultation notes.",
+        },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
