@@ -19,6 +19,7 @@ import {
   getVisitBillingSummary,
   getVisitById,
   listVisits,
+  saveVisitDiagnoses,
   updateInitialCheckIn,
   updateVisitStatus,
 } from "./controllers/core.controller.ts";
@@ -92,6 +93,7 @@ import {
   updatePrescriptionSchema,
   updateSpectaclePrescriptionSchema,
   updateVisitStatusSchema,
+  visitDiagnosesSchema,
 } from "./visits.validation.ts";
 
 const router = new Hono<AppEnv>();
@@ -221,6 +223,14 @@ router.put(
   validate(getVisitParamsSchema, "param"),
   validate(consultationNoteSchema, "json"),
   editConsultationNote
+);
+
+// Structured diagnoses saved independently of the consultation note
+router.put(
+  "/:id/diagnoses",
+  validate(getVisitParamsSchema, "param"),
+  validate(visitDiagnosesSchema, "json"),
+  saveVisitDiagnoses
 );
 
 // Chief complaint

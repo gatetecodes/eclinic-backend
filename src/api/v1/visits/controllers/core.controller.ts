@@ -80,6 +80,7 @@ import {
   initialCheckInSchema,
   preConsultationSchema,
   updateVisitStatusSchema,
+  visitDiagnosesSchema,
 } from "../visits.validation";
 
 // Helper to handle consultation bill creation with minimal impact on main flow
@@ -1777,6 +1778,50 @@ export const editConsultationNote = async (c: Context) => {
   } catch (_error) {
     return c.json(
       { error: "Failed to update consultation note" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+// Save a visit's structured diagnoses on their own, independent of the
+// consultation note (no note text required). The primary diagnosis is mirrored
+// into the legacy free-text Visit.diagnosis column, exactly as the
+// consultation-note flow does, so finalize guards and legacy reads keep working.
+export const saveVisitDiagnoses = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const { id } = c.req.param();
+    const visitId = Number.parseInt(id, 10);
+    const parsed = visitDiagnosesSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.flatten().fieldErrors },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+    const visit = await db.$transaction(async (tx) => {
+      const primaryDescription = await syncVisitDiagnoses(
+        tx,
+        visitId,
+        parsed.data.diagnoses
+      );
+      return tx.visit.update({
+        where: { id: visitId },
+        data: { diagnosis: primaryDescription ?? null },
+      });
+    });
+    await invalidateVisitRelatedCaches({
+      clinicId: user.clinicId,
+      branchId: user.branchId,
+      visitId,
+    });
+    return c.json(
+      { success: true, message: "Diagnoses saved successfully", visit },
+      httpCodes.OK as ContentfulStatusCode
+    );
+  } catch (_error) {
+    return c.json(
+      { error: "Failed to save diagnoses" },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
