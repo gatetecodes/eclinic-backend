@@ -641,6 +641,24 @@ export const consultationNoteSchema = z.object({
     .optional(),
 });
 
+// Structured diagnoses saved on their own (independent of the consultation
+// note). Same shape as the `diagnoses` field on `consultationNoteSchema`; an
+// empty list clears all structured diagnoses for the visit.
+export const visitDiagnosesSchema = z.object({
+  diagnoses: z
+    .array(
+      z.object({
+        description: z
+          .string()
+          .trim()
+          .min(1, "Diagnosis description is required"),
+        icd11Code: z.string().optional(),
+        isPrimary: z.boolean().optional(),
+      })
+    )
+    .default([]),
+});
+
 export const addVisitTreatmentBodySchema = z.object({
   treatments: z
     .array(z.string())
