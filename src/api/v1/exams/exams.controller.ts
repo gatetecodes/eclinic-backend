@@ -26,7 +26,6 @@ import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { getScope } from "../../../lib/request-scope";
 import {
-  bulkUpdateExamTestsSchema,
   createExamSchema,
   createExamTestSchema,
   updateExamResultSchema,
@@ -1460,6 +1459,12 @@ export const getExamTests = async (c: Context) => {
       scopedClinicId = clinicId;
     } else if (user.role !== Role.SUPER_ADMIN) {
       scopedClinicId = getUserClinicId(user);
+      if (typeof scopedClinicId !== "number") {
+        return c.json(
+          { error: "Forbidden" },
+          httpCodes.FORBIDDEN as ContentfulStatusCode
+        );
+      }
     }
 
     // Base filter: product-clinic scope + name search (from buildQueryOptions).
@@ -1783,34 +1788,19 @@ export const bulkUpdateExamTests = async (c: Context) => {
       );
     }
 
-    const body = (await c.req.json()) as {
-      tests?: Array<{ id?: number }>;
+    const { tests } = c.get("validatedJson") as {
+      tests: Array<{
+        id: number;
+        unit?: string | null;
+        specimen?: string | null;
+        testType?: "NUMERIC" | "QUALITATIVE";
+        referenceLow?: number | null;
+        referenceHigh?: number | null;
+        criticalLow?: number | null;
+        criticalHigh?: number | null;
+        qualitativeExpected?: string | null;
+      }>;
     };
-    const validatedFields = bulkUpdateExamTestsSchema.safeParse(body);
-    if (!validatedFields.success) {
-      // Flatten nested per-test issues into one readable line each, tagged with
-      // the offending test id so the UI can point the technician to it.
-      const labelFor = (index: unknown, field: unknown) => {
-        const id =
-          typeof index === "number" ? body.tests?.[index]?.id : undefined;
-        if (id) {
-          return `Test ${id}`;
-        }
-        return typeof field === "string" ? field : "Input";
-      };
-      const message = validatedFields.error.issues
-        .map((issue) => {
-          const [, index, field] = issue.path;
-          return `${labelFor(index, field)}: ${issue.message}`;
-        })
-        .join("; ");
-      return c.json({
-        error: message || "Invalid input",
-        status: httpCodes.BAD_REQUEST,
-      });
-    }
-
-    const { tests } = validatedFields.data;
     const userClinicId = getUserClinicId(user);
     const ids = tests.map((t) => t.id);
 
