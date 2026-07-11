@@ -244,7 +244,28 @@ const buildChartInclude = (visitWindowStart: Date) =>
         },
         examResults: {
           include: {
-            product: { select: { name: true, normalRange: true, unit: true } },
+            product: {
+              select: {
+                name: true,
+                normalRange: true,
+                unit: true,
+                // Structured per-parameter config drives Normal/Low/High/Critical
+                // flags; matched to result parameters by test name.
+                tests: {
+                  select: {
+                    name: true,
+                    unit: true,
+                    normalRange: true,
+                    testType: true,
+                    referenceLow: true,
+                    referenceHigh: true,
+                    criticalLow: true,
+                    criticalHigh: true,
+                    qualitativeExpected: true,
+                  },
+                },
+              },
+            },
             exam: { select: { name: true } },
             createdBy: { select: { id: true, name: true, role: true } },
           },
@@ -519,6 +540,148 @@ const flagFor = (
   }
 };
 
+/** Structured flagging config for a test, as loaded on the product. */
+type TestConfig = ChartVisit["examResults"][number]["product"] extends {
+  tests: infer T;
+}
+  ? T extends Array<infer U>
+    ? U
+    : never
+  : never;
+
+const toNum = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Match a result parameter to its configured test (by name, or the sole test). */
+const matchTest = (
+  tests: TestConfig[] | undefined,
+  paramName: string | undefined
+): TestConfig | undefined => {
+  if (!tests || tests.length === 0) {
+    return;
+  }
+  if (paramName) {
+    const target = paramName.trim().toLowerCase();
+    const byName = tests.find((t) => t.name.trim().toLowerCase() === target);
+    if (byName) {
+      return byName;
+    }
+  }
+  return tests.length === 1 ? tests[0] : undefined;
+};
+
+/** Human-readable reference string from a test's structured bounds. */
+const referenceDisplay = (test: TestConfig | undefined): string | null => {
+  if (!test) {
+    return null;
+  }
+  if (test.testType === "QUALITATIVE") {
+    return test.qualitativeExpected ?? test.normalRange ?? null;
+  }
+  const lo = toNum(test.referenceLow);
+  const hi = toNum(test.referenceHigh);
+  const unit = test.unit ? ` ${test.unit}` : "";
+  if (lo != null && hi != null) {
+    return `${lo} – ${hi}${unit}`;
+  }
+  if (lo != null) {
+    return `≥ ${lo}${unit}`;
+  }
+  if (hi != null) {
+    return `≤ ${hi}${unit}`;
+  }
+  return test.normalRange ?? null;
+};
+
+/** Flag a numeric value against structured bounds; null if none configured. */
+const flagNumericBounds = (
+  value: string | undefined,
+  test: TestConfig
+): LabFlag | null => {
+  const num = value != null ? Number.parseFloat(value) : Number.NaN;
+  const refLow = toNum(test.referenceLow);
+  const refHigh = toNum(test.referenceHigh);
+  const critLow = toNum(test.criticalLow);
+  const critHigh = toNum(test.criticalHigh);
+  const hasBounds =
+    refLow != null || refHigh != null || critLow != null || critHigh != null;
+  if (Number.isNaN(num) || !hasBounds) {
+    return null;
+  }
+  if (
+    (critLow != null && num < critLow) ||
+    (critHigh != null && num > critHigh)
+  ) {
+    return "Critical";
+  }
+  if (refLow != null && num < refLow) {
+    return "Low";
+  }
+  if (refHigh != null && num > refHigh) {
+    return "High";
+  }
+  return "Normal";
+};
+
+/** Flag a qualitative value against its expected value; null if not comparable. */
+const flagQualitative = (
+  value: string | undefined,
+  test: TestConfig
+): LabFlag | null => {
+  const expected = test.qualitativeExpected;
+  if (!(value && expected)) {
+    return null;
+  }
+  const v = value.trim().toLowerCase();
+  if (v === expected.trim().toLowerCase()) {
+    return "Normal";
+  }
+  return POSITIVE_TERMS.includes(v) ? "Critical" : "High";
+};
+
+/**
+ * Flag a value using a test's structured config (critical bounds take
+ * precedence over reference bounds), falling back to the legacy string-based
+ * `flagFor` when structured thresholds aren't configured.
+ */
+const flagWithConfig = (
+  value: string | undefined,
+  conclusion: string | undefined,
+  test: TestConfig | undefined,
+  fallbackReference?: string | null
+): LabFlag | null => {
+  if (!test) {
+    return flagFor(value, fallbackReference, conclusion);
+  }
+  const structured =
+    test.testType === "QUALITATIVE"
+      ? flagQualitative(value, test)
+      : flagNumericBounds(value, test);
+  return (
+    structured ??
+    flagFor(value, test.normalRange ?? fallbackReference, conclusion)
+  );
+};
+
+const flagOverallResult = (
+  value: string | undefined,
+  test: TestConfig | undefined,
+  fallbackReference?: string | null
+): LabFlag | null => {
+  if (test?.testType === "NUMERIC") {
+    return (
+      flagNumericBounds(value, test) ??
+      flagFor(value, test.normalRange ?? fallbackReference, value)
+    );
+  }
+  return flagFor(value, test?.normalRange ?? fallbackReference, value);
+};
+
 // One row per measured parameter (Test · Result · Reference · Date · Flag).
 const deriveLabResults = (visits: ChartVisit[]) =>
   visits.flatMap((visit) =>
@@ -526,6 +689,7 @@ const deriveLabResults = (visits: ChartVisit[]) =>
       const parsed = parseResults(result.results);
       const date = result.examDate;
       const params = parsed.parameters ?? [];
+      const tests = result.product?.tests;
       if (params.length === 0) {
         // No per-parameter breakdown — surface the exam's overall conclusion.
         const test =
@@ -533,32 +697,41 @@ const deriveLabResults = (visits: ChartVisit[]) =>
           result.product?.name ??
           result.exam?.name ??
           "Result";
+        const cfg = matchTest(
+          tests,
+          parsed.productName ?? result.product?.name
+        );
         return [
           {
             id: `${result.id}`,
             test,
             value: parsed.conclusion ?? "—",
-            unit: result.product?.unit ?? null,
-            reference: result.product?.normalRange ?? null,
-            flag: flagFor(
+            unit: cfg?.unit ?? result.product?.unit ?? null,
+            reference:
+              referenceDisplay(cfg) ?? result.product?.normalRange ?? null,
+            flag: flagOverallResult(
               parsed.conclusion,
-              result.product?.normalRange ?? null,
-              parsed.conclusion
+              cfg,
+              result.product?.normalRange ?? null
             ),
             date,
           },
         ];
       }
       return params.map((p, i) => {
+        const cfg = matchTest(tests, p.name);
         const reference =
-          p.referenceRange ?? result.product?.normalRange ?? null;
+          p.referenceRange ??
+          referenceDisplay(cfg) ??
+          result.product?.normalRange ??
+          null;
         return {
           id: `${result.id}-${i}`,
           test: p.name ?? result.product?.name ?? "Result",
           value: p.value ?? "—",
-          unit: p.unit ?? null,
+          unit: p.unit ?? cfg?.unit ?? null,
           reference,
-          flag: flagFor(p.value, reference, parsed.conclusion),
+          flag: flagWithConfig(p.value, parsed.conclusion, cfg, reference),
           date,
         };
       });

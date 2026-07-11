@@ -3,6 +3,7 @@ import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
 import { validate } from "../../../middlewares/validation.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
+  bulkUpdateExamTests,
   createExam,
   createExamResult,
   createExamTest,
@@ -22,6 +23,7 @@ import {
   updateExamTestUnits,
 } from "./exams.controller.ts";
 import {
+  bulkUpdateExamTestsSchema,
   createExamResultSchema,
   createExamSchema,
   createExamTestSchema,
@@ -99,6 +101,15 @@ router.post(
   ...withAccess({ resource: "exams", action: "create", feature: "lab" }),
   validate(createExamTestSchema, "json"),
   createExamTest
+);
+
+// Batch-update exam tests (Tests Management screen "Save changes").
+// Registered before "/tests/:id" so "bulk" is never parsed as an id.
+router.patch(
+  "/tests/bulk",
+  validate(bulkUpdateExamTestsSchema, "json"),
+  ...withAccess({ resource: "exams", action: "update", feature: "lab" }),
+  bulkUpdateExamTests
 );
 
 // Update exam test
