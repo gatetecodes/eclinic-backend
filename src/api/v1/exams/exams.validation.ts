@@ -201,8 +201,10 @@ const validateTestTypeRules = (
   data: ExamTestConfigRuleData,
   addIssue: ExamTestConfigIssue
 ) => {
+  const effectiveTestType = data.testType ?? "NUMERIC";
+
   if (
-    data.testType === "QUALITATIVE" &&
+    effectiveTestType === "QUALITATIVE" &&
     examTestNumericBounds.some((key) => data[key] != null)
   ) {
     addIssue(
@@ -211,7 +213,7 @@ const validateTestTypeRules = (
     );
   }
 
-  if (data.testType === "NUMERIC" && data.qualitativeExpected) {
+  if (effectiveTestType === "NUMERIC" && data.qualitativeExpected) {
     addIssue(
       "qualitativeExpected",
       "Numeric tests cannot use a qualitative expected value"
