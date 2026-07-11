@@ -27,14 +27,31 @@ model ExamTest {
     normalRange String?
     unit        String?
     consumables Json? // Json array of consumable items, each item has a name and quantity
-    exam        Exam?    @relation(fields: [examId], references: [id])
-    product     Product  @relation(fields: [productId], references: [id])
-    productId   Int
-    examId      Int?
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
+
+    // Structured result-flagging config. `testType` decides which set is used:
+    // NUMERIC → reference/critical bounds; QUALITATIVE → qualitativeExpected.
+    // These drive Normal/Low/High/Critical flags automatically at result entry.
+    specimen            String?
+    testType            ExamTestType @default(NUMERIC)
+    referenceLow        Decimal?     @db.Decimal(12, 4)
+    referenceHigh       Decimal?     @db.Decimal(12, 4)
+    criticalLow         Decimal?     @db.Decimal(12, 4)
+    criticalHigh        Decimal?     @db.Decimal(12, 4)
+    qualitativeExpected String?
+
+    exam      Exam?    @relation(fields: [examId], references: [id])
+    product   Product  @relation(fields: [productId], references: [id])
+    productId Int
+    examId    Int?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
     @@unique([name, productId])
+}
+
+enum ExamTestType {
+    NUMERIC
+    QUALITATIVE
 }
 
 model ExamResult {
