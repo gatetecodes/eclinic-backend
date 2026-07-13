@@ -36,6 +36,12 @@ const systolic = (bp?: string | null): number | null => {
   return num(first);
 };
 
+const NEG_INF = Number.NEGATIVE_INFINITY;
+const POS_INF = Number.POSITIVE_INFINITY;
+
+// Bands are contiguous half-open intervals [low, high): a value maps to the
+// first band with low <= value < high. Keeping them gapless means decimal
+// readings (e.g. 36.05 °C, 91.5 % SpO2) never fall through to a silent 0.
 const band = (
   value: number | null,
   bands: [number, number, number][]
@@ -44,7 +50,7 @@ const band = (
     return 0;
   }
   for (const [low, high, score] of bands) {
-    if (value >= low && value <= high) {
+    if (value >= low && value < high) {
       return score;
     }
   }
@@ -54,49 +60,49 @@ const band = (
 export const computeEws = (v: VitalsInput): number => {
   let score = 0;
 
-  // Respiratory rate
+  // Respiratory rate (≤8=3, 9–11=1, 12–20=0, 21–24=2, ≥25=3)
   score += band(num(v.respiratoryRate), [
-    [0, 8, 3],
-    [9, 11, 1],
-    [12, 20, 0],
-    [21, 24, 2],
-    [25, 300, 3],
+    [NEG_INF, 9, 3],
+    [9, 12, 1],
+    [12, 21, 0],
+    [21, 25, 2],
+    [25, POS_INF, 3],
   ]);
 
-  // SpO2 (scale 1)
+  // SpO2 (scale 1) (≤91=3, 92–93=2, 94–95=1, ≥96=0)
   score += band(num(v.spo2), [
-    [96, 100, 0],
-    [94, 95, 1],
-    [92, 93, 2],
-    [0, 91, 3],
+    [NEG_INF, 92, 3],
+    [92, 94, 2],
+    [94, 96, 1],
+    [96, POS_INF, 0],
   ]);
 
-  // Temperature (°C)
+  // Temperature (°C) (≤35=3, 35.1–36=1, 36.1–38=0, 38.1–39=1, ≥39.1=2)
   score += band(num(v.temperature), [
-    [0, 35, 3],
-    [35.1, 36, 1],
-    [36.1, 38, 0],
-    [38.1, 39, 1],
-    [39.1, 100, 2],
+    [NEG_INF, 35.1, 3],
+    [35.1, 36.1, 1],
+    [36.1, 38.1, 0],
+    [38.1, 39.1, 1],
+    [39.1, POS_INF, 2],
   ]);
 
-  // Systolic blood pressure
+  // Systolic blood pressure (≤90=3, 91–100=2, 101–110=1, 111–219=0, ≥220=3)
   score += band(systolic(v.bloodPressure), [
-    [0, 90, 3],
-    [91, 100, 2],
-    [101, 110, 1],
-    [111, 219, 0],
-    [220, 400, 3],
+    [NEG_INF, 91, 3],
+    [91, 101, 2],
+    [101, 111, 1],
+    [111, 220, 0],
+    [220, POS_INF, 3],
   ]);
 
-  // Heart rate
+  // Heart rate (≤40=3, 41–50=1, 51–90=0, 91–110=1, 111–130=2, ≥131=3)
   score += band(num(v.heartRate), [
-    [0, 40, 3],
-    [41, 50, 1],
-    [51, 90, 0],
-    [91, 110, 1],
-    [111, 130, 2],
-    [131, 400, 3],
+    [NEG_INF, 41, 3],
+    [41, 51, 1],
+    [51, 91, 0],
+    [91, 111, 1],
+    [111, 131, 2],
+    [131, POS_INF, 3],
   ]);
 
   // Consciousness (AVPU) — anything other than Alert scores 3
