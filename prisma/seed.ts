@@ -5,6 +5,7 @@ import {
   SubscriptionPlan,
   SubscriptionStatus,
   UserStatus,
+  type WardType,
 } from "../generated/prisma/client";
 import { db } from "../src/database/db";
 
@@ -299,6 +300,111 @@ const departmentSeed = async () => {
   }
 };
 
+const WARD_PREFIX: Record<WardType, string> = {
+  MEDICAL: "M",
+  SURGICAL: "S",
+  MATERNITY: "MT",
+  PAEDIATRIC: "P",
+  ICU: "IC",
+  GENERAL: "G",
+};
+
+const wardSeed = async () => {
+  try {
+    const wards: Array<{
+      name: string;
+      wardType: WardType;
+      accent: string;
+      dailyRate: number;
+      beds: number;
+    }> = [
+      {
+        name: "Medical Ward",
+        wardType: "MEDICAL",
+        accent: "brand",
+        dailyRate: 15_000,
+        beds: 14,
+      },
+      {
+        name: "Surgical Ward",
+        wardType: "SURGICAL",
+        accent: "plum",
+        dailyRate: 20_000,
+        beds: 12,
+      },
+      {
+        name: "Maternity Ward",
+        wardType: "MATERNITY",
+        accent: "pink",
+        dailyRate: 18_000,
+        beds: 10,
+      },
+      {
+        name: "Paediatric Ward",
+        wardType: "PAEDIATRIC",
+        accent: "gold",
+        dailyRate: 15_000,
+        beds: 12,
+      },
+      {
+        name: "Intensive Care (ICU)",
+        wardType: "ICU",
+        accent: "danger",
+        dailyRate: 75_000,
+        beds: 6,
+      },
+    ];
+    for (const w of wards) {
+      const existing = await db.ward.findFirst({
+        where: { clinicId: 1, name: w.name },
+      });
+      if (existing) {
+        continue;
+      }
+      const ward = await db.ward.create({
+        data: {
+          name: w.name,
+          wardType: w.wardType,
+          accent: w.accent,
+          dailyRate: w.dailyRate,
+          clinicId: 1,
+          branchId: 1,
+        },
+      });
+      await db.bed.createMany({
+        // A ward mixes bed categories at different rates: most beds are standard,
+        // the last few are private/suite and priced higher.
+        data: Array.from({ length: w.beds }, (_, i) => {
+          const fromEnd = w.beds - i;
+          let bedClass: "STANDARD" | "SEMI_PRIVATE" | "PRIVATE" | "SUITE" =
+            "STANDARD";
+          let rate = w.dailyRate;
+          if (fromEnd === 1) {
+            bedClass = "SUITE";
+            rate = Math.round(w.dailyRate * 2);
+          } else if (fromEnd <= 3) {
+            bedClass = "PRIVATE";
+            rate = Math.round(w.dailyRate * 1.5);
+          } else if (fromEnd <= 5) {
+            bedClass = "SEMI_PRIVATE";
+            rate = Math.round(w.dailyRate * 1.2);
+          }
+          return {
+            wardId: ward.id,
+            number: i + 1,
+            label: `${WARD_PREFIX[w.wardType]}-${String(i + 1).padStart(2, "0")}`,
+            class: bedClass,
+            dailyRate: rate,
+          };
+        }),
+      });
+    }
+    console.log("Wards and beds created successfully");
+  } catch (error) {
+    console.error(error);
+  }
+};
+
 // Main function to run seeds in sequence
 async function main() {
   try {
@@ -307,6 +413,7 @@ async function main() {
     await userSeed();
     await insuranceCompanySeed();
     await departmentSeed();
+    await wardSeed();
     console.log("Seed process completed successfully");
   } catch (error) {
     console.error("Seed process failed:", error);
