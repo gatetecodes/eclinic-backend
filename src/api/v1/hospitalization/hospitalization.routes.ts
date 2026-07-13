@@ -40,6 +40,12 @@ import {
 } from "./hospitalization.validation";
 
 const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
+const medIdParamSchema = z.object({
+  medId: z.coerce.number().int().positive(),
+});
+const orderIdParamSchema = z.object({
+  orderId: z.coerce.number().int().positive(),
+});
 
 const router = new Hono<AppEnv>();
 router.use("*", crudAccess("visits", "hospitalization"));
@@ -94,6 +100,7 @@ router.post(
 );
 router.post(
   "/medications/:medId/administer",
+  validate(medIdParamSchema, "param"),
   validate(administerSchema, "json"),
   administerMedication
 );
@@ -111,6 +118,7 @@ router.post(
 );
 router.patch(
   "/orders/:orderId",
+  validate(orderIdParamSchema, "param"),
   validate(updateOrderSchema, "json"),
   updateOrder
 );
