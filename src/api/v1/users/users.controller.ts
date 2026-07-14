@@ -2045,22 +2045,6 @@ export const upsertUserTimesheet = async (c: Context) => {
 
     const created = await db.$transaction(async (tx) => {
       const newTimesheetIsActive = payload.isActive ?? true;
-      if (newTimesheetIsActive) {
-        await tx.staffTimesheet.updateMany({
-          where: {
-            userId: user.id,
-            periodType: payload.periodType as TimesheetPeriod,
-            isActive: true,
-            OR: [
-              {
-                startDate: { lte: endDate },
-                endDate: { gte: startDate },
-              },
-            ],
-          },
-          data: { isActive: false },
-        });
-      }
       const ts = await tx.staffTimesheet.create({
         data: {
           userId: user.id,
@@ -2071,6 +2055,25 @@ export const upsertUserTimesheet = async (c: Context) => {
           isActive: newTimesheetIsActive,
         },
       });
+      if (newTimesheetIsActive) {
+        // A staff member has exactly one current timesheet per period type.
+        // Creating or renewing an active timesheet supersedes every prior
+        // active one — whether it overlaps (an edit) or has simply expired
+        // (a renewal, whose window starts after the old one ends). Without
+        // this, renewals never overlapped the old record, so expired
+        // timesheets stayed active and piled up in the list forever.
+        // Superseded rows are kept (isActive:false) for audit of past
+        // availability and remain reachable via includeHistory.
+        await tx.staffTimesheet.updateMany({
+          where: {
+            userId: user.id,
+            periodType: payload.periodType as TimesheetPeriod,
+            isActive: true,
+            id: { not: ts.id },
+          },
+          data: { isActive: false },
+        });
+      }
       if (payload.shifts?.length) {
         await tx.staffShift.createMany({
           data: payload.shifts.map((s) => ({
@@ -2214,6 +2217,7 @@ const buildStatusWhereConditions = (
 type TimesheetFilterContext = {
   todayStart: Date;
   twoDaysFromNow: Date;
+  includeHistory: boolean;
 };
 
 const buildTimesheetWhereConditions = (
@@ -2224,7 +2228,9 @@ const buildTimesheetWhereConditions = (
 ): Prisma.StaffTimesheetWhereInput => {
   const timesheetWhere: Prisma.StaffTimesheetWhereInput = {
     clinicId,
-    isActive: true,
+    // Default to the current timesheet per staff member; superseded records
+    // are hidden unless the caller explicitly asks for history.
+    ...(context.includeHistory ? {} : { isActive: true }),
     ...(baseWhere as Prisma.StaffTimesheetWhereInput),
   };
 
@@ -2434,12 +2440,13 @@ export const getClinicTimesheets = async (c: Context) => {
 
     const todayStart = startOfDay(new Date());
     const twoDaysFromNow = startOfDay(addDays(todayStart, 2));
+    const includeHistory = truthyQueryValue(c.req.query("includeHistory"));
 
     const timesheetWhere = buildTimesheetWhereConditions(
       params,
       authUser.clinicId,
       where,
-      { todayStart, twoDaysFromNow }
+      { todayStart, twoDaysFromNow, includeHistory }
     );
 
     const [timesheets, totalCount] = await Promise.all([

@@ -109,6 +109,31 @@ const en = {
   "email.inventory.subject": "Inventory batches expiring soon",
   "sms.labResultsReady":
     "Hi {firstName}, your lab results are ready. Please return for doctor review.",
+  "flow.pipelineLoadFailed": "Failed to load patient flow pipeline",
+  "flow.stageSummaryLoadFailed": "Failed to load stage summary",
+  "flow.examChargesMustBePaid":
+    "Exam charges must be paid before the patient can go to the lab.",
+  "flow.allChargesMustBeSettled":
+    "All charges must be settled before completing the visit.",
+  "flow.assignmentRequiredNoTriage":
+    "A doctor and department must be assigned at reception because this clinic has no triage stage.",
+  "flow.patientCheckedIn": "Patient checked in",
+  "flow.checkInFailed": "Failed to check in patient",
+  "flow.invalidVisitId": "Invalid visit id",
+  "flow.visitNotFound": "Visit not found",
+  "flow.invalidTransition":
+    "Cannot move a visit from {fromStage} to {toStage}.",
+  "flow.visitMoved": "Visit moved to {stage}.",
+  "flow.advanceFailed": "Failed to advance visit stage",
+  "flow.clinicScopeReadRequired":
+    "A clinic must be in scope to read flow configuration.",
+  "flow.clinicScopeUpdateRequired":
+    "A clinic must be in scope to update flow configuration.",
+  "flow.loadConfigFailed": "Failed to load flow configuration",
+  "flow.updateConfigFailed": "Failed to update flow configuration",
+  "flow.illegalConfigStages":
+    "These stages cannot be configured: {stages}. Only optional stages can be enabled or disabled.",
+  "flow.configUpdated": "Flow configuration updated.",
   "dashboard.stats.trend.sameAsYesterday": "Same as yesterday",
   "dashboard.stats.trend.lessThanYesterday": "Less than yesterday",
   "dashboard.stats.trend.moreThanYesterday": "More than yesterday",
@@ -232,6 +257,33 @@ const fr: Record<keyof typeof en, string> = {
   "email.inventory.subject": "Lots d'inventaire bientôt expirés",
   "sms.labResultsReady":
     "Bonjour {firstName}, vos résultats de laboratoire sont prêts. Veuillez revenir pour la revue avec le médecin.",
+  "flow.pipelineLoadFailed": "Échec du chargement du parcours patient",
+  "flow.stageSummaryLoadFailed": "Échec du chargement du résumé d'étape",
+  "flow.examChargesMustBePaid":
+    "Les frais d'examen doivent être payés avant que le patient puisse aller au laboratoire.",
+  "flow.allChargesMustBeSettled":
+    "Tous les frais doivent être réglés avant de terminer la visite.",
+  "flow.assignmentRequiredNoTriage":
+    "Un médecin et un département doivent être assignés à la réception car cette clinique n'a pas d'étape de triage.",
+  "flow.patientCheckedIn": "Patient enregistré",
+  "flow.checkInFailed": "Échec de l'enregistrement du patient",
+  "flow.invalidVisitId": "ID visite invalide",
+  "flow.visitNotFound": "Visite introuvable",
+  "flow.invalidTransition":
+    "Impossible de déplacer une visite de {fromStage} vers {toStage}.",
+  "flow.visitMoved": "Visite déplacée vers {stage}.",
+  "flow.advanceFailed": "Échec du changement d'étape de la visite",
+  "flow.clinicScopeReadRequired":
+    "Une clinique doit être dans le périmètre pour lire la configuration du parcours.",
+  "flow.clinicScopeUpdateRequired":
+    "Une clinique doit être dans le périmètre pour mettre à jour la configuration du parcours.",
+  "flow.loadConfigFailed":
+    "Échec du chargement de la configuration du parcours",
+  "flow.updateConfigFailed":
+    "Échec de la mise à jour de la configuration du parcours",
+  "flow.illegalConfigStages":
+    "Ces étapes ne peuvent pas être configurées : {stages}. Seules les étapes optionnelles peuvent être activées ou désactivées.",
+  "flow.configUpdated": "Configuration du parcours mise à jour.",
   "dashboard.stats.trend.sameAsYesterday": "Pareil que hier",
   "dashboard.stats.trend.lessThanYesterday": "Moins que hier",
   "dashboard.stats.trend.moreThanYesterday": "Plus que hier",

@@ -68,44 +68,208 @@ export const updateExamResultSchema = z.object({
   notes: optionalNullableText,
 });
 
-export const createExamTestSchema = z.object({
-  name: z.string().min(1, "Test name is required"),
-  description: z.string().optional(),
-  normalRange: z.string().optional(),
-  unit: z.string().optional(),
-  productId: z.number().int().positive(),
-  examId: z.number().int().positive().optional(),
-  consumables: z
-    .array(
-      z.object({
-        name: z.string().min(1),
-        quantity: z
-          .string()
-          .refine((val) => !Number.isNaN(Number(val)) && Number(val) > 0, {
-            message: "Quantity must be a positive number",
-          }),
-      })
-    )
-    .optional(),
-});
+const consumablesSchema = z
+  .array(
+    z.object({
+      name: z.string().min(1),
+      quantity: z
+        .string()
+        .refine((val) => !Number.isNaN(Number(val)) && Number(val) > 0, {
+          message: "Quantity must be a positive number",
+        }),
+    })
+  )
+  .optional();
 
-export const updateExamTestSchema = z.object({
-  name: z.string().min(1, "Test name is required").optional(),
-  description: z.string().optional(),
-  normalRange: z.string().optional(),
-  unit: z.string().optional(),
-  consumables: z
+const nullableNumber = z
+  .union([z.number(), z.string(), z.null()])
+  .optional()
+  .pipe(z.union([z.number().finite(), z.string(), z.null(), z.undefined()]))
+  .transform((value, ctx) => {
+    if (value === undefined) {
+      return;
+    }
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === "number") {
+      return value;
+    }
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      return null;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Must be a valid number",
+      });
+      return z.NEVER;
+    }
+    return n;
+  });
+
+const nullableText = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => {
+    if (value === undefined) {
+      return;
+    }
+    if (value === null) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  });
+
+// Structured result-flagging config shared by create / update / bulk schemas.
+const examTestConfigShape = {
+  specimen: nullableText,
+  testType: z.enum(["NUMERIC", "QUALITATIVE"]).optional(),
+  referenceLow: nullableNumber,
+  referenceHigh: nullableNumber,
+  criticalLow: nullableNumber,
+  criticalHigh: nullableNumber,
+  qualitativeExpected: nullableText,
+};
+
+const examTestNumericBounds = [
+  "referenceLow",
+  "referenceHigh",
+  "criticalLow",
+  "criticalHigh",
+] as const;
+
+type ExamTestNumericBound = (typeof examTestNumericBounds)[number];
+
+type ExamTestConfigRuleData = Partial<
+  Record<ExamTestNumericBound, number | null | undefined>
+> & {
+  testType?: "NUMERIC" | "QUALITATIVE";
+  qualitativeExpected?: string | null;
+};
+
+type ExamTestConfigIssue = (path: string, message: string) => void;
+
+const validateNumericBoundRules = (
+  data: ExamTestConfigRuleData,
+  addIssue: ExamTestConfigIssue
+) => {
+  const boundRules = [
+    {
+      path: "referenceLow",
+      lower: "referenceLow",
+      upper: "referenceHigh",
+      isInvalid: (lower: number, upper: number) => lower > upper,
+      message: "Reference low cannot exceed reference high",
+    },
+    {
+      path: "criticalLow",
+      lower: "criticalLow",
+      upper: "criticalHigh",
+      isInvalid: (lower: number, upper: number) => lower > upper,
+      message: "Critical low cannot exceed critical high",
+    },
+    {
+      path: "criticalLow",
+      lower: "criticalLow",
+      upper: "referenceLow",
+      isInvalid: (lower: number, upper: number) => lower > upper,
+      message: "Critical low must be less than reference low",
+    },
+    {
+      path: "criticalHigh",
+      lower: "criticalHigh",
+      upper: "referenceHigh",
+      isInvalid: (lower: number, upper: number) => lower < upper,
+      message: "Critical high must exceed reference high",
+    },
+  ] as const;
+
+  for (const rule of boundRules) {
+    const lower = data[rule.lower];
+    const upper = data[rule.upper];
+    if (lower != null && upper != null && rule.isInvalid(lower, upper)) {
+      addIssue(rule.path, rule.message);
+    }
+  }
+};
+
+const validateTestTypeRules = (
+  data: ExamTestConfigRuleData,
+  addIssue: ExamTestConfigIssue
+) => {
+  const effectiveTestType = data.testType ?? "NUMERIC";
+
+  if (
+    effectiveTestType === "QUALITATIVE" &&
+    examTestNumericBounds.some((key) => data[key] != null)
+  ) {
+    addIssue(
+      "testType",
+      "Qualitative tests cannot use numeric reference or critical bounds"
+    );
+  }
+
+  if (effectiveTestType === "NUMERIC" && data.qualitativeExpected) {
+    addIssue(
+      "qualitativeExpected",
+      "Numeric tests cannot use a qualitative expected value"
+    );
+  }
+};
+
+const withExamTestConfigRules = <T extends z.ZodRawShape>(
+  schema: z.ZodObject<T>
+) =>
+  schema.superRefine((data, ctx) => {
+    const examTestConfig = data as ExamTestConfigRuleData;
+    const addIssue = (path: string, message: string) =>
+      ctx.addIssue({ code: "custom", path: [path], message });
+
+    validateNumericBoundRules(examTestConfig, addIssue);
+    validateTestTypeRules(examTestConfig, addIssue);
+  });
+
+export const createExamTestSchema = withExamTestConfigRules(
+  z.object({
+    name: z.string().min(1, "Test name is required"),
+    description: z.string().optional(),
+    normalRange: z.string().optional(),
+    unit: z.string().optional(),
+    productId: z.number().int().positive(),
+    examId: z.number().int().positive().optional(),
+    consumables: consumablesSchema,
+    ...examTestConfigShape,
+  })
+);
+
+export const updateExamTestSchema = withExamTestConfigRules(
+  z.object({
+    name: z.string().min(1, "Test name is required").optional(),
+    description: z.string().optional(),
+    normalRange: z.string().optional(),
+    unit: z.string().optional(),
+    consumables: consumablesSchema,
+    ...examTestConfigShape,
+  })
+);
+
+// Batch save from the Tests Management screen: one entry per edited test.
+export const bulkUpdateExamTestsSchema = z.object({
+  tests: z
     .array(
-      z.object({
-        name: z.string().min(1),
-        quantity: z
-          .string()
-          .refine((val) => !Number.isNaN(Number(val)) && Number(val) > 0, {
-            message: "Quantity must be a positive number",
-          }),
-      })
+      withExamTestConfigRules(
+        z.object({
+          id: z.number().int().positive(),
+          unit: nullableText,
+          ...examTestConfigShape,
+        })
+      )
     )
-    .optional(),
+    .min(1, "At least one test is required"),
 });
 
 export const updateExamTestUnitsSchema = z.object({
@@ -137,4 +301,5 @@ export type CreateExamResultData = z.infer<typeof createExamResultSchema>;
 export type UpdateExamResultData = z.infer<typeof updateExamResultSchema>;
 export type CreateExamTestData = z.infer<typeof createExamTestSchema>;
 export type UpdateExamTestData = z.infer<typeof updateExamTestSchema>;
+export type BulkUpdateExamTestsData = z.infer<typeof bulkUpdateExamTestsSchema>;
 export type ExamResultData = z.infer<typeof examResultSchema>;

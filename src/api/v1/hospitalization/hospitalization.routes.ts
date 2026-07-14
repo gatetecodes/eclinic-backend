@@ -4,46 +4,129 @@ import { crudAccess } from "@/middlewares/crud-access.middleware";
 import type { AppEnv } from "../../../middlewares/auth.middleware";
 import { validate } from "../../../middlewares/validation.middleware";
 import {
-  addHospitalizationProducts,
-  addHospitalizationRoom,
+  addBeds,
+  addMedication,
+  addProgressNote,
+  administerMedication,
+  admitPatient,
+  createWard,
   dischargePatient,
-  getHospitalizationRoomPrices,
-  getHospitalizationRooms,
+  getAdmission,
+  getBill,
+  getBoard,
   getHospitalizations,
-  hospitalizePatient,
-  setHospitalizationRoomPrice,
+  getWards,
+  orderTest,
+  recordObservation,
+  transferAdmission,
+  updateBed,
+  updateOrder,
+  updateWard,
 } from "./hospitalization.controller";
 import {
-  addProductSchema,
-  hospitalizeSchema,
-  roomPriceSchema,
-  roomSchema,
+  addBedsSchema,
+  administerSchema,
+  admitSchema,
+  createWardSchema,
+  dischargeSchema,
+  medicationSchema,
+  observationSchema,
+  orderSchema,
+  progressNoteSchema,
+  transferSchema,
+  updateBedSchema,
+  updateOrderSchema,
+  updateWardSchema,
 } from "./hospitalization.validation";
 
 const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
+const medIdParamSchema = z.object({
+  medId: z.coerce.number().int().positive(),
+});
+const orderIdParamSchema = z.object({
+  orderId: z.coerce.number().int().positive(),
+});
 
 const router = new Hono<AppEnv>();
 router.use("*", crudAccess("visits", "hospitalization"));
+
+// Bed board + roster
+router.get("/board", getBoard);
 router.get("/", getHospitalizations);
-router.post("/", validate(hospitalizeSchema, "json"), hospitalizePatient);
-router.get("/rooms", getHospitalizationRooms);
-router.get("/room-prices", getHospitalizationRoomPrices);
-router.post("/rooms", validate(roomSchema, "json"), addHospitalizationRoom);
-router.post(
-  "/room-prices",
-  validate(roomPriceSchema, "json"),
-  setHospitalizationRoomPrice
+
+// Wards & beds administration
+router.get("/wards", getWards);
+router.post("/wards", validate(createWardSchema, "json"), createWard);
+router.patch(
+  "/wards/:id",
+  validate(idParamSchema, "param"),
+  validate(updateWardSchema, "json"),
+  updateWard
 );
 router.post(
-  "/:visitId/discharge",
+  "/wards/:id/beds",
   validate(idParamSchema, "param"),
+  validate(addBedsSchema, "json"),
+  addBeds
+);
+router.patch(
+  "/beds/:id",
+  validate(idParamSchema, "param"),
+  validate(updateBedSchema, "json"),
+  updateBed
+);
+
+// Admissions
+router.post("/", validate(admitSchema, "json"), admitPatient);
+router.get("/:id", validate(idParamSchema, "param"), getAdmission);
+router.get("/:id/bill", validate(idParamSchema, "param"), getBill);
+router.post(
+  "/:id/transfer",
+  validate(idParamSchema, "param"),
+  validate(transferSchema, "json"),
+  transferAdmission
+);
+router.post(
+  "/:id/observations",
+  validate(idParamSchema, "param"),
+  validate(observationSchema, "json"),
+  recordObservation
+);
+router.post(
+  "/:id/medications",
+  validate(idParamSchema, "param"),
+  validate(medicationSchema, "json"),
+  addMedication
+);
+router.post(
+  "/medications/:medId/administer",
+  validate(medIdParamSchema, "param"),
+  validate(administerSchema, "json"),
+  administerMedication
+);
+router.post(
+  "/:id/notes",
+  validate(idParamSchema, "param"),
+  validate(progressNoteSchema, "json"),
+  addProgressNote
+);
+router.post(
+  "/:id/orders",
+  validate(idParamSchema, "param"),
+  validate(orderSchema, "json"),
+  orderTest
+);
+router.patch(
+  "/orders/:orderId",
+  validate(orderIdParamSchema, "param"),
+  validate(updateOrderSchema, "json"),
+  updateOrder
+);
+router.post(
+  "/:id/discharge",
+  validate(idParamSchema, "param"),
+  validate(dischargeSchema, "json"),
   dischargePatient
-);
-router.post(
-  "/:id/products",
-  validate(idParamSchema, "param"),
-  validate(addProductSchema, "json"),
-  addHospitalizationProducts
 );
 
 export default router;

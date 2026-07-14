@@ -82,6 +82,14 @@ model User {
     doctorQueueConfigs         QueueConfig[]                 @relation("DoctorQueueConfigs")
     pharmacyDispenseOrders     PharmacyDispenseOrder[]       @relation("PharmacyDispensePerformedBy")
     pharmacyIdempotencyRecords PharmacyIdempotencyRecord[]
+    attendingHospitalizations  Hospitalization[]              @relation("AttendingPhysician")
+    wardObservationsRecorded   WardObservation[]              @relation("WardObsRecordedBy")
+    wardMedicationsPrescribed  WardMedication[]               @relation("WardMedPrescribedBy")
+    wardMedAdministrations     WardMedicationAdministration[] @relation("WardMedAdministeredBy")
+    progressNotesAuthored      ProgressNote[]                 @relation("ProgressNoteAuthor")
+    wardOrdersPlaced           WardOrder[]                    @relation("WardOrderBy")
+    bedTransfersPerformed      BedTransfer[]                  @relation("BedTransferBy")
+    dischargesPerformed        DischargeSummary[]             @relation("DischargeBy")
 
     @@unique([clinicId, email])
     @@index([email])

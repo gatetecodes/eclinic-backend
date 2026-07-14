@@ -41,6 +41,20 @@ const UNSETTLED_EXAM_PAYMENT_STATUSES = [
   PaymentStatus.PARTIALLY_PAID,
 ] as const;
 
+const EXAM_TEST_MANAGER_ROLES = new Set<Role>([
+  Role.LAB_TECHNICIAN,
+  Role.DOCTOR,
+  Role.CLINIC_ADMIN,
+  Role.SUPER_ADMIN,
+]);
+
+const getUserClinicId = (user: {
+  clinicId?: number | null;
+  clinic?: { id?: number | null } | null;
+}) => user.clinicId ?? user.clinic?.id;
+
+const canManageExamTests = (role: Role) => EXAM_TEST_MANAGER_ROLES.has(role);
+
 export const getExams = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1390,6 +1404,22 @@ export const updateExamResult = async (c: Context) => {
   }
 };
 
+/** Fold a Prisma groupBy(testType) result into segmented-tab counts. */
+const tallyExamTestCounts = (
+  grouped: { testType: string; _count: { _all: number } }[]
+) => {
+  const counts = { all: 0, numeric: 0, qualitative: 0 };
+  for (const group of grouped) {
+    counts.all += group._count._all;
+    if (group.testType === "NUMERIC") {
+      counts.numeric = group._count._all;
+    } else if (group.testType === "QUALITATIVE") {
+      counts.qualitative = group._count._all;
+    }
+  }
+  return counts;
+};
+
 export const getExamTests = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -1406,62 +1436,71 @@ export const getExamTests = async (c: Context) => {
     }
 
     const params = searchParamsSchema.parse(c.req.query());
-    const { clinicId, branchId } = getScope(user, params);
-    const queryOptions = buildQueryOptions<ExamTest>(params, {
-      ...(typeof clinicId === "number" ? { clinicId } : {}),
-      ...(typeof branchId === "number" ? { branchId } : {}),
-    });
+    if (
+      params.type &&
+      params.type !== "NUMERIC" &&
+      params.type !== "QUALITATIVE"
+    ) {
+      return c.json(
+        { error: "Invalid exam test type" },
+        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      );
+    }
+
+    const { clinicId } = getScope(user, params);
+    // ExamTest has no clinicId/branchId columns — scope is applied via the
+    // parent product's clinics below, so keep the base `where` free of them
+    // (injecting them here made Prisma throw "Unknown argument clinicId").
+    const queryOptions = buildQueryOptions<ExamTest>(params);
     const { where, orderBy, ...restOptions } = queryOptions;
 
-    const whereInputFind: Prisma.ExamTestWhereInput = {
-      ...(where as Prisma.ExamTestWhereInput),
-    };
+    let scopedClinicId: number | undefined;
     if (typeof clinicId === "number") {
-      whereInputFind.product = {
-        clinics: { some: { id: clinicId } },
-      } as Prisma.ExamTestWhereInput["product"];
+      scopedClinicId = clinicId;
     } else if (user.role !== Role.SUPER_ADMIN) {
-      whereInputFind.product = {
-        clinics: { some: { id: user.clinic.id } },
-      } as Prisma.ExamTestWhereInput["product"];
+      scopedClinicId = getUserClinicId(user);
+      if (typeof scopedClinicId !== "number") {
+        return c.json(
+          { error: "Forbidden" },
+          httpCodes.FORBIDDEN as ContentfulStatusCode
+        );
+      }
     }
 
-    const tests = await db.examTest.findMany({
-      where: whereInputFind,
-      orderBy: orderBy as Prisma.ExamTestOrderByWithRelationInput,
-      ...restOptions,
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            basePrice: true,
-          },
-        },
-        exam: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-          },
-        },
-      },
-    });
-
-    const whereInputCount: Prisma.ExamTestWhereInput = {
+    // Base filter: product-clinic scope + name search (from buildQueryOptions).
+    // The `type` tab filter is applied only to the listing, NOT to the counts,
+    // so the segmented tabs always show the full breakdown for the search.
+    const baseWhere: Prisma.ExamTestWhereInput = {
       ...(where as Prisma.ExamTestWhereInput),
+      ...(typeof scopedClinicId === "number"
+        ? { product: { clinics: { some: { id: scopedClinicId } } } }
+        : {}),
     };
-    if (typeof clinicId === "number") {
-      whereInputCount.product = {
-        clinics: { some: { id: clinicId } },
-      } as Prisma.ExamTestWhereInput["product"];
-    } else if (user.role !== Role.SUPER_ADMIN) {
-      whereInputCount.product = {
-        clinics: { some: { id: user.clinic.id } },
-      } as Prisma.ExamTestWhereInput["product"];
-    }
 
-    const totalCount = await db.examTest.count({ where: whereInputCount });
+    const testTypeFilter = params.type as "NUMERIC" | "QUALITATIVE" | undefined;
+    const listWhere: Prisma.ExamTestWhereInput = testTypeFilter
+      ? { ...baseWhere, testType: testTypeFilter }
+      : baseWhere;
+
+    const [tests, totalCount, grouped] = await Promise.all([
+      db.examTest.findMany({
+        where: listWhere,
+        orderBy: orderBy as Prisma.ExamTestOrderByWithRelationInput,
+        ...restOptions,
+        include: {
+          product: { select: { id: true, name: true, basePrice: true } },
+          exam: { select: { id: true, name: true, status: true } },
+        },
+      }),
+      db.examTest.count({ where: listWhere }),
+      db.examTest.groupBy({
+        by: ["testType"],
+        where: baseWhere,
+        _count: { _all: true },
+      }),
+    ]);
+
+    const counts = tallyExamTestCounts(grouped);
 
     const pageCount = restOptions.take
       ? Math.ceil(totalCount / restOptions.take)
@@ -1473,6 +1512,7 @@ export const getExamTests = async (c: Context) => {
       data: tests,
       totalCount,
       pageCount,
+      counts,
     });
   } catch (_error) {
     return c.json(
@@ -1485,12 +1525,7 @@ export const getExamTests = async (c: Context) => {
 export const createExamTest = async (c: Context) => {
   try {
     const user = c.get("user");
-    if (
-      user.role !== Role.LAB_TECHNICIAN &&
-      user.role !== Role.DOCTOR &&
-      user.role !== Role.CLINIC_ADMIN &&
-      user.role !== Role.SUPER_ADMIN
-    ) {
+    if (!canManageExamTests(user.role)) {
       return c.json(
         { error: "Forbidden" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
@@ -1513,6 +1548,13 @@ export const createExamTest = async (c: Context) => {
       productId,
       examId,
       consumables,
+      specimen,
+      testType,
+      referenceLow,
+      referenceHigh,
+      criticalLow,
+      criticalHigh,
+      qualitativeExpected,
     } = validatedFields.data;
 
     // Verify product exists and belongs to user's clinic
@@ -1532,9 +1574,14 @@ export const createExamTest = async (c: Context) => {
       );
     }
 
+    const userClinicId = getUserClinicId(user);
+
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !product.clinics.some((clinic) => clinic.id === user.clinic.id)
+      !(
+        userClinicId &&
+        product.clinics.some((clinic) => clinic.id === userClinicId)
+      )
     ) {
       return c.json(
         { error: "Forbidden" },
@@ -1562,7 +1609,7 @@ export const createExamTest = async (c: Context) => {
 
       if (
         user.role !== Role.SUPER_ADMIN &&
-        exam.visit.clinicId !== user.clinic.id
+        (!userClinicId || exam.visit.clinicId !== userClinicId)
       ) {
         return c.json(
           { error: "Forbidden" },
@@ -1579,6 +1626,13 @@ export const createExamTest = async (c: Context) => {
         unit,
         productId,
         examId,
+        specimen,
+        testType,
+        referenceLow,
+        referenceHigh,
+        criticalLow,
+        criticalHigh,
+        qualitativeExpected,
         consumables: consumables
           ? (consumables as Prisma.InputJsonValue)
           : undefined,
@@ -1659,10 +1713,15 @@ export const updateExamTest = async (c: Context) => {
       );
     }
 
+    const userClinicId = getUserClinicId(user);
+
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingTest.product.clinics.some(
-        (clinic) => clinic.id === user.clinic.id
+      !(
+        userClinicId &&
+        existingTest.product.clinics.some(
+          (clinic) => clinic.id === userClinicId
+        )
       )
     ) {
       return c.json(
@@ -1699,6 +1758,111 @@ export const updateExamTest = async (c: Context) => {
       status: httpCodes.OK,
       message: "Exam test updated successfully",
       data: updatedTest,
+    });
+  } catch (_error) {
+    return c.json(
+      { error: "Internal Server Error" },
+      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+    );
+  }
+};
+
+/**
+ * Batch-save handler for the Tests Management screen. Updates the structured
+ * result-flagging config (unit, specimen, type, reference & critical bounds,
+ * qualitative expected value) for many tests in a single transaction. Absent
+ * fields are left untouched; explicit null clears a value.
+ */
+export const bulkUpdateExamTests = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    if (
+      user.role !== Role.LAB_TECHNICIAN &&
+      user.role !== Role.DOCTOR &&
+      user.role !== Role.CLINIC_ADMIN &&
+      user.role !== Role.SUPER_ADMIN
+    ) {
+      return c.json(
+        { error: "Forbidden" },
+        httpCodes.FORBIDDEN as ContentfulStatusCode
+      );
+    }
+
+    const { tests } = c.get("validatedJson") as {
+      tests: Array<{
+        id: number;
+        unit?: string | null;
+        specimen?: string | null;
+        testType?: "NUMERIC" | "QUALITATIVE";
+        referenceLow?: number | null;
+        referenceHigh?: number | null;
+        criticalLow?: number | null;
+        criticalHigh?: number | null;
+        qualitativeExpected?: string | null;
+      }>;
+    };
+    const userClinicId = getUserClinicId(user);
+    const ids = tests.map((t) => t.id);
+
+    // Load the targeted tests once and verify clinic ownership before writing.
+    const existing = await db.examTest.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        product: { select: { clinics: { select: { id: true } } } },
+      },
+    });
+    const existingById = new Map(existing.map((t) => [t.id, t]));
+
+    for (const id of ids) {
+      const found = existingById.get(id);
+      if (!found) {
+        return c.json(
+          { error: `Exam test ${id} not found` },
+          httpCodes.NOT_FOUND as ContentfulStatusCode
+        );
+      }
+      if (
+        user.role !== Role.SUPER_ADMIN &&
+        !(
+          userClinicId &&
+          found.product.clinics.some((clinic) => clinic.id === userClinicId)
+        )
+      ) {
+        return c.json(
+          { error: "Forbidden" },
+          httpCodes.FORBIDDEN as ContentfulStatusCode
+        );
+      }
+    }
+
+    const updated = await db.$transaction(
+      tests.map((t) =>
+        db.examTest.update({
+          where: { id: t.id },
+          data: {
+            unit: t.unit,
+            specimen: t.specimen,
+            testType: t.testType,
+            referenceLow: t.referenceLow,
+            referenceHigh: t.referenceHigh,
+            criticalLow: t.criticalLow,
+            criticalHigh: t.criticalHigh,
+            qualitativeExpected: t.qualitativeExpected,
+          },
+          include: {
+            product: { select: { id: true, name: true } },
+            exam: { select: { id: true, name: true } },
+          },
+        })
+      )
+    );
+
+    return c.json({
+      status: httpCodes.OK,
+      success: true,
+      message: `${updated.length} test${updated.length === 1 ? "" : "s"} updated successfully`,
+      data: updated,
     });
   } catch (_error) {
     return c.json(
@@ -1759,10 +1923,15 @@ export const updateExamTestUnits = async (c: Context) => {
       );
     }
 
+    const userClinicId = getUserClinicId(user);
+
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingTest.product.clinics.some(
-        (clinic) => clinic.id === user.clinic.id
+      !(
+        userClinicId &&
+        existingTest.product.clinics.some(
+          (clinic) => clinic.id === userClinicId
+        )
       )
     ) {
       return c.json(
@@ -1844,10 +2013,15 @@ export const updateExamTestNormalRange = async (c: Context) => {
       );
     }
 
+    const userClinicId = getUserClinicId(user);
+
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingTest.product.clinics.some(
-        (clinic) => clinic.id === user.clinic.id
+      !(
+        userClinicId &&
+        existingTest.product.clinics.some(
+          (clinic) => clinic.id === userClinicId
+        )
       )
     ) {
       return c.json(
@@ -1929,10 +2103,15 @@ export const updateExamTestConsumables = async (c: Context) => {
       );
     }
 
+    const userClinicId = getUserClinicId(user);
+
     if (
       user.role !== Role.SUPER_ADMIN &&
-      !existingTest.product.clinics.some(
-        (clinic) => clinic.id === user.clinic.id
+      !(
+        userClinicId &&
+        existingTest.product.clinics.some(
+          (clinic) => clinic.id === userClinicId
+        )
       )
     ) {
       return c.json(
@@ -2008,7 +2187,12 @@ export const getExamsByVisitId = async (c: Context) => {
       );
     }
 
-    if (user.role !== Role.SUPER_ADMIN && visit.clinicId !== user.clinic.id) {
+    const userClinicId = getUserClinicId(user);
+
+    if (
+      user.role !== Role.SUPER_ADMIN &&
+      (!userClinicId || visit.clinicId !== userClinicId)
+    ) {
       return c.json(
         { error: "Forbidden" },
         httpCodes.FORBIDDEN as ContentfulStatusCode
