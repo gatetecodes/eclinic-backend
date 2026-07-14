@@ -30,6 +30,7 @@ import {
   type ResolvedFlow,
   resolveClinicFlow,
 } from "../../../../lib/clinic-flow";
+import type { Translator } from "../../../../lib/i18n";
 import { getScope } from "../../../../lib/request-scope";
 import { emitFlowUpdate } from "../../../../services/flow-events.service";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
@@ -140,6 +141,7 @@ const flowVisitSelect = {
  * visits; DONE is scoped to "completed today" so the payload stays bounded.
  */
 export const getPipeline = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const { clinicId, branchId } = getScope(user, c.req.query());
@@ -220,7 +222,7 @@ export const getPipeline = async (c: Context) => {
     });
   } catch (_error) {
     return c.json(
-      { error: "Failed to load patient flow pipeline" },
+      { error: t("flow.pipelineLoadFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -231,13 +233,14 @@ export const getPipeline = async (c: Context) => {
  * Current stage + the stages this visit may legally advance to next.
  */
 export const getStageSummary = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
     if (!Number.isFinite(visitId)) {
       return c.json(
-        { error: "Invalid visit id" },
+        { error: t("flow.invalidVisitId") },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -259,7 +262,7 @@ export const getStageSummary = async (c: Context) => {
     });
     if (!visit) {
       return c.json(
-        { error: "Visit not found" },
+        { error: t("flow.visitNotFound") },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
@@ -272,7 +275,7 @@ export const getStageSummary = async (c: Context) => {
     });
   } catch (_error) {
     return c.json(
-      { error: "Failed to load stage summary" },
+      { error: t("flow.stageSummaryLoadFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -341,7 +344,8 @@ const UNSETTLED: PaymentStatus[] = [
 const checkBillingGate = async (
   visitId: number,
   fromStage: CareStage,
-  toStage: CareStage
+  toStage: CareStage,
+  t: Translator
 ): Promise<string | null> => {
   if (fromStage !== CareStage.BILLING) {
     return null;
@@ -357,8 +361,8 @@ const checkBillingGate = async (
   });
   if (unpaid > 0) {
     return examOnly
-      ? "Exam charges must be paid before the patient can go to the lab."
-      : "All charges must be settled before completing the visit.";
+      ? t("flow.examChargesMustBePaid")
+      : t("flow.allChargesMustBeSettled");
   }
   return null;
 };
@@ -382,6 +386,7 @@ const QUEUE_PURPOSE_BY_STAGE: Partial<Record<CareStage, QueuePurpose>> = {
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear check-in with a few additive branches
 export const createFlowCheckIn = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const parsed = flowCheckInSchema.safeParse(await c.req.json());
@@ -431,10 +436,7 @@ export const createFlowCheckIn = async (c: Context) => {
     // required to check in. (With triage enabled they're assigned later.)
     if (goingStraightToDoctor && !(doctorId && departmentId)) {
       return c.json(
-        {
-          error:
-            "A doctor and department must be assigned at reception because this clinic has no triage stage.",
-        },
+        { error: t("flow.assignmentRequiredNoTriage") },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -500,10 +502,10 @@ export const createFlowCheckIn = async (c: Context) => {
       actorId: Number(user?.id) || undefined,
     });
 
-    return c.json({ success: "Patient checked in", visit: flowVisit });
+    return c.json({ success: t("flow.patientCheckedIn"), visit: flowVisit });
   } catch (_error) {
     return c.json(
-      { error: "Failed to check in patient" },
+      { error: t("flow.checkInFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -517,13 +519,14 @@ export const createFlowCheckIn = async (c: Context) => {
 
 //biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <>
 export const advanceVisitStage = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const { id } = c.req.param();
     const visitId = Number.parseInt(id, 10);
     if (!Number.isFinite(visitId)) {
       return c.json(
-        { error: "Invalid visit id" },
+        { error: t("flow.invalidVisitId") },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -558,7 +561,7 @@ export const advanceVisitStage = async (c: Context) => {
     });
     if (!visit) {
       return c.json(
-        { error: "Visit not found" },
+        { error: t("flow.visitNotFound") },
         httpCodes.NOT_FOUND as ContentfulStatusCode
       );
     }
@@ -568,7 +571,10 @@ export const advanceVisitStage = async (c: Context) => {
     if (!allowedStages.includes(targetStage)) {
       return c.json(
         {
-          error: `Cannot move a visit from ${visit.careStage} to ${targetStage}.`,
+          error: t("flow.invalidTransition", {
+            fromStage: visit.careStage,
+            toStage: targetStage,
+          }),
           allowedStages,
         },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
@@ -580,7 +586,8 @@ export const advanceVisitStage = async (c: Context) => {
     const gateError = await checkBillingGate(
       visit.id,
       visit.careStage,
-      targetStage
+      targetStage,
+      t
     );
     if (gateError) {
       return c.json(
@@ -658,12 +665,12 @@ export const advanceVisitStage = async (c: Context) => {
 
     return c.json({
       success: true,
-      message: `Visit moved to ${targetStage}.`,
+      message: t("flow.visitMoved", { stage: targetStage }),
       visit: flowVisit,
     });
   } catch (_error) {
     return c.json(
-      { error: "Failed to advance visit stage" },
+      { error: t("flow.advanceFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -688,12 +695,13 @@ const toFlowConfigView = (flow: ResolvedFlow) =>
  * it is enabled. Admin-only (gated at the route via the `clinics` resource).
  */
 export const getFlowConfig = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const { clinicId, branchId } = getScope(user, c.req.query());
     if (typeof clinicId !== "number") {
       return c.json(
-        { error: "A clinic must be in scope to read flow configuration." },
+        { error: t("flow.clinicScopeReadRequired") },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -701,7 +709,7 @@ export const getFlowConfig = async (c: Context) => {
     return c.json({ clinicId, stages: toFlowConfigView(flow) });
   } catch (_error) {
     return c.json(
-      { error: "Failed to load flow configuration" },
+      { error: t("flow.loadConfigFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
@@ -715,12 +723,13 @@ export const getFlowConfig = async (c: Context) => {
  * gates and pipeline invariants can never be configured away.
  */
 export const updateFlowConfig = async (c: Context) => {
+  const t = c.get("t");
   try {
     const user = c.get("user");
     const { clinicId } = getScope(user, c.req.query());
     if (typeof clinicId !== "number") {
       return c.json(
-        { error: "A clinic must be in scope to update flow configuration." },
+        { error: t("flow.clinicScopeUpdateRequired") },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
     }
@@ -734,9 +743,11 @@ export const updateFlowConfig = async (c: Context) => {
     if (illegal.length > 0) {
       return c.json(
         {
-          error: `These stages cannot be configured: ${illegal
-            .map((s) => `${s.stage} (${STAGE_CLASS[s.stage as CareStage]})`)
-            .join(", ")}. Only optional stages can be enabled or disabled.`,
+          error: t("flow.illegalConfigStages", {
+            stages: illegal
+              .map((s) => `${s.stage} (${STAGE_CLASS[s.stage as CareStage]})`)
+              .join(", "),
+          }),
         },
         httpCodes.BAD_REQUEST as ContentfulStatusCode
       );
@@ -777,13 +788,13 @@ export const updateFlowConfig = async (c: Context) => {
     const flow = await resolveClinicFlow(clinicId);
     return c.json({
       success: true,
-      message: "Flow configuration updated.",
+      message: t("flow.configUpdated"),
       clinicId,
       stages: toFlowConfigView(flow),
     });
   } catch (_error) {
     return c.json(
-      { error: "Failed to update flow configuration" },
+      { error: t("flow.updateConfigFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
     );
   }
