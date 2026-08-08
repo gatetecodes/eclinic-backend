@@ -16,7 +16,10 @@ import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { translate } from "../../../lib/i18n";
 import { logger } from "../../../lib/logger";
+import { writeAudit } from "../../../services/audit.service";
+import { provisionClinic } from "../../../services/clinic-provisioning.service";
 import { sendEmail } from "../../../services/email.service";
+import { createVerificationEmail } from "../users/users.controller";
 import type { demoRequestSchema } from "./demo-requests.validation";
 
 export const createDemoRequest = async (c: Context) => {
@@ -115,9 +118,58 @@ export const approveDemoRequest = async (c: Context) => {
       });
     }
 
+    // Optional: provision a TRIAL clinic from the demo and link it back. Body
+    // is optional, so tolerate a missing/invalid JSON payload.
+    const body = (await c.req.json().catch(() => ({}))) as {
+      provision?: boolean;
+    };
+    const shouldProvision = body.provision === true && !existing.clinicId;
+
+    let provisionedClinicId: number | null = existing.clinicId ?? null;
+    if (shouldProvision) {
+      const { newClinic, adminUser } = await provisionClinic({
+        name: existing.clinic_name,
+        subscriptionPlan: "CLINIC_STARTER",
+        subscriptionStatus: "TRIAL",
+        contactEmail: existing.email,
+        contactPhone: existing.phone_number,
+        admin: {
+          name: `${existing.clinic_name} Admin`,
+          email: existing.email,
+          phone_number: existing.phone_number,
+        },
+      });
+      provisionedClinicId = newClinic.id;
+
+      const verification = await createVerificationEmail(adminUser.email, {
+        locale: c.get("locale"),
+      });
+      if (!verification.success) {
+        logger.warn("Provisioned clinic but verification email failed", {
+          clinicId: newClinic.id,
+          email: adminUser.email,
+          error: verification.error,
+        });
+      }
+
+      await writeAudit(c, "demo.provisioned", {
+        targetType: "clinic",
+        targetId: newClinic.id,
+        metadata: { demoRequestId: idNum },
+      });
+    }
+
     const demoRequest = await db.demoRequest.update({
       where: { id: idNum },
-      data: { status: DemoRequestStatus.APPROVED },
+      data: {
+        status: DemoRequestStatus.APPROVED,
+        ...(provisionedClinicId ? { clinicId: provisionedClinicId } : {}),
+      },
+    });
+
+    await writeAudit(c, "demo.approved", {
+      targetType: "demoRequest",
+      targetId: idNum,
     });
 
     try {

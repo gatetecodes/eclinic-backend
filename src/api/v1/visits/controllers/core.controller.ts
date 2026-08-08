@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { httpCodes } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import { parseDateString } from "@/lib/utils";
 import type {
   Gender,
@@ -66,6 +67,7 @@ import {
 } from "../../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../../lib/common-validation";
 import { getScope } from "../../../../lib/request-scope";
+import { enqueueFinalizedVisit } from "../../../../services/hie/outbox.service";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import {
   DEFAULT_CACHE_TTL,
@@ -1963,6 +1965,21 @@ export const finalizeVisit = async (c: Context) => {
       // cashier's invoice (paid before pharmacy dispensing). No-op when there
       // are no internal lines with a price and quantity.
       await createMedicationPaymentForVisit(visitId, { tx });
+
+      // When configured, the clinical commit and HIE publication intent are
+      // atomic. An integration configuration/runtime fault must never roll back
+      // local care; it is logged without patient identifiers or payloads.
+      try {
+        await enqueueFinalizedVisit(tx, {
+          clinicId: visit.clinicId,
+          visitId,
+          patientId: visit.patientId,
+        });
+      } catch {
+        logger.error("hie.outbox.enqueue_failed", {
+          capability: "SHARED_RECORD_WRITE",
+        });
+      }
 
       return finalizedVisit;
     });

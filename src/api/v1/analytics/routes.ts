@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../../../middlewares/auth.middleware.ts";
+import { requireSuperAdmin } from "../../../middlewares/auth.middleware.ts";
 import { requireQuota } from "../../../middlewares/quota.middleware.ts";
 import { withAccess } from "../../../middlewares/with-access.middleware.ts";
 import {
@@ -70,6 +71,11 @@ router.get(
   ...withAccess({ resource: "analytics", action: "read" }),
   countVisitsByDepartments
 );
+// Platform analytics are cross-tenant. Restrict the whole /platform/* surface
+// to the SaaS operator — the feature gate alone would otherwise let a tenant
+// admin on an analyticsPro plan read global, cross-tenant figures.
+router.use("/platform/*", requireSuperAdmin);
+
 router.get(
   "/platform/overview",
   ...withAccess({ resource: "analytics", action: "read" }),

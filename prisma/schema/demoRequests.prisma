@@ -8,6 +8,11 @@ model DemoRequest {
     createdAt    DateTime          @default(now())
     updatedAt    DateTime          @updatedAt
     status       DemoRequestStatus @default(PENDING)
+    // Set when an approved demo is provisioned into a (trial) clinic.
+    clinicId     Int?
+    clinic       Clinic?           @relation(fields: [clinicId], references: [id])
+
+    @@index([clinicId])
 }
 
 enum DemoRequestStatus {

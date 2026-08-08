@@ -1,7 +1,14 @@
+/// Tenant lifecycle state, as surfaced in the platform-admin console.
+/// ONBOARDING = provisioned but setup incomplete (no owner accepted yet).
+/// TRIAL = evaluating. ACTIVE = paying. SUSPENDED = access blocked by an
+/// operator (data preserved). INACTIVE = archived; see Clinic.archivedAt, which
+/// is what distinguishes an archived clinic from a merely suspended one.
 enum SubscriptionStatus {
     ACTIVE
     INACTIVE
     TRIAL
+    SUSPENDED
+    ONBOARDING
 }
 
 enum SubscriptionPlan {
@@ -26,9 +33,9 @@ model Clinic {
     id                       Int                  @id @default(autoincrement())
     name                     String
     logo                     String?
-    defaultLocale            String                @default("en")
-    operatingCountry         String                @default("RW")
-    defaultCurrency          CurrencyCode          @default(RWF)
+    defaultLocale            String               @default("en")
+    operatingCountry         String               @default("RW")
+    defaultCurrency          CurrencyCode         @default(RWF)
     subscriptionStatus       SubscriptionStatus   @default(TRIAL)
     subscriptionPlan         SubscriptionPlan
     contactPhone             String?
@@ -67,17 +74,21 @@ model Clinic {
     portalSettings           Json? // Store portal configuration
 
     // Entitlements & quotas
-    entitlementOverrides           EntitlementOverride[]
+    entitlementOverrides         EntitlementOverride[]
     entitlementUsages            EntitlementUsage[]
-    pharmacyDispenseOrders         PharmacyDispenseOrder[]
-    pharmacyPrescriptionItemMaps   PharmacyPrescriptionItemMap[]
-    pharmacyIdempotencyRecords     PharmacyIdempotencyRecord[]
+    pharmacyDispenseOrders       PharmacyDispenseOrder[]
+    pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
+    pharmacyIdempotencyRecords   PharmacyIdempotencyRecord[]
 
     // Pricing
     clinicProductPrices ClinicProductPrice[]
     insurancePrices     InsurancePrice[]
 
     convertedAt                  DateTime?
+    // Soft-delete for the operator archive lifecycle. Archived clinics are
+    // filtered out of operator listings unless explicitly requested.
+    archivedAt                   DateTime?
+    demoRequests                 DemoRequest[]
     staffTimesheets              StaffTimesheet[]
     purchaseOrders               PurchaseOrder[]
     suppliers                    Supplier[]
@@ -87,6 +98,14 @@ model Clinic {
     queueConfigs                 QueueConfig[]
     outboundSmsLogs              OutboundSmsLog[]
     flowConfigs                  ClinicFlowConfig[]
+    hieTenantConfig              HieTenantConfig?
+    hieFacilityLinks             HieFacilityLink[]
+    hieConsents                  HieConsent[]
+    hieResourceLinks             HieResourceLink[]
+    hieOutboxEvents              HieOutboxEvent[]
+    hieAuditEvents               HieAuditEvent[]
+    hieReconciliations           HieReconciliation[]
+    hieExternalTransfers         HieExternalTransfer[]
 
     @@index([convertedAt])
 }
@@ -132,6 +151,8 @@ model Branch {
     queueConfigs           QueueConfig[]
     pharmacyDispenseOrders PharmacyDispenseOrder[]
     flowConfigs            ClinicFlowConfig[]
+    hieFacilityLinks       HieFacilityLink[]
+    hieExternalTransfers   HieExternalTransfer[]
 
     @@unique([id, clinicId])
     @@index([clinicId])

@@ -1,6 +1,17 @@
 import type { User } from "./auth";
 
-type CacheEntry = { user: User; cachedAt: number };
+/**
+ * A resolved session.
+ *
+ * `impersonatedBy` is cached alongside the user because it belongs to the session
+ * rather than to the user, and a cache hit skips the session lookup entirely.
+ * Without it, every request served from cache during an impersonation would look
+ * like a genuine action by the impersonated user, and the audit trail would
+ * attribute operator actions to a clinician.
+ */
+type ResolvedSession = { user: User; impersonatedBy: number | null };
+
+type CacheEntry = ResolvedSession & { cachedAt: number };
 
 const configuredTTL = Number(process.env.SESSION_CACHE_TTL_MS ?? "300000");
 const CACHE_TTL_MS =
@@ -19,6 +30,33 @@ const CACHE_STALE_TTL_MS =
 const SESSION_COOKIE_KEYS = ["session_token", "__Secure-session_token"];
 
 const cache = new Map<string, CacheEntry>();
+
+/**
+ * userId → the cache keys currently holding an entry for that user.
+ *
+ * The cache is keyed by session cookie, but privileged operations act on a user
+ * (suspend, change role, end impersonation) and must take effect on the very next
+ * request rather than waiting out the TTL. Without this reverse index there is no
+ * way to find a user's entries, since one user can have several concurrent
+ * sessions across devices.
+ */
+const keysByUser = new Map<number, Set<string>>();
+
+function forgetKey(cacheKey: string): void {
+  const entry = cache.get(cacheKey);
+  cache.delete(cacheKey);
+  if (!entry) {
+    return;
+  }
+  const keys = keysByUser.get(entry.user.id);
+  if (!keys) {
+    return;
+  }
+  keys.delete(cacheKey);
+  if (keys.size === 0) {
+    keysByUser.delete(entry.user.id);
+  }
+}
 
 function parseCookieHeader(cookieHeader: string): Map<string, string> {
   const cookies = new Map<string, string>();
@@ -58,10 +96,10 @@ export function getSessionCacheKey(
   return `cookie:${normalizedCookieHeader}`;
 }
 
-export function getCachedUser(
+export function getCachedSession(
   cookieHeader: string | undefined,
   options?: { allowStale?: boolean }
-): User | null {
+): ResolvedSession | null {
   const cacheKey = getSessionCacheKey(cookieHeader);
   if (!cacheKey) {
     return null;
@@ -74,7 +112,7 @@ export function getCachedUser(
 
   const ageMs = Date.now() - entry.cachedAt;
   if (ageMs > CACHE_STALE_TTL_MS) {
-    cache.delete(cacheKey);
+    forgetKey(cacheKey);
     return null;
   }
 
@@ -82,16 +120,63 @@ export function getCachedUser(
     return null;
   }
 
-  return entry.user;
+  return { user: entry.user, impersonatedBy: entry.impersonatedBy };
 }
 
-export function setCachedUser(
+export function setCachedSession(
   cookieHeader: string | undefined,
-  user: User
+  session: ResolvedSession
 ): void {
   const cacheKey = getSessionCacheKey(cookieHeader);
   if (!cacheKey) {
     return;
   }
-  cache.set(cacheKey, { user, cachedAt: Date.now() });
+  const { user } = session;
+  // If this key previously resolved to a different user, drop it from that
+  // user's index before re-pointing it.
+  const previous = cache.get(cacheKey);
+  if (previous && previous.user.id !== user.id) {
+    forgetKey(cacheKey);
+  }
+
+  cache.set(cacheKey, { ...session, cachedAt: Date.now() });
+
+  const keys = keysByUser.get(user.id);
+  if (keys) {
+    keys.add(cacheKey);
+  } else {
+    keysByUser.set(user.id, new Set([cacheKey]));
+  }
+}
+
+/**
+ * Drop the entry for one session cookie. Use when the request itself has proven
+ * the cached identity is no longer valid (e.g. the account is now blocked).
+ */
+export function invalidateCachedUser(cookieHeader: string | undefined): void {
+  const cacheKey = getSessionCacheKey(cookieHeader);
+  if (cacheKey) {
+    forgetKey(cacheKey);
+  }
+}
+
+/**
+ * Drop every cached session for a user, across all their devices. Call after any
+ * change to what the user is allowed to do — status, role, clinic assignment, or
+ * starting/ending impersonation — otherwise the change is invisible for up to the
+ * stale TTL (15 minutes by default).
+ *
+ * This only clears the in-process cache; it does not revoke the Better-Auth
+ * session itself. Callers that need the user actually signed out must delete the
+ * Session rows as well.
+ */
+export function invalidateUserSessions(userId: number): void {
+  const keys = keysByUser.get(userId);
+  if (!keys) {
+    return;
+  }
+  for (const cacheKey of keys) {
+    cache.delete(cacheKey);
+  }
+  keysByUser.delete(userId);
 }

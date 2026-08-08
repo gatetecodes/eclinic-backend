@@ -54,6 +54,16 @@ export const createProductSchema = z.object({
     .transform(() => null)
     .or(z.string())
     .optional(),
+  snomedCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  ichiCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
   nationalTariffCode: z
     .literal("")
     .transform(() => null)
@@ -113,6 +123,16 @@ export const updateProductSchema = z.object({
     .transform(() => null)
     .or(z.string())
     .optional(),
+  snomedCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
+  ichiCode: z
+    .literal("")
+    .transform(() => null)
+    .or(z.string())
+    .optional(),
   nationalTariffCode: z
     .literal("")
     .transform(() => null)
@@ -146,6 +166,8 @@ export const updateProductPricingSchema = z.object({
   basePrice: z.coerce.number().min(0, "Base price must be non-negative"),
   icd11Code: z.string().optional(),
   loincCode: z.string().optional(),
+  snomedCode: z.string().optional(),
+  ichiCode: z.string().optional(),
   nationalTariffCode: z.string().optional(),
   eastAfricaPrice: z.coerce
     .number()

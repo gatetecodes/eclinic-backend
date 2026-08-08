@@ -43,6 +43,14 @@ model Session {
     userAgent String?
     user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+    /// Set when a platform operator is acting as this session's user. Holds the
+    /// operator's own user id.
+    ///
+    /// Typed String, not Int, because better-auth's admin plugin defines it that
+    /// way (it models every id as a string) — see the coercion carve-out in
+    /// createCoercingPrisma in src/lib/auth.ts, which must NOT convert this field.
+    impersonatedBy String?
+
     @@map("session")
 }
 

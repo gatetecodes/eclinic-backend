@@ -73,10 +73,12 @@ type FlowVisitRow = {
   doctorId: number | null;
   paymentMode: PaymentMode | null;
   patient: {
+    id: number;
     firstName: string | null;
     lastName: string | null;
     phoneNumber: string | null;
     dateOfBirth: Date | null;
+    updatedAt: Date;
   } | null;
   patientInsurance: {
     coveragePercentage: Prisma.Decimal | null;
@@ -87,6 +89,8 @@ type FlowVisitRow = {
 
 const toFlowVisit = (v: FlowVisitRow) => ({
   id: v.id,
+  patientId: v.patient?.id ?? null,
+  patientUpdatedAt: v.patient?.updatedAt ?? null,
   patientName:
     `${v.patient?.firstName ?? ""} ${v.patient?.lastName ?? ""}`.trim(),
   initials: initialsOf(v.patient?.firstName, v.patient?.lastName),
@@ -119,10 +123,12 @@ const flowVisitSelect = {
   paymentMode: true,
   patient: {
     select: {
+      id: true,
       firstName: true,
       lastName: true,
       phoneNumber: true,
       dateOfBirth: true,
+      updatedAt: true,
     },
   },
   patientInsurance: {

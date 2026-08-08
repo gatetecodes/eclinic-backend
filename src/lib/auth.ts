@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { admin } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+import { defaultStatements } from "better-auth/plugins/admin/access";
 import { addHours } from "date-fns";
 import { db } from "@/database/db";
 import { translate } from "@/lib/i18n";
@@ -11,10 +14,12 @@ import {
 } from "@/lib/locale";
 import { logger } from "@/lib/logger";
 import { sendEmail } from "@/services/email.service";
-import type {
-  Branch,
-  Clinic,
-  PrismaClient,
+import { activateVerifiedStaffAccount } from "@/services/staff-account.service";
+import {
+  type Branch,
+  type Clinic,
+  type PrismaClient,
+  Role,
 } from "../../generated/prisma/client";
 
 const prisma = db;
@@ -23,6 +28,28 @@ const SESSION_EXPIRES_IN_DAYS = 7;
 const SESSION_EXPIRES_IN = 60 * 60 * 24 * SESSION_EXPIRES_IN_DAYS; // 7 days
 const SESSION_UPDATE_AGE = 60 * 60 * 24; // 1 day
 const RESET_PASSWORD_TOKEN_TTL_HOURS = 1;
+const SECONDS_PER_MINUTE = 60;
+/**
+ * Ceiling for an impersonation session, fixed at boot. Matches the
+ * PlatformSetting.impersonationIdleTimeoutMinutes default; the operator-configured
+ * value is enforced per-request at the impersonation endpoint, since better-auth
+ * reads this option only once.
+ */
+const DEFAULT_IMPERSONATION_TIMEOUT_MINUTES = 15;
+
+/**
+ * Access-control role the admin plugin evaluates for SUPER_ADMIN.
+ *
+ * Scoped to `user: ["impersonate"]` on purpose. The plugin's own `adminAc` grants
+ * create/ban/delete/set-role/set-password too, and we do not want those reachable
+ * through the plugin at all — the audited endpoints in src/api/v1/admin own those
+ * operations, and their plugin equivalents are blocked by
+ * ADMIN_PLUGIN_ALLOWED_PATHS. Granting only what impersonation needs means a
+ * future unblocked path still cannot bypass the audit trail.
+ */
+const superAdminAc = createAccessControl(defaultStatements).newRole({
+  user: ["impersonate"],
+});
 
 const createResetPasswordToken = async (userId: number) => {
   await db.verification.deleteMany({
@@ -152,6 +179,11 @@ function createCoercingPrisma(client: PrismaClient): PrismaClient {
       return { coerced: false };
     }
     if (model === "session" || model === "twofactorconfirmation") {
+      // Deliberately narrow: only userId/id are coerced to Int.
+      //
+      // Session.impersonatedBy must NOT be added here. The admin plugin defines it
+      // as a String column and writes/compares it as a string; coercing it to a
+      // number would make Prisma reject the write and silently break impersonation.
       if ((key === "userId" || key === "id") && isNumericString(value)) {
         return { coerced: true, value: Number(value) };
       }
@@ -350,6 +382,17 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     sendOnSignIn: true,
+    /**
+     * Accepting an invitation is exactly "verified your email", so this is where
+     * an INVITED account becomes ACTIVE. Without it, invited staff would show as
+     * Invited in the platform console forever, even after signing in.
+     */
+    afterEmailVerification: async (user) => {
+      const userId = Number(user.id);
+      if (Number.isFinite(userId) && userId > 0) {
+        await activateVerifiedStaffAccount(userId);
+      }
+    },
     sendVerificationEmail: async ({ user, url, token }) => {
       const userId = Number(user.id);
       const dbUserRole =
@@ -528,7 +571,15 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    // Add any better-auth plugins here
+    /**
+     * Registered for impersonation only.
+     */
+    admin({
+      adminRoles: [Role.SUPER_ADMIN],
+      roles: { [Role.SUPER_ADMIN]: superAdminAc },
+      impersonationSessionDuration:
+        DEFAULT_IMPERSONATION_TIMEOUT_MINUTES * SECONDS_PER_MINUTE,
+    }),
   ],
 });
 
