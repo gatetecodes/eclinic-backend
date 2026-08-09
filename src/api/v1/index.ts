@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { auth } from "../../lib/auth";
+import { shouldBlockAuthPath } from "../../lib/auth-path";
 import { httpCodes } from "../../lib/constants";
 import { requireAuth } from "../../middlewares/auth.middleware.ts";
 import { entitlementsContext } from "../../middlewares/entitlements.middleware.ts";
@@ -75,16 +76,7 @@ const ADMIN_PLUGIN_ALLOWED_PATHS = new Set([
 // Public auth routes must be mounted BEFORE global auth middleware
 // This exposes endpoints like POST /api/v1/auth/login
 v1.all("/auth/*", (c) => {
-  // Path is matched without the /api/v1 (or /api) mount prefix, which differs
-  // between the two mount points, so normalise to the /auth/... suffix.
-  const path = c.req.path;
-  const authIndex = path.indexOf("/auth/");
-  const authPath = authIndex === -1 ? path : path.slice(authIndex);
-
-  if (
-    authPath.startsWith("/auth/admin/") &&
-    !ADMIN_PLUGIN_ALLOWED_PATHS.has(authPath)
-  ) {
+  if (shouldBlockAuthPath(c.req.path, ADMIN_PLUGIN_ALLOWED_PATHS)) {
     return c.json(
       { error: { code: "NOT_FOUND", message: "Not Found" } },
       httpCodes.NOT_FOUND as ContentfulStatusCode

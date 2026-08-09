@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/database/db";
 import { logger } from "@/lib/logger";
-import type { Prisma } from "../../../generated/prisma/client";
+import { Prisma, type PrismaClient } from "../../../generated/prisma/client";
 import { mapVisitCondition } from "./condition.mapper";
 import {
   mapTransferEncounter,
@@ -19,6 +19,15 @@ import {
 import { RhieRequestError, rhieRequest } from "./rhie-client";
 
 const MAX_ATTEMPTS = 8;
+const FINALIZED_VISIT_RECOVERY_DELAY_MS = 5 * 60_000;
+const PATIENT_IDENTITY_DEPENDENCY_REASON =
+  "Verified Client Registry identity is required";
+const ACTIVE_CONSENT_DEPENDENCY_REASON =
+  "Active HIE sharing consent is required";
+const RESUMABLE_PATIENT_DEPENDENCY_REASONS = [
+  PATIENT_IDENTITY_DEPENDENCY_REASON,
+  ACTIVE_CONSENT_DEPENDENCY_REASON,
+] as const;
 const RETRY_DELAYS_MS = [
   60_000,
   5 * 60_000,
@@ -48,17 +57,105 @@ export class HieDependencyError extends Error {
   }
 }
 
-export async function enqueueFinalizedVisit(
-  tx: Prisma.TransactionClient,
+export function enqueueFinalizedVisit(
+  client: PrismaClient,
   params: { clinicId: number; visitId: number; patientId: number }
 ) {
-  const config = await tx.hieTenantConfig.findUnique({
-    where: { clinicId: params.clinicId },
-    select: { enabled: true, sharedRecordWriteEnabled: true },
+  return client.$transaction(async (tx) => {
+    const config = await tx.hieTenantConfig.findUnique({
+      where: { clinicId: params.clinicId },
+      select: { enabled: true, sharedRecordWriteEnabled: true },
+    });
+    if (!(config?.enabled && config.sharedRecordWriteEnabled)) {
+      return null;
+    }
+    const existingEncounter = await tx.hieOutboxEvent.findFirst({
+      where: {
+        clinicId: params.clinicId,
+        aggregateType: "Visit",
+        aggregateId: String(params.visitId),
+        resourceType: "Encounter",
+        operation: "CREATE",
+      },
+    });
+    if (existingEncounter) {
+      return existingEncounter;
+    }
+    const now = new Date();
+    const [identity, consent] = await Promise.all([
+      tx.patientExternalIdentity.findFirst({
+        where: {
+          patientId: params.patientId,
+          verificationStatus: "VERIFIED",
+          resourceIdEncrypted: { not: null },
+        },
+        select: { id: true },
+      }),
+      tx.hieConsent.findFirst({
+        where: {
+          clinicId: params.clinicId,
+          patientId: params.patientId,
+          status: "ACTIVE",
+          effectiveFrom: { lte: now },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+        },
+        select: { id: true },
+      }),
+    ]);
+    let dependencyReason: string | null = null;
+    if (!identity) {
+      dependencyReason = PATIENT_IDENTITY_DEPENDENCY_REASON;
+    } else if (!consent) {
+      dependencyReason = ACTIVE_CONSENT_DEPENDENCY_REASON;
+    }
+    const encounterEvent = await tx.hieOutboxEvent.create({
+      data: {
+        clinicId: params.clinicId,
+        aggregateType: "Visit",
+        aggregateId: String(params.visitId),
+        resourceType: "Encounter",
+        operation: "CREATE",
+        payloadEncrypted: encryptHieJson({ visitId: params.visitId }),
+        status: dependencyReason ? "BLOCKED" : "PENDING",
+        dependencyReason,
+        correlationId: randomUUID(),
+      },
+    });
+    const diagnoses = await tx.visitDiagnosis.findMany({
+      where: { visitId: params.visitId },
+      select: { id: true, icd11Code: true },
+    });
+    if (diagnoses.length > 0) {
+      const conditionEvents: Prisma.HieOutboxEventCreateManyInput[] =
+        diagnoses.map((diagnosis) => {
+          const terminologyReason = diagnosis.icd11Code
+            ? dependencyReason
+            : "ICD-11 code is required for Condition publication";
+          return {
+            clinicId: params.clinicId,
+            aggregateType: "VisitDiagnosis",
+            aggregateId: String(diagnosis.id),
+            resourceType: "Condition",
+            operation: "CREATE",
+            dependencyOrder: 10,
+            payloadEncrypted: encryptHieJson({ diagnosisId: diagnosis.id }),
+            status: terminologyReason ? "BLOCKED" : "PENDING",
+            dependencyReason: terminologyReason,
+            correlationId: randomUUID(),
+          };
+        });
+      await tx.hieOutboxEvent.createMany({
+        data: conditionEvents,
+      });
+    }
+    return encounterEvent;
   });
-  if (!(config?.enabled && config.sharedRecordWriteEnabled)) {
-    return null;
-  }
+}
+
+export async function resumeBlockedPatientEvents(
+  tx: Prisma.TransactionClient,
+  params: { clinicId: number; patientId: number }
+): Promise<number> {
   const now = new Date();
   const [identity, consent] = await Promise.all([
     tx.patientExternalIdentity.findFirst({
@@ -80,49 +177,96 @@ export async function enqueueFinalizedVisit(
       select: { id: true },
     }),
   ]);
-  let dependencyReason: string | null = null;
-  if (!identity) {
-    dependencyReason = "Verified Client Registry identity is required";
-  } else if (!consent) {
-    dependencyReason = "Active HIE sharing consent is required";
+  if (!(identity && consent)) {
+    return 0;
   }
-  const encounterEvent = await tx.hieOutboxEvent.create({
-    data: {
+
+  const [visits, diagnoses] = await Promise.all([
+    tx.visit.findMany({
+      where: { clinicId: params.clinicId, patientId: params.patientId },
+      select: { id: true },
+    }),
+    tx.visitDiagnosis.findMany({
+      where: {
+        visit: { clinicId: params.clinicId, patientId: params.patientId },
+      },
+      select: { id: true },
+    }),
+  ]);
+  const visitIds = visits.map((visit) => String(visit.id));
+  const diagnosisIds = diagnoses.map((diagnosis) => String(diagnosis.id));
+  if (visitIds.length === 0 && diagnosisIds.length === 0) {
+    return 0;
+  }
+
+  const resumed = await tx.hieOutboxEvent.updateMany({
+    where: {
       clinicId: params.clinicId,
-      aggregateType: "Visit",
-      aggregateId: String(params.visitId),
-      resourceType: "Encounter",
-      operation: "CREATE",
-      payloadEncrypted: encryptHieJson({ visitId: params.visitId }),
-      status: dependencyReason ? "BLOCKED" : "PENDING",
-      dependencyReason,
-      correlationId: randomUUID(),
+      status: "BLOCKED",
+      dependencyReason: { in: [...RESUMABLE_PATIENT_DEPENDENCY_REASONS] },
+      OR: [
+        { aggregateType: "Visit", aggregateId: { in: visitIds } },
+        {
+          aggregateType: "VisitDiagnosis",
+          aggregateId: { in: diagnosisIds },
+        },
+      ],
+    },
+    data: {
+      status: "PENDING",
+      dependencyReason: null,
+      nextAttemptAt: now,
+      lockedAt: null,
     },
   });
-  const diagnoses = await tx.visitDiagnosis.findMany({
-    where: { visitId: params.visitId },
-    select: { id: true, icd11Code: true },
-  });
-  for (const diagnosis of diagnoses) {
-    const terminologyReason = diagnosis.icd11Code
-      ? dependencyReason
-      : "ICD-11 code is required for Condition publication";
-    await tx.hieOutboxEvent.create({
-      data: {
-        clinicId: params.clinicId,
-        aggregateType: "VisitDiagnosis",
-        aggregateId: String(diagnosis.id),
-        resourceType: "Condition",
-        operation: "CREATE",
-        dependencyOrder: 10,
-        payloadEncrypted: encryptHieJson({ diagnosisId: diagnosis.id }),
-        status: terminologyReason ? "BLOCKED" : "PENDING",
-        dependencyReason: terminologyReason,
-        correlationId: randomUUID(),
-      },
-    });
+  return resumed.count;
+}
+
+export async function recoverMissingFinalizedVisitEvents(
+  client: PrismaClient = db,
+  limit = 20
+) {
+  const candidates = await client.$queryRaw<
+    Array<{ clinicId: number; patientId: number; visitId: number }>
+  >(Prisma.sql`
+    SELECT
+      visit.id AS "visitId",
+      visit."clinicId",
+      visit."patientId"
+    FROM "Visit" AS visit
+    INNER JOIN "HieTenantConfig" AS config
+      ON config."clinicId" = visit."clinicId"
+    WHERE visit.status = 'FINALIZED'
+      AND visit."updatedAt" <= ${new Date(Date.now() - FINALIZED_VISIT_RECOVERY_DELAY_MS)}
+      AND config.enabled = true
+      AND config."sharedRecordWriteEnabled" = true
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "HieOutboxEvent" AS event
+        WHERE event."clinicId" = visit."clinicId"
+          AND event."aggregateType" = 'Visit'
+          AND event."aggregateId" = CAST(visit.id AS TEXT)
+          AND event."resourceType" = 'Encounter'
+          AND event.operation = 'CREATE'
+      )
+    ORDER BY visit."updatedAt" ASC
+    LIMIT ${limit}
+  `);
+  let recovered = 0;
+  for (const candidate of candidates) {
+    try {
+      const event = await enqueueFinalizedVisit(client, candidate);
+      if (event) {
+        recovered += 1;
+      }
+    } catch (error) {
+      logger.error("hie.outbox.recovery_enqueue_failed", {
+        visitId: candidate.visitId,
+        error,
+      });
+    }
   }
-  return encounterEvent;
+  return recovered;
 }
 
 async function buildVisitEncounter(event: {

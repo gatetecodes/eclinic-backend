@@ -32,7 +32,8 @@ const SESSION_COOKIE_KEYS = ["session_token", "__Secure-session_token"];
 const cache = new Map<string, CacheEntry>();
 
 /**
- * userId → the cache keys currently holding an entry for that user.
+ * userId → the cache keys currently holding an entry for that user, either as
+ * the resolved identity or as the operator behind an impersonated session.
  *
  * The cache is keyed by session cookie, but privileged operations act on a user
  * (suspend, change role, end impersonation) and must take effect on the very next
@@ -42,19 +43,28 @@ const cache = new Map<string, CacheEntry>();
  */
 const keysByUser = new Map<number, Set<string>>();
 
+function indexedUserIds(entry: ResolvedSession): number[] {
+  if (entry.impersonatedBy !== null && entry.impersonatedBy !== entry.user.id) {
+    return [entry.user.id, entry.impersonatedBy];
+  }
+  return [entry.user.id];
+}
+
 function forgetKey(cacheKey: string): void {
   const entry = cache.get(cacheKey);
   cache.delete(cacheKey);
   if (!entry) {
     return;
   }
-  const keys = keysByUser.get(entry.user.id);
-  if (!keys) {
-    return;
-  }
-  keys.delete(cacheKey);
-  if (keys.size === 0) {
-    keysByUser.delete(entry.user.id);
+  for (const userId of indexedUserIds(entry)) {
+    const keys = keysByUser.get(userId);
+    if (!keys) {
+      continue;
+    }
+    keys.delete(cacheKey);
+    if (keys.size === 0) {
+      keysByUser.delete(userId);
+    }
   }
 }
 
@@ -131,21 +141,20 @@ export function setCachedSession(
   if (!cacheKey) {
     return;
   }
-  const { user } = session;
-  // If this key previously resolved to a different user, drop it from that
-  // user's index before re-pointing it.
-  const previous = cache.get(cacheKey);
-  if (previous && previous.user.id !== user.id) {
+  // Clear every previous reverse-index membership before re-pointing this key.
+  if (cache.has(cacheKey)) {
     forgetKey(cacheKey);
   }
 
   cache.set(cacheKey, { ...session, cachedAt: Date.now() });
 
-  const keys = keysByUser.get(user.id);
-  if (keys) {
-    keys.add(cacheKey);
-  } else {
-    keysByUser.set(user.id, new Set([cacheKey]));
+  for (const userId of indexedUserIds(session)) {
+    const keys = keysByUser.get(userId);
+    if (keys) {
+      keys.add(cacheKey);
+    } else {
+      keysByUser.set(userId, new Set([cacheKey]));
+    }
   }
 }
 
@@ -175,8 +184,7 @@ export function invalidateUserSessions(userId: number): void {
   if (!keys) {
     return;
   }
-  for (const cacheKey of keys) {
-    cache.delete(cacheKey);
+  for (const cacheKey of [...keys]) {
+    forgetKey(cacheKey);
   }
-  keysByUser.delete(userId);
 }

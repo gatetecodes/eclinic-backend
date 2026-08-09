@@ -17,6 +17,7 @@ import {
   getOrCreatePatient,
   handleInsurance,
 } from "../../../../helpers/visit-helper";
+import { jsonError, jsonSuccess } from "../../../../lib/api-response";
 import { invalidateVisitRelatedCaches } from "../../../../lib/cache-utils";
 import {
   CARE_STAGE_ORDER,
@@ -221,16 +222,19 @@ export const getPipeline = async (c: Context) => {
       return { stage, count: list.length, visits: list };
     });
 
-    return c.json({
-      stages,
-      total: visits.length,
-      updatedAt: new Date().toISOString(),
+    return jsonSuccess(c, {
+      data: {
+        stages,
+        total: visits.length,
+        updatedAt: new Date().toISOString(),
+      },
     });
   } catch (_error) {
-    return c.json(
-      { error: t("flow.pipelineLoadFailed") },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
-    );
+    return jsonError(c, {
+      status: httpCodes.INTERNAL_SERVER_ERROR,
+      code: "PIPELINE_LOAD_FAILED",
+      message: t("flow.pipelineLoadFailed"),
+    });
   }
 };
 

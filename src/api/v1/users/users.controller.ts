@@ -63,8 +63,7 @@ import {
 
 const EMAIL_RETRY_DELAY_MS = 1000;
 
-const generateTemporaryPassword = () =>
-  process.env.DEFAULT_USER_PASSWORD || randomBytes(24).toString("base64url");
+const generateTemporaryPassword = () => randomBytes(24).toString("base64url");
 
 const signUpUserWithBetterAuth = async (
   backendUrl: string,

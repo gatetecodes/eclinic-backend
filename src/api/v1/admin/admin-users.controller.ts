@@ -15,6 +15,7 @@ import {
 import { db } from "../../../database/db";
 import { logger } from "../../../lib/logger";
 import { createVerificationEmail } from "../users/users.controller";
+import { throwAdminControllerError } from "./controller-error";
 
 /**
  * Fields returned for every user the operator sees. Deliberately excludes
@@ -46,13 +47,6 @@ const invalidId = (c: Context) =>
     status: httpCodes.BAD_REQUEST,
     code: "BAD_REQUEST",
     messageKey: "common.invalidId",
-  });
-
-const serverError = (c: Context, error: unknown) =>
-  jsonError(c, {
-    status: httpCodes.INTERNAL_SERVER_ERROR,
-    code: "INTERNAL_SERVER_ERROR",
-    message: error instanceof Error ? error.message : "Internal Server Error",
   });
 
 /**
@@ -184,7 +178,7 @@ export const inviteUser = async (c: Context) => {
       data: { id: user.id, emailSent: verification.success },
     });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.users.invite_failed", error);
   }
 };
 
@@ -228,7 +222,7 @@ export const updateUserRole = async (c: Context) => {
 
     return jsonSuccess(c, { data: updated });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.users.role_update_failed", error);
   }
 };
 
@@ -311,7 +305,7 @@ export const updateUserStatus = async (c: Context) => {
 
     return jsonSuccess(c, { data: updated });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.users.status_update_failed", error);
   }
 };
 
@@ -370,7 +364,7 @@ export const remindTwoFactor = async (c: Context) => {
 
     return jsonSuccess(c, { data: { id: userId, emailSent: sent } });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.users.two_factor_reminder_failed", error);
   }
 };
 
@@ -431,6 +425,6 @@ export const revokeUser = async (c: Context) => {
 
     return jsonSuccess(c, { data: { id: userId } });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.users.revoke_failed", error);
   }
 };

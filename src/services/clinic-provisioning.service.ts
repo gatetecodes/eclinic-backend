@@ -1,4 +1,5 @@
 import {
+  type CurrencyCode,
   Role,
   type SubscriptionPlan,
   type SubscriptionStatus,
@@ -12,6 +13,9 @@ export type ProvisionClinicInput = {
   subscriptionPlan: SubscriptionPlan;
   subscriptionStatus?: SubscriptionStatus;
   operatingCountry?: string;
+  defaultCurrency?: CurrencyCode;
+  logo?: string | null;
+  subscriptionExpiryDate?: Date | string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   admin: { name: string; email: string; phone_number: string };
@@ -33,6 +37,9 @@ export function provisionClinic(input: ProvisionClinicInput) {
           ? { subscriptionStatus: input.subscriptionStatus }
           : {}),
         operatingCountry: (input.operatingCountry ?? "RW").toUpperCase(),
+        defaultCurrency: input.defaultCurrency,
+        logo: input.logo,
+        subscriptionExpiryDate: input.subscriptionExpiryDate,
         contactEmail: input.contactEmail ?? undefined,
         contactPhone: input.contactPhone ?? undefined,
       },

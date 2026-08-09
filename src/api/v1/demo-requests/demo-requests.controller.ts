@@ -118,6 +118,14 @@ export const approveDemoRequest = async (c: Context) => {
       });
     }
 
+    if (existing.status === DemoRequestStatus.APPROVED) {
+      return jsonError(c, {
+        status: httpCodes.CONFLICT,
+        code: "CONFLICT",
+        message: "Demo request is already approved",
+      });
+    }
+
     // Optional: provision a TRIAL clinic from the demo and link it back. Body
     // is optional, so tolerate a missing/invalid JSON payload.
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -127,6 +135,18 @@ export const approveDemoRequest = async (c: Context) => {
 
     let provisionedClinicId: number | null = existing.clinicId ?? null;
     if (shouldProvision) {
+      const existingUser = await db.user.findUnique({
+        where: { email: existing.email },
+        select: { id: true },
+      });
+      if (existingUser) {
+        return jsonError(c, {
+          status: httpCodes.CONFLICT,
+          code: "CONFLICT",
+          message: "A user with this email already exists",
+        });
+      }
+
       const { newClinic, adminUser } = await provisionClinic({
         name: existing.clinic_name,
         subscriptionPlan: "CLINIC_STARTER",

@@ -4,11 +4,13 @@ import { logger } from "@/lib/logger";
 import { operationOutcomeSchema } from "./fhir.schemas";
 
 const DEFAULT_TIMEOUT_MS = 8000;
+const MAX_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const FAILURE_THRESHOLD = 5;
 const CIRCUIT_OPEN_MS = 30_000;
 const LEADING_SLASH_PATTERN = /^\//;
 const SAFE_OUTCOME_CODE_PATTERN = /^[A-Za-z-]{1,40}$/;
+const CONTENT_LENGTH_PATTERN = /^\d+$/;
 const ALLOWED_PATH_PATTERNS = [
   /^Patient$/,
   /^Encounter$/,
@@ -116,25 +118,67 @@ function safePath(path: string): string {
   return normalized;
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_RESPONSE_BYTES) {
+function responseTooLargeError(response: Response): RhieRequestError {
+  return new RhieRequestError({
+    message: "RHIE response exceeded the configured size limit",
+    code: "RESPONSE_TOO_LARGE",
+    status: response.status,
+    retryable: false,
+  });
+}
+
+function validateContentLength(response: Response): void {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength === null) {
+    return;
+  }
+  if (!CONTENT_LENGTH_PATTERN.test(contentLength)) {
     throw new RhieRequestError({
-      message: "RHIE response exceeded the configured size limit",
-      code: "RESPONSE_TOO_LARGE",
+      message: "RHIE returned an invalid content-length header",
+      code: "INVALID_RESPONSE",
       status: response.status,
-      retryable: false,
+      retryable: response.status >= 500,
     });
   }
-  const body = await response.text();
-  if (Buffer.byteLength(body, "utf8") > MAX_RESPONSE_BYTES) {
-    throw new RhieRequestError({
-      message: "RHIE response exceeded the configured size limit",
-      code: "RESPONSE_TOO_LARGE",
-      status: response.status,
-      retryable: false,
-    });
+  if (Number(contentLength) > MAX_RESPONSE_BYTES) {
+    throw responseTooLargeError(response);
   }
+}
+
+async function cancelReader(reader: {
+  cancel(reason?: unknown): Promise<void>;
+}): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    // Preserve the RESPONSE_TOO_LARGE contract if cancellation itself fails.
+  }
+}
+
+export async function readBoundedJson(response: Response): Promise<unknown> {
+  validateContentLength(response);
+
+  if (!response.body) {
+    return null;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    let result = await reader.read();
+    while (!result.done) {
+      byteLength += result.value.byteLength;
+      if (byteLength > MAX_RESPONSE_BYTES) {
+        await cancelReader(reader);
+        throw responseTooLargeError(response);
+      }
+      chunks.push(result.value);
+      result = await reader.read();
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = Buffer.concat(chunks, byteLength).toString("utf8");
   if (!body) {
     return null;
   }
@@ -150,11 +194,16 @@ async function readBoundedJson(response: Response): Promise<unknown> {
   }
 }
 
-function requestTimeoutMs(): number {
+export function requestTimeoutMs(): number {
   const configuredTimeout = Number(process.env.HIE_REQUEST_TIMEOUT_MS);
-  return Number.isFinite(configuredTimeout)
-    ? configuredTimeout
-    : DEFAULT_TIMEOUT_MS;
+  if (
+    !Number.isFinite(configuredTimeout) ||
+    configuredTimeout <= 0 ||
+    configuredTimeout > MAX_TIMEOUT_MS
+  ) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+  return configuredTimeout;
 }
 
 function requestUrl(params: RhieRequestParams): URL {

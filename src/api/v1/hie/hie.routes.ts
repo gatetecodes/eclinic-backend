@@ -101,7 +101,7 @@ router.post(
 );
 router.post(
   "/consents/:consentId/withdraw",
-  requirePermission({ resource: "hie", action: "create" }),
+  requirePermission({ resource: "hie", action: "update" }),
   validate(consentParamSchema, "param"),
   validate(withdrawConsentSchema),
   withdrawConsent
@@ -150,7 +150,7 @@ router.post(
 );
 router.post(
   "/transfers/:transferId/cancel",
-  requirePermission({ resource: "hie", action: "create" }),
+  requirePermission({ resource: "hie", action: "update" }),
   validate(transferParamSchema, "param"),
   validate(cancelTransferSchema),
   cancelExternalTransfer

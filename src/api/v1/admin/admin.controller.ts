@@ -14,8 +14,13 @@ import {
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
 import { buildQueryOptions } from "../../../helpers/query-helper";
-import { searchParamsSchema } from "../../../lib/common-validation";
 import type { FeatureKey } from "../../../types/access";
+import type {
+  AdminUsersQuery,
+  AuditFilterQuery,
+  AuditQuery,
+  EntitlementUsageQuery,
+} from "./admin.validation";
 
 export const getStats = async (c: Context) => {
   try {
@@ -110,6 +115,8 @@ export const getAdminDashboard = async (c: Context) => {
       }),
       db.entitlementUsage.findMany({
         where: { period },
+        orderBy: { count: "desc" },
+        take: QUOTA_SCAN_CLINIC_CAP + 1,
         select: { clinicId: true, featureKey: true, count: true },
       }),
     ]);
@@ -133,9 +140,11 @@ export const getAdminDashboard = async (c: Context) => {
     // Quota breaches: compare this period's usage against each clinic's
     // computed limit. Resolve entitlements per distinct clinic (cached),
     // capped so the scan stays bounded.
+    const usageRowsTruncated = usageRows.length > QUOTA_SCAN_CLINIC_CAP;
+    const scannedUsageRows = usageRows.slice(0, QUOTA_SCAN_CLINIC_CAP);
     const distinctClinicIds = [
-      ...new Set(usageRows.map((r) => r.clinicId)),
-    ].slice(0, QUOTA_SCAN_CLINIC_CAP);
+      ...new Set(scannedUsageRows.map((r) => r.clinicId)),
+    ];
     const entitlementsByClinic = new Map(
       await Promise.all(
         distinctClinicIds.map(
@@ -143,7 +152,7 @@ export const getAdminDashboard = async (c: Context) => {
         )
       )
     );
-    const rawBreaches = usageRows.flatMap((row) => {
+    const rawBreaches = scannedUsageRows.flatMap((row) => {
       const limit = entitlementsByClinic.get(row.clinicId)?.limits?.[
         row.featureKey as FeatureKey
       ];
@@ -173,6 +182,8 @@ export const getAdminDashboard = async (c: Context) => {
       ...b,
       name: breachClinicNames.get(b.clinicId) ?? `Clinic #${b.clinicId}`,
     }));
+    const quotaBreachesTruncated =
+      usageRowsTruncated || rawBreaches.length > quotaBreaches.length;
 
     return jsonSuccess(c, {
       data: {
@@ -201,6 +212,7 @@ export const getAdminDashboard = async (c: Context) => {
             expiryDate: s.subscriptionExpiryDate,
           })),
           quotaBreaches,
+          quotaBreachesTruncated,
         },
       },
     });
@@ -323,21 +335,20 @@ export const upsertClinicEntitlementOverrides = async (c: Context) => {
 export const getEntitlementUsageSummary = async (c: Context) => {
   try {
     const period = new Date().toISOString().slice(0, 7);
-    const page = Math.max(1, Number(c.req.query("page")) || 1);
-    const perPage = Math.min(
-      100,
-      Math.max(1, Number(c.req.query("per_page")) || 20)
-    );
+    const {
+      page,
+      per_page: perPage,
+      featureKey,
+      clinicName,
+    } = c.get("validatedQuery") as EntitlementUsageQuery;
 
     const where: Prisma.EntitlementUsageWhereInput = { period };
-    const featureKey = c.req.query("featureKey");
     if (featureKey) {
       where.featureKey = featureKey;
     }
-    const clinicSearch = c.req.query("clinicName");
-    if (clinicSearch) {
+    if (clinicName) {
       where.clinic = {
-        name: { contains: clinicSearch, mode: "insensitive" },
+        name: { contains: clinicName, mode: "insensitive" },
       };
     }
 
@@ -382,22 +393,6 @@ export const getEntitlementUsageSummary = async (c: Context) => {
 // ---------------------------------------------------------------------------
 // Phase 2: tenant management (lifecycle, cross-tenant users, audit)
 // ---------------------------------------------------------------------------
-
-/**
- * Read a numeric query param, or undefined when it is absent or not a number.
- *
- * `Number(c.req.query(k))` is not enough: an empty param (`?clinicId=`) coerces to
- * 0, which `Number.isFinite` accepts, silently turning "no filter" into
- * "clinicId 0" and returning an empty result set.
- */
-function numericQuery(c: Context, key: string): number | undefined {
-  const raw = c.req.query(key);
-  if (raw === undefined || raw.trim() === "") {
-    return;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
 
 const USER_ADMIN_SELECT = {
   id: true,
@@ -496,20 +491,17 @@ export const updateClinicLifecycle = async (c: Context) => {
  */
 export const getAllUsers = async (c: Context) => {
   try {
-    const params = searchParamsSchema.parse(c.req.query());
+    const params = c.get("validatedQuery") as AdminUsersQuery;
     const additionalWhere: Prisma.UserWhereInput = {};
 
-    const roleParam = c.req.query("role");
-    if (roleParam) {
-      additionalWhere.role = roleParam as Prisma.UserWhereInput["role"];
+    if (params.role) {
+      additionalWhere.role = params.role;
     }
-    const statusParam = c.req.query("status");
-    if (statusParam) {
-      additionalWhere.status = statusParam as Prisma.UserWhereInput["status"];
+    if (params.status) {
+      additionalWhere.status = params.status;
     }
-    const clinicIdParam = numericQuery(c, "clinicId");
-    if (clinicIdParam !== undefined) {
-      additionalWhere.clinicId = clinicIdParam;
+    if (params.clinicId !== undefined) {
+      additionalWhere.clinicId = params.clinicId;
     }
 
     // One search box spanning name, email and the owning clinic's name, matching
@@ -520,7 +512,12 @@ export const getAllUsers = async (c: Context) => {
     // buildQueryOptions: that helper builds its own top-level `OR` for `name`,
     // which would collide with the one below and silently drop one of the two.
     // Nesting ours under `AND` keeps both composable.
-    const { name: searchTerm, ...paramsWithoutName } = params;
+    const { name: searchTerm } = params;
+    const paramsWithoutName = {
+      page: params.page,
+      per_page: params.per_page,
+      sort: params.sort,
+    };
     const search = searchTerm?.trim();
     if (search) {
       additionalWhere.AND = [
@@ -612,29 +609,26 @@ export const getClinicUsersForAdmin = async (c: Context) => {
  * read and the CSV export so an export can never cover a different set of rows
  * than the view it was triggered from.
  */
-function auditWhereFromQuery(c: Context): Prisma.AdminAuditLogWhereInput {
+function auditWhereFromQuery(
+  query: AuditFilterQuery
+): Prisma.AdminAuditLogWhereInput {
   const where: Prisma.AdminAuditLogWhereInput = {};
 
-  const actorId = numericQuery(c, "actorId");
-  if (actorId !== undefined) {
-    where.actorId = actorId;
+  if (query.actorId !== undefined) {
+    where.actorId = query.actorId;
   }
-  const actionParam = c.req.query("action");
-  if (actionParam) {
-    where.action = actionParam;
+  if (query.action) {
+    where.action = query.action;
   }
-  const category = c.req.query("category");
-  if (category) {
-    where.category = category as Prisma.AdminAuditLogWhereInput["category"];
+  if (query.category) {
+    where.category = query.category;
   }
-  const severity = c.req.query("severity");
-  if (severity) {
-    where.severity = severity as Prisma.AdminAuditLogWhereInput["severity"];
+  if (query.severity) {
+    where.severity = query.severity;
   }
-  const clinicId = numericQuery(c, "clinicId");
-  if (clinicId !== undefined) {
+  if (query.clinicId !== undefined) {
     where.targetType = "clinic";
-    where.targetId = clinicId;
+    where.targetId = query.clinicId;
   }
 
   return where;
@@ -656,13 +650,10 @@ const AUDIT_ACTOR_SELECT = {
  */
 export const getAuditLogs = async (c: Context) => {
   try {
-    const page = Math.max(1, Number(c.req.query("page")) || 1);
-    const perPage = Math.min(
-      100,
-      Math.max(1, Number(c.req.query("per_page")) || 20)
-    );
+    const query = c.get("validatedQuery") as AuditQuery;
+    const { page, per_page: perPage } = query;
 
-    const where = auditWhereFromQuery(c);
+    const where = auditWhereFromQuery(query);
     const { category: _omitted, ...whereWithoutCategory } = where;
 
     const [logs, totalCount, groupedCounts] = await Promise.all([
@@ -705,8 +696,10 @@ export const getAuditLogs = async (c: Context) => {
   }
 };
 
-/** Escape one CSV field: quote it and double any embedded quotes. */
-function csvCell(value: unknown): string {
+const SPREADSHEET_FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+/** Neutralize formulas, quote the field, and double embedded quotes. */
+export function csvCell(value: unknown): string {
   if (value === null || value === undefined) {
     return "";
   }
@@ -717,6 +710,9 @@ function csvCell(value: unknown): string {
     text = JSON.stringify(value);
   } else {
     text = String(value);
+  }
+  if (SPREADSHEET_FORMULA_PREFIX.test(text)) {
+    text = `'${text}`;
   }
   return `"${text.replace(/"/g, '""')}"`;
 }
@@ -738,7 +734,8 @@ const AUDIT_EXPORT_LIMIT = 10_000;
  */
 export const exportAuditLogs = async (c: Context) => {
   try {
-    const where = auditWhereFromQuery(c);
+    const query = c.get("validatedQuery") as AuditFilterQuery;
+    const where = auditWhereFromQuery(query);
 
     const logs = await db.adminAuditLog.findMany({
       where,
@@ -784,7 +781,7 @@ export const exportAuditLogs = async (c: Context) => {
       metadata: {
         rowCount: logs.length,
         truncated: logs.length === AUDIT_EXPORT_LIMIT,
-        filters: c.req.query(),
+        filters: query,
       },
     });
 

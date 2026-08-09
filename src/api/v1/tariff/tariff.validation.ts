@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+const managedTerminologyField = z
+  .unknown()
+  .refine((value) => value === undefined, {
+    message: "Terminology fields are managed by the platform",
+  })
+  .optional();
+
 export const getTariffParamsSchema = z.object({ id: z.string() });
 export const getProductParamsSchema = z.object({ id: z.string() });
 
@@ -44,31 +51,11 @@ export const createProductSchema = z.object({
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
-  icd11Code: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  loincCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  snomedCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  ichiCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  nationalTariffCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
+  icd11Code: managedTerminologyField,
+  loincCode: managedTerminologyField,
+  snomedCode: managedTerminologyField,
+  ichiCode: managedTerminologyField,
+  nationalTariffCode: managedTerminologyField,
   consumables: z
     .array(
       z.object({
@@ -113,31 +100,11 @@ export const updateProductSchema = z.object({
     .optional(),
   unit: z.string().optional(),
   normalRange: z.string().optional(),
-  icd11Code: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  loincCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  snomedCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  ichiCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
-  nationalTariffCode: z
-    .literal("")
-    .transform(() => null)
-    .or(z.string())
-    .optional(),
+  icd11Code: managedTerminologyField,
+  loincCode: managedTerminologyField,
+  snomedCode: managedTerminologyField,
+  ichiCode: managedTerminologyField,
+  nationalTariffCode: managedTerminologyField,
   consumables: z
     .array(
       z.object({
