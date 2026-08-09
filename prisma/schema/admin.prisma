@@ -1,0 +1,53 @@
+/// Broad bucket an operator action belongs to. Drives the audit-log filter
+/// chips in the platform-admin console; kept deliberately small so every new
+/// action fits an existing bucket rather than growing the taxonomy.
+enum AuditCategory {
+    SECURITY
+    MEMBERSHIP
+    BILLING
+    ACCESS
+    CONFIG
+}
+
+/// How much operator attention an audit event deserves. CRITICAL events drive
+/// the "needs review" badge in the console sidebar.
+enum AuditSeverity {
+    CRITICAL
+    WARNING
+    NOTICE
+    INFO
+}
+
+/// Platform-operator (SUPER_ADMIN) action trail. Distinct from ActivityLog
+/// (which is clinical/visit-scoped): this records cross-tenant operator actions
+/// — clinic lifecycle changes, subscription/entitlement edits, demo approvals —
+/// so operator activity is auditable. `targetType`/`targetId` are a loose
+/// polymorphic pointer (e.g. "clinic"/42), intentionally not a hard FK.
+///
+/// `category`/`severity` are derived from `action` by the AUDIT_ACTIONS registry
+/// in src/services/audit.service.ts — they are stored rather than computed on
+/// read so the log stays filterable/indexable and historically accurate even if
+/// an action is later reclassified.
+model AdminAuditLog {
+    id         Int           @id @default(autoincrement())
+    actorId    Int
+    actor      User          @relation(fields: [actorId], references: [id])
+    /// Snapshot of the actor's name at the time of the action, so the trail stays
+    /// readable if the account is later renamed or deactivated.
+    actorName  String?
+    action     String
+    category   AuditCategory
+    severity   AuditSeverity
+    targetType String
+    targetId   Int?
+    /// Client IP the action originated from, best-effort from proxy headers.
+    ipAddress  String?
+    metadata   Json?
+    createdAt  DateTime      @default(now())
+
+    @@index([actorId])
+    @@index([createdAt])
+    @@index([targetType, targetId])
+    @@index([category, createdAt])
+    @@index([severity, createdAt])
+}

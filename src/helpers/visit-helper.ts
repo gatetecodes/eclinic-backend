@@ -1,4 +1,3 @@
-import { parse } from "date-fns";
 import type { z } from "zod";
 import {
   ClaimSource,
@@ -20,6 +19,7 @@ import { Consultations, DefaultDepartments } from "../lib/constants";
 import { logger } from "../lib/logger";
 import {
   generatePatientId,
+  parseDateString,
   parseNationalityFromPhoneNumber,
 } from "../lib/utils";
 import { invalidateCache } from "../services/redis.service";
@@ -467,21 +467,6 @@ async function findProductByName(name: string, clinicId: number) {
     },
   });
   return product;
-}
-
-function parseDateString(dateString: string): Date {
-  const formats = ["dd/MM/yyyy", "MM/dd/yyyy", "yyyy-MM-dd"];
-
-  for (const format of formats) {
-    const date = parse(dateString, format, new Date());
-    if (!Number.isNaN(date.getTime())) {
-      // Create a new date object at UTC midnight to avoid timezone conversion issues
-      // This ensures that date-of-birth values are stored as pure dates without time zone shifts
-      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    }
-  }
-
-  throw new Error(`Invalid date format: ${dateString}`);
 }
 
 export const computeConsultationFee = async (

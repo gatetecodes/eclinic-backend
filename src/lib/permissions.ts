@@ -7,7 +7,12 @@ export type PermissionConfig = Partial<
 
 export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
   SUPER_ADMIN: {
-    // SUPER_ADMIN has implicit allow via hasPermission; matrix here can remain sparse
+    // SUPER_ADMIN has implicit allow via hasPermission, so this entry is not what
+    // grants access. It is declared anyway so the matrix documents the
+    // platform-operator surface (see src/api/v1/admin) and so `admin` is not a
+    // Resource that appears nowhere. Enforcement is the `requireSuperAdmin`
+    // middleware; no other role is granted `admin` below.
+    admin: { read: true, create: true, update: true, delete: true },
   },
   CLINIC_ADMIN: {
     // Clinic-level configuration (e.g. care-flow stage config). Scoped to the
@@ -41,6 +46,14 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     tariff: { read: true, create: true, update: true, delete: true },
     performanceReports: { read: true },
     pharmacy: { read: true, update: true, dispense: true, delete: true },
+    hie: {
+      read: true,
+      create: true,
+      update: true,
+      delete: true,
+      approve: true,
+      process: true,
+    },
   },
   BRANCH_ADMIN: {
     clinics: { read: true, update: true },
@@ -63,6 +76,13 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       readMyProfile: true,
     },
     pharmacy: { read: true, update: true, dispense: true },
+    hie: {
+      read: true,
+      create: true,
+      update: true,
+      approve: true,
+      process: true,
+    },
   },
   DOCTOR: {
     visits: {
@@ -88,6 +108,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     users: { read: true, update: true, readMyProfile: true },
     appointments: { read: true, create: true, update: true, delete: true },
     inventory: { read: true },
+    hie: { read: true, create: true },
   },
   NURSE: {
     visits: {
@@ -106,6 +127,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     analytics: { read: true },
     appointments: { read: true, create: true, update: true, delete: true },
     tariff: { read: true },
+    hie: { read: true, create: true, approve: true },
   },
   LAB_TECHNICIAN: {
     exams: { read: true, create: true, update: true, process: true },
@@ -124,6 +146,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     users: { read: true, readMyProfile: true },
     departments: { read: true },
+    hie: { read: true, create: true, approve: true },
   },
   PHARMACIST: {
     inventory: { read: true, update: true },
@@ -151,6 +174,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       updateInitialCheckin: true,
     },
     departments: { read: true },
+    hie: { read: true, create: true, approve: true },
   },
   MARKETING: {
     analytics: { read: true },

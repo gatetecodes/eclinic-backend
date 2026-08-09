@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { requireAuth } from "../../../middlewares/auth.middleware";
+import {
+  requireAuth,
+  requireSuperAdmin,
+} from "../../../middlewares/auth.middleware";
 import { verifyRecaptcha } from "../../../middlewares/recaptcha.middleware";
 import { validate } from "../../../middlewares/validation.middleware";
 import {
@@ -20,17 +23,22 @@ router.post(
   validate(demoRequestSchema, "json"),
   createDemoRequest
 );
-router.get("/", requireAuth, getDemoRequests);
+// Operator-only: this segment mounts before the global auth middleware, so we
+// chain requireAuth → requireSuperAdmin inline (previously only requireAuth,
+// which let any logged-in user list/approve demo requests).
+router.get("/", requireAuth, requireSuperAdmin, getDemoRequests);
 router.put(
   "/:id/approve",
   validate(idParamSchema, "param"),
   requireAuth,
+  requireSuperAdmin,
   approveDemoRequest
 );
 router.put(
   "/:id/reject",
   validate(idParamSchema, "param"),
   requireAuth,
+  requireSuperAdmin,
   rejectDemoRequest
 );
 

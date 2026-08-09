@@ -14,10 +14,14 @@ enum Role {
     PATIENT
 }
 
+/// INVITED = account created, invitation sent, not yet accepted (email
+/// unverified). BLOCKED = suspended by an operator; access is refused at the
+/// auth middleware. INACTIVE = access revoked / left the organisation.
 enum UserStatus {
     ACTIVE
     INACTIVE
     BLOCKED
+    INVITED
 }
 
 enum EducationLevel {
@@ -27,60 +31,69 @@ enum EducationLevel {
 }
 
 model User {
-    id                       Int                     @id @default(autoincrement())
-    clinic                   Clinic?                 @relation(fields: [clinicId], references: [id])
-    clinicId                 Int?
-    name                     String
-    password                 String?
-    role                     Role
-    status                   UserStatus              @default(ACTIVE)
-    email                    String                  @unique
-    emailVerified            DateTime?
-    preferredLocale          String?
-    phone_number             String
-    phone_number_verified    DateTime?
-    consultationFee          Float?
-    licenseExpiration        DateTime?
-    licenseNumber            String?
-    license_document         String? //The license document of the doctor
-    diploma_document         String? //The diploma document of the doctor/nurse
-    highestEducation         EducationLevel?
-    createdAt                DateTime                @default(now())
-    updatedAt                DateTime                @updatedAt
-    doctorVisits             Visit[]                 @relation("DoctorVisits")
-    checkedInVisits          Visit[]                 @relation("CheckedInVisits")
-    triagesRecorded          Triage[]                @relation("TriageRecordedBy")
-    handoffsInitiated        Handoff[]               @relation("HandoffFrom")
-    handoffsReceived         Handoff[]               @relation("HandoffTo")
-    clinicalDepartments      ClinicalDepartment[]
-    prescriptions            Prescription[]
-    accounts                 Account[]
-    doctorAvailabilities     DoctorAvailability[] //When the user is a doctor
-    doctorEvents             Event[] //When the user is a doctor
-    staffTimesheets          StaffTimesheet[]
-    isTwoFactorEnabled       Boolean                 @default(false)
-    twoFactorConfirmation    TwoFactorConfirmation?
-    activityLogs             ActivityLog[]
-    discountsCreated         Discount[]              @relation("DiscountCreator")
-    approvalsRequested       Approval[]              @relation("ApprovalRequester")
-    approvalsApproved        Approval[]              @relation("ApprovalApprover")
-    notifications            Notification[]
-    inventoryTransactions    Transaction[]
-    branch                   Branch?                 @relation(fields: [branchId], references: [id])
-    branchId                 Int?
-    examResults              ExamResult[]            @relation("ExamResultCreatedBy")
-    spectaclePrescriptions   SpectaclePrescription[]
-    processedPayments        Payment[]               @relation("ProcessedPayments")
-    patientAppointments      PatientAppointment[]
-    visitsTransferredTo      Visit[]                 @relation("VisitsTransferredTo")
-    patient                  Patient?                @relation(fields: [patientId], references: [id])
-    patientId                Int?                    @unique
-    sessions                 Session[]
-    processedPartialPayments PartialPayment[]        @relation("ProcessedPartialPayments")
-    processedRefunds         Refund[]                @relation("ProcessedRefunds")
-    doctorQueues             Queue[]                 @relation("DoctorQueues")
-    doctorQueueConfigs         QueueConfig[]                 @relation("DoctorQueueConfigs")
-    pharmacyDispenseOrders     PharmacyDispenseOrder[]       @relation("PharmacyDispensePerformedBy")
+    id                    Int                  @id @default(autoincrement())
+    clinic                Clinic?              @relation(fields: [clinicId], references: [id])
+    clinicId              Int?
+    name                  String
+    password              String?
+    role                  Role
+    status                UserStatus           @default(ACTIVE)
+    email                 String               @unique
+    emailVerified         DateTime?
+    preferredLocale       String?
+    phone_number          String
+    phone_number_verified DateTime?
+    consultationFee       Float?
+    licenseExpiration     DateTime?
+    licenseNumber         String?
+    license_document      String? //The license document of the doctor
+    diploma_document      String? //The diploma document of the doctor/nurse
+    highestEducation      EducationLevel?
+    createdAt             DateTime             @default(now())
+    updatedAt             DateTime             @updatedAt
+    doctorVisits          Visit[]              @relation("DoctorVisits")
+    checkedInVisits       Visit[]              @relation("CheckedInVisits")
+    triagesRecorded       Triage[]             @relation("TriageRecordedBy")
+    handoffsInitiated     Handoff[]            @relation("HandoffFrom")
+    handoffsReceived      Handoff[]            @relation("HandoffTo")
+    clinicalDepartments   ClinicalDepartment[]
+    prescriptions         Prescription[]
+    accounts              Account[]
+    doctorAvailabilities  DoctorAvailability[] //When the user is a doctor
+    doctorEvents          Event[] //When the user is a doctor
+    staffTimesheets       StaffTimesheet[]
+    isTwoFactorEnabled    Boolean              @default(false)
+
+    /// better-auth admin-plugin ban fields. `banned` is the enforcement half of
+    /// suspending an account: better-auth refuses a banned user at session
+    /// resolution, which holds even if the app-level status check is bypassed.
+    /// Kept in sync with `status` (BLOCKED/INACTIVE ⇔ banned) by the admin
+    /// user-status endpoints.
+    banned                     Boolean?                       @default(false)
+    banReason                  String?
+    banExpires                 DateTime?
+    twoFactorConfirmation      TwoFactorConfirmation?
+    activityLogs               ActivityLog[]
+    discountsCreated           Discount[]                     @relation("DiscountCreator")
+    approvalsRequested         Approval[]                     @relation("ApprovalRequester")
+    approvalsApproved          Approval[]                     @relation("ApprovalApprover")
+    notifications              Notification[]
+    inventoryTransactions      Transaction[]
+    branch                     Branch?                        @relation(fields: [branchId], references: [id])
+    branchId                   Int?
+    examResults                ExamResult[]                   @relation("ExamResultCreatedBy")
+    spectaclePrescriptions     SpectaclePrescription[]
+    processedPayments          Payment[]                      @relation("ProcessedPayments")
+    patientAppointments        PatientAppointment[]
+    visitsTransferredTo        Visit[]                        @relation("VisitsTransferredTo")
+    patient                    Patient?                       @relation(fields: [patientId], references: [id])
+    patientId                  Int?                           @unique
+    sessions                   Session[]
+    processedPartialPayments   PartialPayment[]               @relation("ProcessedPartialPayments")
+    processedRefunds           Refund[]                       @relation("ProcessedRefunds")
+    doctorQueues               Queue[]                        @relation("DoctorQueues")
+    doctorQueueConfigs         QueueConfig[]                  @relation("DoctorQueueConfigs")
+    pharmacyDispenseOrders     PharmacyDispenseOrder[]        @relation("PharmacyDispensePerformedBy")
     pharmacyIdempotencyRecords PharmacyIdempotencyRecord[]
     attendingHospitalizations  Hospitalization[]              @relation("AttendingPhysician")
     wardObservationsRecorded   WardObservation[]              @relation("WardObsRecordedBy")
@@ -90,6 +103,13 @@ model User {
     wardOrdersPlaced           WardOrder[]                    @relation("WardOrderBy")
     bedTransfersPerformed      BedTransfer[]                  @relation("BedTransferBy")
     dischargesPerformed        DischargeSummary[]             @relation("DischargeBy")
+    adminAuditLogs             AdminAuditLog[]
+    hieExternalIdentities      UserExternalIdentity[]
+    hieConsentsRecorded        HieConsent[]                   @relation("HieConsentRecordedBy")
+    hieAuditEvents             HieAuditEvent[]
+    hieReconciliationsReviewed HieReconciliation[]
+    hieExternalTransfers       HieExternalTransfer[]
+    terminologyVerifications   Product[]                      @relation("ProductTerminologyVerifier")
 
     @@unique([clinicId, email])
     @@index([email])

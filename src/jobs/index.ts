@@ -1,3 +1,5 @@
+import { startAuditRetentionCron } from "./audit-retention.cron";
+import { startHieOutboxCron } from "./hie-outbox.cron";
 import { startInsuranceClaimsCron } from "./insurance-claims.cron";
 import { startInventoryExpiryCron } from "./inventory-expiry.cron";
 import { startQueueScheduler } from "./queue-scheduler.cron";
@@ -14,4 +16,6 @@ export const startRecurringJobs = () => {
   startInsuranceClaimsCron();
   startQueueScheduler();
   startSmsRetryCron();
+  startAuditRetentionCron();
+  startHieOutboxCron();
 };

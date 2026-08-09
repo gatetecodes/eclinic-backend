@@ -18,6 +18,7 @@ export const FEATURE_MATRIX: PlanFeatureMatrix = {
     insuranceClaims: false,
     notifications: false,
     pharmacy: true,
+    hie: false,
   },
   MEDICAL_PLUS: {
     visits: true,
@@ -34,6 +35,7 @@ export const FEATURE_MATRIX: PlanFeatureMatrix = {
     insuranceClaims: true,
     notifications: true,
     pharmacy: true,
+    hie: false,
   },
   HOSPITAL_SUITE: {
     visits: true,
@@ -50,6 +52,7 @@ export const FEATURE_MATRIX: PlanFeatureMatrix = {
     insuranceClaims: true,
     notifications: true,
     pharmacy: true,
+    hie: false,
   },
 };
 

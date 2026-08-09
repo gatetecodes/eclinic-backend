@@ -6,6 +6,11 @@ enum ProductCategory {
     // Add other categories as needed
 }
 
+enum ProductTerminologyStatus {
+    DRAFT
+    VERIFIED
+}
+
 model Product {
     id                      Int                      @id @default(autoincrement())
     code                    String                   @unique
@@ -21,7 +26,13 @@ model Product {
     isActive                Boolean                  @default(true)
     icd11Code               String? // ICD-11 diagnosis/procedure code (RHIP/insurer standard)
     loincCode               String? // LOINC code for lab & exam tests (RHIP/insurer standard)
+    snomedCode              String? // SNOMED CT code for RHIE medication and service-request mapping
+    ichiCode                String? // ICHI code for RHIE procedure mapping
     nationalTariffCode      String? // RSSB/MoH national nomenclature code
+    terminologyStatus       ProductTerminologyStatus @default(DRAFT)
+    terminologyVerifiedAt   DateTime?
+    terminologyVerifiedById Int?
+    terminologyVerifiedBy   User?                    @relation("ProductTerminologyVerifier", fields: [terminologyVerifiedById], references: [id], onDelete: SetNull)
     clinics                 Clinic[]
     category                ProductCategory?         @default(TREATMENT)
     departments             Department[]
@@ -43,6 +54,10 @@ model Product {
     updatedAt               DateTime                 @updatedAt
 
     @@index([nationalTariffCode])
+    @@index([snomedCode])
+    @@index([ichiCode])
+    @@index([terminologyStatus])
+    @@index([terminologyVerifiedById])
 }
 
 model InsurancePrice {
@@ -73,8 +88,8 @@ model ClinicProductPrice {
     eastAfricaPrice  Decimal? @db.Decimal(10, 2)
     africaPrice      Decimal? @db.Decimal(10, 2)
     restOfWorldPrice Decimal? @db.Decimal(10, 2)
-    createdAt       DateTime @default(now())
-    updatedAt       DateTime @updatedAt
+    createdAt        DateTime @default(now())
+    updatedAt        DateTime @updatedAt
 
     @@unique([clinicId, productId])
     @@index([clinicId])

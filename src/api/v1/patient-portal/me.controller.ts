@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { db } from "@/database/db";
 import type { User } from "@/lib/auth";
 import { httpCodes } from "@/lib/constants";
+import { parseDateString } from "@/lib/utils";
 
 export const initMe = async (c: Context) => {
   const user = c.get("user") as User;
@@ -24,7 +25,7 @@ export const initMe = async (c: Context) => {
       data: {
         firstName: body.firstName,
         lastName: body.lastName,
-        dateOfBirth: new Date(body.dateOfBirth),
+        dateOfBirth: parseDateString(body.dateOfBirth),
         gender: body.gender,
         phoneNumber: body.phoneNumber,
         email: body.email ?? null,

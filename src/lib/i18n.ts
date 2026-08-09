@@ -59,6 +59,13 @@ const en = {
     "If you did not request this, you can safely ignore this email and your account will not be activated.",
   "email.verification.signature": "Thanks,",
   "email.verification.team": "The CareLogic Team",
+  "email.twoFactorReminder.subject":
+    "Action needed: enable two-factor authentication",
+  "email.twoFactorReminder.title": "Secure your CareLogic account",
+  "email.twoFactorReminder.greeting": "Hello {name},",
+  "email.twoFactorReminder.intro":
+    "Your clinic requires two-factor authentication on every account that can access patient data. Please enable it on your account to keep your access.",
+  "email.twoFactorReminder.button": "Enable two-factor authentication",
   "email.reset.previewTitle": "Reset your CareLogic password",
   "email.reset.logoAlt": "CareLogic logo",
   "email.reset.title": "Reset your password",
@@ -137,6 +144,20 @@ const en = {
   "dashboard.stats.trend.sameAsYesterday": "Same as yesterday",
   "dashboard.stats.trend.lessThanYesterday": "Less than yesterday",
   "dashboard.stats.trend.moreThanYesterday": "More than yesterday",
+  "impersonation.alreadyActive":
+    "End the current impersonation session before starting another.",
+  "impersonation.self": "You cannot impersonate yourself.",
+  "impersonation.userNotFound": "That user no longer exists.",
+  "impersonation.onlyActive":
+    "Only active accounts can be impersonated. This one is {status}.",
+  "impersonation.operatorBlocked": "Platform operators cannot be impersonated.",
+  "impersonation.notActive": "No impersonation session is active.",
+  // {reason} is the authentication layer's own explanation — see
+  // authFailureReason in impersonation.controller.ts.
+  "impersonation.startFailed":
+    "Could not start the impersonation session: {reason}",
+  "impersonation.endFailed":
+    "Could not end the impersonation session: {reason}",
 } as const;
 
 const fr: Record<keyof typeof en, string> = {
@@ -203,6 +224,14 @@ const fr: Record<keyof typeof en, string> = {
     "Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité et votre compte ne sera pas activé.",
   "email.verification.signature": "Merci,",
   "email.verification.team": "L'équipe CareLogic",
+  "email.twoFactorReminder.subject":
+    "Action requise : activez l'authentification à deux facteurs",
+  "email.twoFactorReminder.title": "Sécurisez votre compte CareLogic",
+  "email.twoFactorReminder.greeting": "Bonjour {name},",
+  "email.twoFactorReminder.intro":
+    "Votre clinique exige l'authentification à deux facteurs sur tous les comptes ayant accès aux données patients. Veuillez l'activer sur votre compte pour conserver votre accès.",
+  "email.twoFactorReminder.button":
+    "Activer l'authentification à deux facteurs",
   "email.reset.previewTitle": "Réinitialisez votre mot de passe CareLogic",
   "email.reset.logoAlt": "Logo CareLogic",
   "email.reset.title": "Réinitialisez votre mot de passe",
@@ -287,6 +316,19 @@ const fr: Record<keyof typeof en, string> = {
   "dashboard.stats.trend.sameAsYesterday": "Pareil que hier",
   "dashboard.stats.trend.lessThanYesterday": "Moins que hier",
   "dashboard.stats.trend.moreThanYesterday": "Plus que hier",
+  "impersonation.alreadyActive":
+    "Terminez la session d'usurpation en cours avant d'en démarrer une autre.",
+  "impersonation.self": "Vous ne pouvez pas vous usurper vous-même.",
+  "impersonation.userNotFound": "Cet utilisateur n'existe plus.",
+  "impersonation.onlyActive":
+    "Seuls les comptes actifs peuvent être usurpés. Celui-ci est {status}.",
+  "impersonation.operatorBlocked":
+    "Les administrateurs de la plateforme ne peuvent pas être usurpés.",
+  "impersonation.notActive": "Aucune session d'usurpation n'est active.",
+  "impersonation.startFailed":
+    "Impossible de démarrer la session d'usurpation : {reason}",
+  "impersonation.endFailed":
+    "Impossible de terminer la session d'usurpation : {reason}",
 };
 
 const catalogs = {

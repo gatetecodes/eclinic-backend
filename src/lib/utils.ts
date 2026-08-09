@@ -1,6 +1,8 @@
-import { formatDuration, intervalToDuration, parse } from "date-fns";
+import { formatDuration, intervalToDuration } from "date-fns";
 
 const PHONE_FORMAT_REGEX = /(\+\d{3})(\d{3})(\d{3})(\d{3})/;
+const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/;
+const SEPARATED_DATE_REGEX = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 function formatFileSize(bytes?: number) {
   if (!bytes) {
     return "0 Bytes";
@@ -200,14 +202,39 @@ export const parseNationalityFromPhoneNumber = (phoneNumber: string) => {
 };
 
 export function parseDateString(dateString: string): Date {
-  const formats = ["dd/MM/yyyy", "MM/dd/yyyy", "yyyy-MM-dd"];
+  const value = dateString.trim();
+  const iso = value.match(ISO_DATE_REGEX);
+  const separated = value.match(SEPARATED_DATE_REGEX);
+  let year: number;
+  let month: number;
+  let day: number;
 
-  for (const format of formats) {
-    const date = parse(dateString, format, new Date());
-    if (!Number.isNaN(date.getTime())) {
-      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (iso) {
+    year = Number(iso[1]);
+    month = Number(iso[2]);
+    day = Number(iso[3]);
+  } else if (separated) {
+    const first = Number(separated[1]);
+    const second = Number(separated[2]);
+    year = Number(separated[3]);
+    if (second > 12 && first <= 12) {
+      month = first;
+      day = second;
+    } else {
+      day = first;
+      month = second;
     }
+  } else {
+    throw new Error(`Invalid date format: ${dateString}`);
   }
 
-  throw new Error(`Invalid date format: ${dateString}`);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error(`Invalid date format: ${dateString}`);
+  }
+  return date;
 }

@@ -3,6 +3,7 @@ import type { SubscriptionPlan } from "../../generated/prisma/client";
 // Resources reflect backend API domains under src/api/v1/*
 export type Resource =
   | "activity"
+  | "admin"
   | "analytics"
   | "appointments"
   | "approvals"
@@ -21,7 +22,8 @@ export type Resource =
   | "users"
   | "visits"
   | "performanceReports"
-  | "pharmacy";
+  | "pharmacy"
+  | "hie";
 
 // Actions are coarse-grained verbs aligned with controller operations
 export type Action =
@@ -57,7 +59,8 @@ export type FeatureKey =
   | "hospitalization"
   | "notifications"
   | "insuranceClaims"
-  | "pharmacy";
+  | "pharmacy"
+  | "hie";
 
 export type EntitlementStatus = "ACTIVE" | "TRIAL" | "INACTIVE" | "EXPIRED";
 

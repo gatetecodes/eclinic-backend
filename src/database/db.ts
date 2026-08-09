@@ -72,10 +72,14 @@ declare global {
   var prisma: undefined | ReturnType<typeof prismaClientSingleton>;
 }
 
-const db = globalThis.prisma ?? prismaClientSingleton();
+const extendedDb = globalThis.prisma ?? prismaClientSingleton();
+
+// The extension only changes Visit write behavior; it adds no public client
+// methods. Export the stable PrismaClient surface to prevent recursive types.
+const db = extendedDb as unknown as PrismaClient;
 
 if (process.env.NODE_ENV === "development") {
-  globalThis.prisma = db;
+  globalThis.prisma = extendedDb;
 }
 
 export { db };

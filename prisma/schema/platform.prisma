@@ -1,0 +1,39 @@
+model Plan {
+    id           Int              @id @default(autoincrement())
+    plan         SubscriptionPlan @unique
+    /// Customer-facing name, e.g. "Growth". Editable so marketing can rename a
+    /// tier without a migration.
+    label        String
+    description  String?
+    monthlyPrice Decimal          @db.Decimal(12, 2)
+    currency     CurrencyCode     @default(RWF)
+    /// Maximum staff seats. Null = unlimited.
+    seatCap      Int?
+    /// Whether the tier can be assigned to new clinics. Retiring a tier must not
+    /// break clinics already on it, so this never affects existing assignments.
+    isActive     Boolean          @default(true)
+    createdAt    DateTime         @default(now())
+    updatedAt    DateTime         @updatedAt
+}
+
+/// Global platform configuration, editable from the operator console.
+///
+/// A single-row table (id is pinned to 1) rather than env vars, because the design
+/// lets the operator toggle these at runtime and every change has to be auditable.
+/// Read through getPlatformSettings(), which creates the row on first access so
+/// callers never have to handle its absence.
+model PlatformSetting {
+    id                              Int      @id @default(1)
+    /// Require every account to enrol in 2FA before reaching patient data.
+    requireTwoFactor                Boolean  @default(false)
+    /// Restrict the operator console to allow-listed IP ranges.
+    restrictAdminIps                Boolean  @default(false)
+    /// Idle minutes before an impersonation session ends by itself.
+    impersonationIdleTimeoutMinutes Int      @default(15)
+    /// Prompt for and record a justification on any bulk data export.
+    requireExportReason             Boolean  @default(true)
+    /// Days of AdminAuditLog history to keep. The prune job enforces this, so the
+    /// console's retention note is a fact rather than a claim.
+    auditRetentionDays              Int      @default(90)
+    updatedAt                       DateTime @updatedAt
+}

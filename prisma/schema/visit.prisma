@@ -65,6 +65,7 @@ model Visit {
     pharmacyDispenseOrders  PharmacyDispenseOrder[]
     visitDiagnoses          VisitDiagnosis[]
     triage                  Triage?
+    hieExternalTransfers    HieExternalTransfer[]
 
     @@index([patientId])
     @@index([clinicId])
