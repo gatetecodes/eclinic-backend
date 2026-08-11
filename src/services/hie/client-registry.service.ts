@@ -133,11 +133,17 @@ function toNationalPatient(patient: FhirPatient): NationalPatientMatch {
   };
 }
 
-export async function lookupNationalPatient(params: {
-  nid: string;
-  birthDate: string;
-}): Promise<{ matches: NationalPatientMatch[]; correlationId: string }> {
-  const response = await rhieRequest({
+export async function lookupNationalPatient(
+  params: {
+    nid: string;
+    birthDate: string;
+  },
+  request: typeof rhieRequest = rhieRequest
+): Promise<{
+  matches: NationalPatientMatch[];
+  correlationId: string;
+}> {
+  const response = await request({
     service: "CLIENT_REGISTRY",
     method: "GET",
     path: "Patient",

@@ -220,5 +220,10 @@ export const createInventoryItemSchema = z.object({
   costPrice: z.number().nonnegative().optional(),
   quantity: z.number().int().nonnegative().optional(),
   insuranceCovered: z.boolean().optional(),
+  productId: z.number().int().positive().optional().nullable(),
   notes: z.string().optional(),
 });
+
+export const updateInventoryItemSchema = createInventoryItemSchema
+  .omit({ quantity: true })
+  .partial();

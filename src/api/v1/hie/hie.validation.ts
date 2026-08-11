@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nationalRecordSectionSchema } from "@/services/hie/national-record.service";
 
 const nidSchema = z
   .string()
@@ -56,22 +57,39 @@ export const updateConfigSchema = z.object({
   sharedRecordReadEnabled: z.boolean().optional(),
   sharedRecordWriteEnabled: z.boolean().optional(),
   transferEnabled: z.boolean().optional(),
+  consentSyncEnabled: z.boolean().optional(),
+  consultationWriteEnabled: z.boolean().optional(),
+  nationalListReadEnabled: z.boolean().optional(),
+  nationalAuditReadEnabled: z.boolean().optional(),
+  emergencyReadEnabled: z.boolean().optional(),
+  allergyWriteEnabled: z.boolean().optional(),
+  immunizationWriteEnabled: z.boolean().optional(),
+  imagingWriteEnabled: z.boolean().optional(),
 });
 
-export const upsertFacilityLinkSchema = z.object({
+const manualAttestationSchema = z.object({
+  verificationStatus: z.enum([
+    "PENDING",
+    "MANUAL_ATTESTED",
+    "CONFLICT",
+    "REVOKED",
+  ]),
+  verificationSource: z.string().trim().min(2).max(100),
+  verificationReference: z.string().trim().min(2).max(500),
+  verificationExpiresAt: z.iso.datetime(),
+});
+
+export const upsertFacilityLinkSchema = manualAttestationSchema.extend({
   branchId: z.number().int().positive(),
   fosaCode: z.string().trim().min(1).max(100),
   locationReference: z
     .string()
     .trim()
-    .regex(/^Location\/.+$/, "Location reference must start with Location/"),
+    .regex(/^Location\/.+$/),
   displayName: z.string().trim().max(200).optional(),
-  verificationStatus: z
-    .enum(["PENDING", "VERIFIED", "CONFLICT", "REVOKED"])
-    .default("PENDING"),
 });
 
-export const upsertPractitionerLinkSchema = z.object({
+export const upsertPractitionerLinkSchema = manualAttestationSchema.extend({
   userId: z.number().int().positive(),
   practitionerReference: z
     .string()
@@ -80,13 +98,74 @@ export const upsertPractitionerLinkSchema = z.object({
       /^Practitioner\/.+$/,
       "Practitioner reference must start with Practitioner/"
     ),
-  verificationStatus: z
-    .enum(["PENDING", "VERIFIED", "CONFLICT", "REVOKED"])
-    .default("PENDING"),
+});
+
+export const upsertDestinationFacilitySchema = manualAttestationSchema.extend({
+  id: z.number().int().positive().optional(),
+  fosaCode: z.string().trim().min(1).max(100),
+  locationReference: z
+    .string()
+    .trim()
+    .regex(/^Location\/.+$/, "Location reference must start with Location/"),
+  displayName: z.string().trim().min(2).max(200),
+});
+
+export const coverageMappingSchema = manualAttestationSchema.extend({
+  patientInsuranceId: z.number().int().positive(),
+  coverageReference: z
+    .string()
+    .trim()
+    .regex(/^Coverage\/[A-Za-z0-9.-]+$/),
+});
+
+export const dobDiscrepancyParamSchema = z.object({
+  id: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const correctDobDiscrepancySchema = z.object({
+  action: z.enum(["CORRECT", "DISMISS"]),
+  expectedPatientUpdatedAt: z.iso.datetime(),
+  note: z.string().trim().min(10).max(1000),
 });
 
 export const patientParamSchema = z.object({
   patientId: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const nationalRecordQuerySchema = z.object({
+  sections: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((section) => section.trim())
+            .filter(Boolean)
+        : nationalRecordSectionSchema.options
+    )
+    .pipe(z.array(nationalRecordSectionSchema).min(1).max(11)),
+});
+
+export const emergencyAccessSchema = z.object({
+  reasonCode: z.enum([
+    "LIFE_THREATENING",
+    "PATIENT_UNCONSCIOUS",
+    "URGENT_HISTORY_REQUIRED",
+    "OTHER_EMERGENCY",
+  ]),
+  justification: z.string().trim().min(10).max(500),
+  branchId: z.number().int().positive(),
+});
+
+export const emergencyAccessParamSchema = z.object({
+  id: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const emergencyAccessReviewSchema = z.object({
+  status: z.enum(["APPROVED", "CONCERN"]),
+  note: z.string().trim().min(3).max(1000),
 });
 
 export const consentSchema = z.object({
@@ -95,7 +174,13 @@ export const consentSchema = z.object({
   purpose: z.string().trim().min(3).max(500),
   effectiveFrom: z.iso.datetime(),
   effectiveTo: z.iso.datetime().optional(),
-  evidence: z.record(z.string(), z.unknown()).optional(),
+  evidence: z.object({
+    method: z.enum(["WRITTEN", "VERBAL", "ELECTRONIC"]),
+    patientConfirmed: z.literal(true),
+    witnessName: z.string().trim().min(2).max(200).optional(),
+    documentReference: z.string().trim().min(3).max(500).optional(),
+    note: z.string().trim().max(1000).optional(),
+  }),
 });
 
 export const withdrawConsentSchema = z.object({
@@ -122,6 +207,26 @@ const paginationSchema = z.object({
   per_page: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const emergencyAccessQuerySchema = paginationSchema.extend({
+  reviewStatus: z.enum(["PENDING", "APPROVED", "CONCERN"]).optional(),
+  overdue: z.coerce.boolean().optional(),
+});
+
+export const coverageQuerySchema = paginationSchema.extend({
+  patientId: z.coerce.number().int().positive().optional(),
+  status: z
+    .enum(["PENDING", "MANUAL_ATTESTED", "CONFLICT", "REVOKED"])
+    .optional(),
+});
+
+export const nationalAuditQuerySchema = paginationSchema.extend({
+  patientId: z.coerce.number().int().positive().optional(),
+});
+
+export const dobDiscrepancyQuerySchema = paginationSchema.extend({
+  status: z.enum(["OPEN", "CORRECTED", "DISMISSED"]).optional(),
+});
+
 export const outboxQuerySchema = paginationSchema.extend({
   status: z
     .enum([
@@ -133,6 +238,10 @@ export const outboxQuerySchema = paginationSchema.extend({
       "DEAD_LETTER",
     ])
     .optional(),
+});
+
+export const operationsSummaryQuerySchema = z.object({
+  hours: z.coerce.number().int().min(1).max(168).default(24),
 });
 
 export const transferQuerySchema = paginationSchema.extend({
@@ -147,15 +256,12 @@ export const transferQuerySchema = paginationSchema.extend({
       "COMPLETED",
     ])
     .optional(),
+  patientId: z.coerce.number().int().positive().optional(),
 });
 
 export const createTransferSchema = z.object({
   visitId: z.number().int().positive(),
-  destinationFosaCode: z.string().trim().min(1).max(100),
-  destinationLocationReference: z
-    .string()
-    .trim()
-    .regex(/^Location\/.+$/, "Destination must start with Location/"),
+  destinationFacilityId: z.number().int().positive(),
   reason: z.string().trim().min(3).max(2000),
   urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   clinicalSummary: z.string().trim().min(10).max(20_000),
@@ -163,6 +269,48 @@ export const createTransferSchema = z.object({
 
 export const transferParamSchema = z.object({
   transferId: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const identityQueueQuerySchema = paginationSchema.extend({
+  status: z.enum(["PENDING", "CONFLICT"]).optional(),
+});
+
+export const identityParamSchema = z.object({
+  identityId: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const identityCaseQuerySchema = paginationSchema.extend({
+  status: z.enum(["OPEN", "RESOLVED", "DISMISSED"]).optional(),
+});
+
+export const identityCaseParamSchema = z.object({
+  caseId: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const resolveIdentityCaseSchema = z.object({
+  status: z.enum(["RESOLVED", "DISMISSED"]),
+  note: z.string().trim().min(3).max(2000),
+});
+
+export const auditQuerySchema = paginationSchema.extend({
+  patientId: z.coerce.number().int().positive().optional(),
+  capability: z.string().trim().min(1).max(100).optional(),
+});
+
+export const inboundTransferQuerySchema = paginationSchema.extend({
+  patientId: z.coerce.number().int().positive().optional(),
+  status: z
+    .enum(["RECEIVED", "REVIEWED", "ACKNOWLEDGED", "COMPLETED", "DISMISSED"])
+    .optional(),
+});
+
+export const inboundTransferParamSchema = z.object({
+  inboundTransferId: z.string().regex(/^[1-9]\d*$/),
+});
+
+export const inboundTransferActionSchema = z.object({
+  status: z.enum(["REVIEWED", "ACKNOWLEDGED", "COMPLETED", "DISMISSED"]),
+  note: z.string().trim().max(2000).optional(),
 });
 
 export const cancelTransferSchema = z.object({

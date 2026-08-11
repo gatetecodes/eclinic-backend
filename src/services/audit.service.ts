@@ -31,6 +31,8 @@ export const AUDIT_ACTIONS = {
   "plan.updated": { category: "BILLING", severity: "NOTICE" },
   "platform.settingsUpdated": { category: "CONFIG", severity: "NOTICE" },
   "product.terminologyUpdated": { category: "CONFIG", severity: "NOTICE" },
+  "hie.conceptCreated": { category: "CONFIG", severity: "NOTICE" },
+  "hie.conceptUpdated": { category: "CONFIG", severity: "NOTICE" },
 
   // --- demo pipeline --------------------------------------------------------
   "demo.approved": { category: "CONFIG", severity: "INFO" },

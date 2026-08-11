@@ -41,7 +41,7 @@ const transactionClient = {
   patient: { update: mock(() => Promise.resolve({ id: 7 })) },
 };
 
-const reconciliationUpsert = mock(() => {
+const reconciliationCreate = mock(() => {
   recordedAfterRollback = rolledBack;
   return Promise.resolve({ id: 1 });
 });
@@ -62,6 +62,11 @@ mock.module("@/database/db", () => ({
         })
       ),
     },
+    patientExternalIdentity: {
+      findFirst: mock(() =>
+        Promise.resolve({ patientId: conflictingPatientId })
+      ),
+    },
     $transaction: async (
       callback: (tx: typeof transactionClient) => Promise<unknown>
     ) => {
@@ -72,7 +77,7 @@ mock.module("@/database/db", () => ({
         throw error;
       }
     },
-    hieReconciliation: { upsert: reconciliationUpsert },
+    hieIdentityReconciliation: { create: reconciliationCreate },
     hieAuditEvent: { create: auditCreate },
   },
 }));
@@ -106,7 +111,7 @@ beforeEach(() => {
   upsertArgs = undefined;
   transactionClient.patientExternalIdentity.findUnique.mockClear();
   transactionClient.patientExternalIdentity.upsert.mockClear();
-  reconciliationUpsert.mockClear();
+  reconciliationCreate.mockClear();
   auditCreate.mockClear();
 });
 
@@ -199,7 +204,7 @@ describe("patient identity conflict handling", () => {
     expect(upsertArgs?.where).toMatchObject({
       verificationStatus: { not: "VERIFIED" },
     });
-    expect(reconciliationUpsert).not.toHaveBeenCalled();
+    expect(reconciliationCreate).not.toHaveBeenCalled();
   });
 
   it("preserves an existing verified identity when verification is deferred", async () => {
@@ -222,6 +227,6 @@ describe("patient identity conflict handling", () => {
     expect(
       transactionClient.patientExternalIdentity.upsert
     ).not.toHaveBeenCalled();
-    expect(reconciliationUpsert).not.toHaveBeenCalled();
+    expect(reconciliationCreate).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,12 @@ import { AppError } from "@/lib/app-error";
 const logError = mock(() => {});
 
 mock.module("@/lib/logger", () => ({
-  logger: { error: logError },
+  logger: {
+    debug: mock(() => {}),
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: logError,
+  },
 }));
 
 let throwAdminControllerError: typeof import("../controller-error").throwAdminControllerError;

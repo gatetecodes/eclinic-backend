@@ -7,10 +7,14 @@ process.env.HIE_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
 let recoverMissingFinalizedVisitEvents: typeof import("../outbox.service").recoverMissingFinalizedVisitEvents;
 let resumeBlockedPatientEvents: typeof import("../outbox.service").resumeBlockedPatientEvents;
+let resumeBlockedHieDependencies: typeof import("../outbox.service").resumeBlockedHieDependencies;
 
 beforeAll(async () => {
-  ({ recoverMissingFinalizedVisitEvents, resumeBlockedPatientEvents } =
-    await import("../outbox.service"));
+  ({
+    recoverMissingFinalizedVisitEvents,
+    resumeBlockedHieDependencies,
+    resumeBlockedPatientEvents,
+  } = await import("../outbox.service"));
 });
 
 describe("finalized visit outbox recovery", () => {
@@ -48,12 +52,40 @@ describe("finalized visit outbox recovery", () => {
       hieConsent: {
         findFirst: async () => ({ id: 1 }),
       },
+      visit: {
+        findFirst: async () => ({
+          id: 4,
+          patientId: 3,
+          doctorId: 9,
+          branchId: 5,
+          startTime: new Date("2026-08-10T08:00:00.000Z"),
+          endTime: null,
+          updatedAt: new Date("2026-08-10T09:00:00.000Z"),
+        }),
+      },
       visitDiagnosis: {
         findMany: async () => [
-          { id: 11, icd11Code: "1A00" },
-          { id: 12, icd11Code: null },
+          {
+            id: 11,
+            icd11Code: "1A00",
+            description: "Cholera",
+            createdAt: new Date("2026-08-10T08:30:00.000Z"),
+          },
+          {
+            id: 12,
+            icd11Code: null,
+            description: "Uncoded diagnosis",
+            createdAt: new Date("2026-08-10T08:45:00.000Z"),
+          },
         ],
       },
+      triage: { findUnique: async () => null },
+      exam: { findMany: async () => [] },
+      examResult: { findMany: async () => [] },
+      prescription: { findMany: async () => [] },
+      pharmacyDispenseOrder: { findMany: async () => [] },
+      treatment: { findMany: async () => [] },
+      hospitalization: { findUnique: async () => null },
     };
     const client = {
       $queryRaw: (query: { strings: readonly string[] }) => {
@@ -84,7 +116,26 @@ describe("finalized visit outbox recovery", () => {
     ]);
     expect(
       conditionEvents.map((event) => decryptHieJson(event.payloadEncrypted))
-    ).toEqual([{ diagnosisId: 11 }, { diagnosisId: 12 }]);
+    ).toEqual([
+      {
+        diagnosisId: 11,
+        visitId: 4,
+        patientId: 3,
+        doctorId: 9,
+        icd11Code: "1A00",
+        description: "Cholera",
+        recordedAt: "2026-08-10T08:30:00.000Z",
+      },
+      {
+        diagnosisId: 12,
+        visitId: 4,
+        patientId: 3,
+        doctorId: 9,
+        icd11Code: null,
+        description: "Uncoded diagnosis",
+        recordedAt: "2026-08-10T08:45:00.000Z",
+      },
+    ]);
     expect(conditionEvents[0]?.correlationId).not.toBe(
       conditionEvents[1]?.correlationId
     );
@@ -107,7 +158,11 @@ describe("blocked patient event recovery", () => {
       visitDiagnosis: {
         findMany: async () => [{ id: 20 }],
       },
+      triage: {
+        findMany: async () => [{ id: 30 }],
+      },
       hieOutboxEvent: {
+        findMany: async () => [],
         updateMany: (args: unknown) => {
           updateArgs = args;
           return { count: 2 };
@@ -134,6 +189,22 @@ describe("blocked patient event recovery", () => {
             aggregateType: "VisitDiagnosis",
             aggregateId: { in: ["20"] },
           },
+          {
+            aggregateType: "Triage",
+            aggregateId: {
+              in: [
+                "30:height",
+                "30:weight",
+                "30:temperature",
+                "30:heartRate",
+                "30:respiratory",
+                "30:spo2",
+                "30:bmi",
+                "30:bloodSugar",
+              ],
+            },
+          },
+          { id: { in: [] } },
         ],
       },
       data: { status: "PENDING", dependencyReason: null, lockedAt: null },
@@ -157,5 +228,36 @@ describe("blocked patient event recovery", () => {
       resumeBlockedPatientEvents(tx, { clinicId: 3, patientId: 4 })
     ).resolves.toBe(0);
     expect(updated).toBe(false);
+  });
+});
+
+describe("scheduled dependency recovery", () => {
+  it("requeues only due blocked dependencies below the attempt limit", async () => {
+    let updateArgs: unknown;
+    const client = {
+      hieOutboxEvent: {
+        updateMany: (args: unknown) => {
+          updateArgs = args;
+          return Promise.resolve({ count: 3 });
+        },
+      },
+    } as unknown as PrismaClient;
+    const now = new Date("2026-08-11T10:00:00.000Z");
+
+    await expect(resumeBlockedHieDependencies(client, now)).resolves.toEqual({
+      count: 3,
+    });
+    expect(updateArgs).toMatchObject({
+      where: {
+        status: "BLOCKED",
+        nextAttemptAt: { lte: now },
+        attemptCount: { lt: 8 },
+      },
+      data: {
+        status: "PENDING",
+        dependencyReason: null,
+        lockedAt: null,
+      },
+    });
   });
 });

@@ -14,6 +14,7 @@ import {
   getInventoryBatches,
   getInventoryItems,
   getInventoryItemsList,
+  getInventoryTerminologyOptions,
   getInventoryTransactions,
   getInventoryValuation,
   getLatestTransactions,
@@ -42,6 +43,7 @@ import {
   stockTransactionSchema,
   stocktakeSchema,
   transferSchema,
+  updateInventoryItemSchema,
 } from "./inventory.validation.ts";
 
 const router = new Hono<AppEnv>();
@@ -80,8 +82,13 @@ router.get("/near-expiry", getNearExpiryBatches);
 router.get("/stock-transactions", getStockTransactions);
 router.get("/inventory-transactions", getInventoryTransactions);
 router.get("/list", getInventoryItemsList);
+router.get("/terminology-options", getInventoryTerminologyOptions);
 router.post("/import", importInventoryItemsFromCSV);
-router.put("/:id", updateInventoryItem);
+router.put(
+  "/:id",
+  validate(updateInventoryItemSchema, "json"),
+  updateInventoryItem
+);
 router.delete("/:id", deleteInventoryItem);
 router.get("/batches", getInventoryBatches);
 router.get("/:itemId/batches", getAvailableBatches);

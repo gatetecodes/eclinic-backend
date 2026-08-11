@@ -81,6 +81,19 @@ export const medicationSchema = z.object({
   frequency: z.string().min(1),
   firstDoseAt: z.string().optional(),
   pricePerDose: z.coerce.number().min(0),
+  doseValue: z.coerce.number().positive().optional(),
+  doseUnit: z.string().trim().min(1).max(50).optional(),
+  frequencyCount: z.coerce.number().int().positive().optional(),
+  frequencyPeriod: z.coerce.number().positive().optional(),
+  frequencyPeriodUnit: z.enum(["s", "min", "h", "d", "wk", "mo"]).optional(),
+  routeSystem: z.string().trim().min(1).max(500).optional(),
+  routeCode: z.string().trim().min(1).max(120).optional(),
+  routeDisplay: z.string().trim().min(1).max(300).optional(),
+  methodSystem: z.string().trim().min(1).max(500).optional(),
+  methodCode: z.string().trim().min(1).max(120).optional(),
+  methodDisplay: z.string().trim().min(1).max(300).optional(),
+  durationValue: z.coerce.number().positive().optional(),
+  durationUnit: z.enum(["s", "min", "h", "d", "wk", "mo"]).optional(),
 });
 
 export const administerSchema = z.object({

@@ -25,6 +25,7 @@ import {
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { getScope } from "../../../lib/request-scope";
+import { enqueueCurrentClinicalEventsInTransaction } from "../../../services/hie/outbox.service";
 import {
   createExamSchema,
   createExamTestSchema,
@@ -700,6 +701,7 @@ type ExamResultData = {
   examDate?: string;
   results: unknown;
   notes?: string;
+  productId: number;
 };
 
 type ExamResultsPayload = {
@@ -715,14 +717,18 @@ type ExamResultsPayload = {
 };
 
 // Helper function to create exam result record
-const createExamResultRecord = async (data: ExamResultData) => {
-  const { user, visitId, examId, examDate, results, notes } = data;
-  return await db.examResult.create({
+const createExamResultRecord = async (
+  tx: Prisma.TransactionClient,
+  data: ExamResultData
+) => {
+  const { user, visitId, examId, examDate, results, notes, productId } = data;
+  return await tx.examResult.create({
     data: {
       clinicId: user.clinicId,
       branchId: user.branchId,
       visitId,
       examId,
+      productId,
       examDate: examDate ? new Date(examDate) : new Date(),
       results: results as Prisma.InputJsonValue,
       notes,
@@ -1022,13 +1028,26 @@ export const createExamResult = async (c: Context) => {
     const product = await findProductByName(productName, user.clinicId);
 
     // Create exam result
-    const examResult = await createExamResultRecord({
-      user,
-      visitId,
-      examId,
-      examDate,
-      results,
-      notes,
+    const examResult = await db.$transaction(async (tx) => {
+      const created = await createExamResultRecord(tx, {
+        user,
+        visitId,
+        examId,
+        examDate,
+        results,
+        notes,
+        productId: product.id,
+      });
+      const visit = await tx.visit.findUniqueOrThrow({
+        where: { id: visitId },
+        select: { patientId: true },
+      });
+      await enqueueCurrentClinicalEventsInTransaction(tx, {
+        clinicId: user.clinicId,
+        visitId,
+        patientId: visit.patientId,
+      });
+      return created;
     });
 
     // Process product consumables

@@ -707,61 +707,75 @@ const prescriptionItemFulfilmentSchema = z
   .nativeEnum(PrescriptionItemFulfilment)
   .default(PrescriptionItemFulfilment.INTERNAL);
 
-const withPrescriptionFulfilmentValidation = <
-  T extends z.ZodRawShape & {
-    fulfilment: z.ZodTypeAny;
-    inventoryItemId: z.ZodTypeAny;
-    quantity: z.ZodTypeAny;
-  },
->(
-  schema: z.ZodObject<T>
-) =>
-  schema
-    .superRefine((item, ctx) => {
-      if (item.fulfilment !== PrescriptionItemFulfilment.INTERNAL) {
-        return;
-      }
+const structuredMedicationFields = {
+  doseValue: z.number().positive().optional(),
+  doseUnit: z.string().trim().min(1).max(50).optional(),
+  frequencyCount: z.number().int().positive().optional(),
+  frequencyPeriod: z.number().positive().optional(),
+  frequencyPeriodUnit: z.enum(["s", "min", "h", "d", "wk", "mo"]).optional(),
+  routeSystem: z.string().trim().min(1).max(500).optional(),
+  routeCode: z.string().trim().min(1).max(120).optional(),
+  routeDisplay: z.string().trim().min(1).max(300).optional(),
+  methodSystem: z.string().trim().min(1).max(500).optional(),
+  methodCode: z.string().trim().min(1).max(120).optional(),
+  methodDisplay: z.string().trim().min(1).max(300).optional(),
+  durationValue: z.number().positive().optional(),
+  durationUnit: z.enum(["s", "min", "h", "d", "wk", "mo"]).optional(),
+} as const;
 
-      if (item.inventoryItemId == null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "inventoryItemId is required for INTERNAL fulfilment",
-          path: ["inventoryItemId"],
-        });
-      }
+const prescriptionItemBaseSchema = z.object({
+  medicationName: z.string(),
+  dosage: z.string(),
+  frequency: z.string(),
+  duration: z.string(),
+  instructions: z.string().optional(),
+  ...structuredMedicationFields,
+  fulfilment: prescriptionItemFulfilmentSchema,
+  // Clinic inventory item to dispense from when fulfilment is INTERNAL.
+  inventoryItemId: z.number().int().positive().optional().nullable(),
+  // Units to dispense/bill for INTERNAL lines.
+  quantity: z.number().int().positive().optional().nullable(),
+});
 
-      if (item.quantity == null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "quantity is required for INTERNAL fulfilment",
-          path: ["quantity"],
-        });
-      }
-    })
-    .transform((item) =>
-      item.fulfilment === PrescriptionItemFulfilment.EXTERNAL
-        ? {
-            ...item,
-            inventoryItemId: null,
-            quantity: null,
-          }
-        : item
-    );
+type PrescriptionFulfilmentFields = Pick<
+  z.infer<typeof prescriptionItemBaseSchema>,
+  "fulfilment" | "inventoryItemId" | "quantity"
+>;
 
-const prescriptionItemSchema = withPrescriptionFulfilmentValidation(
-  z.object({
-    medicationName: z.string(),
-    dosage: z.string(),
-    frequency: z.string(),
-    duration: z.string(),
-    instructions: z.string().optional(),
-    fulfilment: prescriptionItemFulfilmentSchema,
-    // Clinic inventory item to dispense from when fulfilment is INTERNAL.
-    inventoryItemId: z.number().int().positive().optional().nullable(),
-    // Units to dispense/bill for INTERNAL lines.
-    quantity: z.number().int().positive().optional().nullable(),
-  })
-);
+function validatePrescriptionFulfilment(
+  item: PrescriptionFulfilmentFields,
+  ctx: z.RefinementCtx
+) {
+  if (item.fulfilment !== PrescriptionItemFulfilment.INTERNAL) {
+    return;
+  }
+  if (item.inventoryItemId == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "inventoryItemId is required for INTERNAL fulfilment",
+      path: ["inventoryItemId"],
+    });
+  }
+  if (item.quantity == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "quantity is required for INTERNAL fulfilment",
+      path: ["quantity"],
+    });
+  }
+}
+
+function normalizeExternalFulfilment<T extends PrescriptionFulfilmentFields>(
+  item: T
+): T {
+  return item.fulfilment === PrescriptionItemFulfilment.EXTERNAL
+    ? { ...item, inventoryItemId: null, quantity: null }
+    : item;
+}
+
+const prescriptionItemSchema = prescriptionItemBaseSchema
+  .superRefine(validatePrescriptionFulfilment)
+  .transform(normalizeExternalFulfilment);
 
 export const createPrescriptionSchema = z.object({
   prescription: z.object({
@@ -782,19 +796,10 @@ export type CreatePrescription = z.infer<typeof createPrescriptionSchema>;
 
 export const updatePrescriptionSchema = z.object({
   items: z.array(
-    withPrescriptionFulfilmentValidation(
-      z.object({
-        id: z.number(),
-        medicationName: z.string(),
-        dosage: z.string(),
-        frequency: z.string(),
-        duration: z.string(),
-        instructions: z.string().optional(),
-        fulfilment: prescriptionItemFulfilmentSchema,
-        inventoryItemId: z.number().int().positive().optional().nullable(),
-        quantity: z.number().int().positive().optional().nullable(),
-      })
-    )
+    prescriptionItemBaseSchema
+      .extend({ id: z.number() })
+      .superRefine(validatePrescriptionFulfilment)
+      .transform(normalizeExternalFulfilment)
   ),
 });
 

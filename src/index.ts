@@ -70,8 +70,9 @@ app.get("/health", (c) => {
   });
 });
 
-// API routes (versioned)
-app.route("/api", mainRoutes);
+// API routes (versioned). Erase the aggregate child schema here; route modules
+// retain their own handler types while the root avoids an unbounded Hono type.
+app.route("/api", mainRoutes as Hono<AppEnv>);
 
 if (import.meta.main && process.env.NODE_ENV !== "test") {
   startRecurringJobs();

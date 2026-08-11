@@ -109,6 +109,26 @@ export async function updateProductTerminology(c: Context<AppEnv>) {
     },
     select: terminologySelect,
   });
+  if (input.status === "VERIFIED") {
+    await db.hieOutboxEvent.updateMany({
+      where: {
+        status: "BLOCKED",
+        OR: [
+          {
+            dependencyReason:
+              "A platform-verified terminology mapping is required",
+          },
+          { lastErrorCode: "VERIFIED_TERMINOLOGY_REQUIRED" },
+        ],
+      },
+      data: {
+        status: "PENDING",
+        dependencyReason: null,
+        nextAttemptAt: new Date(),
+        lockedAt: null,
+      },
+    });
+  }
 
   await writeAudit(c, "product.terminologyUpdated", {
     targetType: "product",

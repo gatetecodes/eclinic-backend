@@ -43,7 +43,48 @@ function resourceCode(resource: FhirObject): FhirObject | null {
   );
 }
 
-function summarizeResource(resource: FhirObject, patientId: number) {
+type ProvenanceSummary = {
+  author: string | null;
+  recordedAt: string | null;
+  sourceFacility: string | null;
+};
+
+function referenceId(value: unknown): string | null {
+  const reference = displayString(objectValue(value)?.reference, 300);
+  return reference?.includes("/") ? reference : null;
+}
+
+function provenanceByTarget(bundle: FhirBundle) {
+  const result = new Map<string, ProvenanceSummary>();
+  for (const entry of bundle.entry) {
+    const resource = entry.resource;
+    if (displayString(resource.resourceType) !== "Provenance") {
+      continue;
+    }
+    const agent = firstObject(resource.agent);
+    const who = objectValue(agent?.who);
+    const location = objectValue(resource.location);
+    const summary = {
+      author: displayString(who?.display),
+      recordedAt: displayString(resource.recorded, 50),
+      sourceFacility: displayString(location?.display),
+    };
+    const targets = Array.isArray(resource.target) ? resource.target : [];
+    for (const target of targets) {
+      const reference = referenceId(target);
+      if (reference) {
+        result.set(reference, summary);
+      }
+    }
+  }
+  return result;
+}
+
+function summarizeResource(
+  resource: FhirObject,
+  patientId: number,
+  provenance: ProvenanceSummary | undefined
+) {
   const resourceType = displayString(resource.resourceType, 100);
   if (!(resourceType && DISPLAYABLE_RESOURCE_TYPES.has(resourceType))) {
     return null;
@@ -59,6 +100,7 @@ function summarizeResource(resource: FhirObject, patientId: number) {
   const resourceId = displayString(resource.id, 200);
   return {
     resourceType,
+    resourceId,
     label:
       displayString(code?.text) ??
       displayString(coding?.display) ??
@@ -72,8 +114,10 @@ function summarizeResource(resource: FhirObject, patientId: number) {
       displayString(resource.authoredOn, 50) ??
       displayString(period?.start, 50) ??
       displayString(meta?.lastUpdated, 50),
-    sourceFacility: displayString(nestedLocation?.display),
-    author: displayString(practitioner?.display),
+    sourceFacility:
+      provenance?.sourceFacility ?? displayString(nestedLocation?.display),
+    author: provenance?.author ?? displayString(practitioner?.display),
+    provenanceRecordedAt: provenance?.recordedAt ?? null,
     codingSystem: displayString(coding?.system, 200),
     reconciliationToken: resourceId
       ? encryptHieJson({
@@ -90,8 +134,17 @@ export function summarizeInternationalPatientSummary(
   bundle: FhirBundle,
   patientId: number
 ) {
+  const provenance = provenanceByTarget(bundle);
   return bundle.entry.flatMap((entry) => {
-    const item = summarizeResource(entry.resource, patientId);
+    const resourceType = displayString(entry.resource.resourceType, 100);
+    const resourceId = displayString(entry.resource.id, 200);
+    const target =
+      resourceType && resourceId ? `${resourceType}/${resourceId}` : "";
+    const item = summarizeResource(
+      entry.resource,
+      patientId,
+      provenance.get(target)
+    );
     return item ? [item] : [];
   });
 }

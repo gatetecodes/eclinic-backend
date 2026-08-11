@@ -10,8 +10,10 @@ let claimLimit = 1;
 let claimArgs: { where?: Record<string, unknown> } | undefined;
 
 const createEvent = mock(() => Promise.resolve({ id: "event-new" }));
-const findRetryEvent = mock(() => Promise.resolve({ id: "event-retry" }));
-const updateEvent = mock(() => Promise.resolve({ id: "event-retry" }));
+const findRetryEvents = mock(() =>
+  Promise.resolve([{ id: "event-retry-encounter" }, { id: "event-retry-ips" }])
+);
+const updateEvents = mock(() => Promise.resolve({ count: 2 }));
 
 const transactionClient = {
   hieExternalTransfer: {
@@ -20,6 +22,17 @@ const transactionClient = {
         id: 12,
         clinicId: 3,
         patientId: 7,
+        visitId: 21,
+        sourceBranchId: 4,
+        referringPractitionerId: 5,
+        destinationFacilityId: 8,
+        destinationLocationReference: "Location/destination",
+        reason: "Specialist care",
+        clinicalSummary: "Reviewed transfer summary",
+        visit: {
+          startTime: new Date("2026-08-10T08:00:00.000Z"),
+          endTime: new Date("2026-08-10T09:00:00.000Z"),
+        },
         status: transferStatus,
       })
     ),
@@ -31,8 +44,8 @@ const transactionClient = {
   },
   hieOutboxEvent: {
     create: createEvent,
-    findFirst: findRetryEvent,
-    update: updateEvent,
+    findMany: findRetryEvents,
+    updateMany: updateEvents,
   },
 };
 
@@ -40,7 +53,11 @@ mock.module("@/database/db", () => ({
   db: {
     hieTenantConfig: {
       findUnique: mock(() =>
-        Promise.resolve({ enabled: true, transferEnabled: true })
+        Promise.resolve({
+          enabled: true,
+          transferEnabled: true,
+          environment: "TEST",
+        })
       ),
     },
     $transaction: (
@@ -67,8 +84,8 @@ beforeEach(() => {
   claimLimit = 1;
   claimArgs = undefined;
   createEvent.mockClear();
-  findRetryEvent.mockClear();
-  updateEvent.mockClear();
+  findRetryEvents.mockClear();
+  updateEvents.mockClear();
 });
 
 function context(): Context<AppEnv> {
@@ -103,7 +120,10 @@ describe("external transfer queue claims", () => {
     expect(
       results.filter((result) => result.status === "rejected")
     ).toHaveLength(1);
-    expect(createEvent).toHaveBeenCalledTimes(1);
+    expect(createEvent).toHaveBeenCalledTimes(2);
+    expect(
+      createEvent.mock.calls.map(([args]) => args.data.resourceType).sort()
+    ).toEqual(["TransferEncounter", "TransferIPS"]);
     expect(claimArgs?.where).toMatchObject({
       id: 12,
       clinicId: 3,
@@ -116,8 +136,8 @@ describe("external transfer queue claims", () => {
 
     await queueExternalTransfer(context());
 
-    expect(findRetryEvent).toHaveBeenCalledTimes(1);
-    expect(updateEvent).toHaveBeenCalledTimes(1);
+    expect(findRetryEvents).toHaveBeenCalledTimes(1);
+    expect(updateEvents).toHaveBeenCalledTimes(1);
     expect(createEvent).not.toHaveBeenCalled();
     expect(claimArgs?.where).toMatchObject({ status: "FAILED" });
   });
