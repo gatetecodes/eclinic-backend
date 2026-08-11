@@ -1,0 +1,3346 @@
+openapi: 3.0.3
+info:
+  title: RHIE FHIR Server API
+  description: |
+    Rwanda Health Information Exchange (RHIE) FHIR Server API
+    
+    Based on HAPI FHIR Server v4.1.0 implementing FHIR v4.0.0
+    
+    **Base URL:** http://197.243.24.138:5001
+    
+    ## Global Validations
+    - All resources must have a unique identifier (UUID)
+    - All references (subject, encounter, practitioner) must resolve correctly
+    - All dates/times must be in ISO 8601 format and logically consistent
+    - Coding must be from valid terminology systems or known local systems
+    - If patient has deceased status, no medical encounters should be saved after deceased date
+    
+    ## Authentication
+    All endpoints require HTTP Basic Authentication
+  version: 1.0.0
+  contact:
+    name: RHIE Support
+servers:
+  - url: http://197.243.24.138:5001/api/v1/citizens
+    description: RHIE NIDA Data Access
+  - url: http://197.243.24.138:5001/clientregistry
+    description: RHIE Client Registry API
+  - url: http://197.243.24.138:5001/shr
+    description: RHIE SHR API
+
+security:
+  - basicAuth: []
+
+tags:
+  - name: Citizen
+    description: Get Citizen info from NIDA
+  - name: Patient
+    description: Patient resource management
+  - name: Consent
+    description: Patient consent and advance directives
+  - name: Encounter (Visit)
+    description: Visit encounter management
+  - name: Encounter (Consultation)
+    description: Consultation encounter management
+  - name: Observation (Vital Signs)
+    description: Vital signs observations
+  - name: Observation (Consultation)
+    description: Consultation observations (chief complaints, etc.)
+  - name: AllergyIntolerance
+    description: Patient allergy and intolerance management
+  - name: Immunization
+    description: Patient immunization records
+  - name: ServiceRequest (Lab Order)
+    description: Laboratory test orders
+  - name: Observation (Lab Results)
+    description: Laboratory test results
+  - name: ServiceRequest (Imaging)
+    description: Imaging study orders
+  - name: ImagingStudy
+    description: Imaging study results
+  - name: Condition
+    description: Patient diagnosis and conditions
+  - name: Procedure
+    description: Medical procedures performed
+  - name: MedicationRequest
+    description: Medication prescriptions
+  - name: MedicationDispense
+    description: Medication dispense records
+  - name: MedicationAdministration
+    description: Medication administration records
+  - name: Encounter (Transfer)
+    description: Patient transfer encounters
+
+paths:
+  # ========== CITIZEN ==========
+  /getCitizen:
+    post:
+      tags:
+        - Citizen
+      summary: Search for patient UPID
+      description: |
+        request patient UPID
+        
+        **Validations:**
+        - documentType must be one of [NID, NIDA, NID_APPLICATION_NUMBER, APPLICATION_NUMBER, NIN, OTHERS, PASSPORT, UPI, TEMPID, FOREIGNER_ID, RESOLVE_UPI]
+        - documentNumber to be provided as identifier
+        - fosaid 4 digits facility code identifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Citizen'
+      responses:
+        '201':
+          description: Citizen Data Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CitizenData'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    get:
+      parameters:
+        - name: identifier
+          in: query
+          schema:
+            type: string
+          description: Patient identifier (UPID, NID, etc.)
+        - name: given
+          in: query
+          schema:
+            type: string
+          description: Given name
+        - name: family
+          in: query
+          schema:
+            type: string
+          description: Family name
+        - name: birthdate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Birth date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Successful search
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ========== PATIENT ==========
+  /Patient:
+    get:
+      tags:
+        - Patient
+      summary: Search for patients
+      description: |
+        Search for patients by various criteria
+        
+        **Validations:**
+        - UPID format must be valid
+        - If NID provided, must validate against DOB
+        - Birthdate cannot be in the future
+      parameters:
+        - name: identifier
+          in: query
+          schema:
+            type: string
+          description: Patient identifier (UPID, NID, etc.)
+        - name: given
+          in: query
+          schema:
+            type: string
+          description: Given name
+        - name: family
+          in: query
+          schema:
+            type: string
+          description: Family name
+        - name: birthdate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Birth date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Successful search
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    
+    post:
+      tags:
+        - Patient
+      summary: Create a new patient
+      description: |
+        Create a new patient record
+        
+        **Required Fields:**
+        - identifier (UPID)
+        - name
+        - gender
+        - birthDate
+        
+        **Validations:**
+        - Resource identifier should equal UPID identifier
+        - UPID format must be valid
+        - If NID provided, must validate against DOB
+        - Birthdate cannot be in the future
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+      responses:
+        '201':
+          description: Patient created successfully
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /Patient/{id}:
+    get:
+      tags:
+        - Patient
+      summary: Read patient by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Patient found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ========== CONSENT ==========
+  /Consent:
+    post:
+      tags:
+        - Consent
+      summary: Create patient consent
+      description: |
+        Create a consent record for patient privacy or treatment
+        
+        **Required Fields:**
+        - status (draft | proposed | active | rejected | inactive)
+        - scope (patient-privacy | treatment | research)
+        - category
+        - patient reference
+        - dateTime
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Consent'
+      responses:
+        '201':
+          description: Consent created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Consent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags:
+        - Consent
+      summary: Search consents
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Patient reference
+      responses:
+        '200':
+          description: Successful search
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Consent/{id}:
+    get:
+      tags:
+        - Consent
+      summary: Read consent by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Consent found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Consent'
+
+    delete:
+      tags:
+        - Consent
+      summary: Delete consent
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Consent deleted
+
+  /Consent/$list-consents:
+    get:
+      tags:
+        - Consent
+      summary: List consents operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consents list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== ENCOUNTER (VISIT) ==========
+  /Encounter:
+    post:
+      tags:
+        - Encounter (Visit)
+      summary: Create visit encounter
+      description: |
+        Create a visit encounter (VISIT_ENCOUNTER type)
+        
+        **Required Fields:**
+        - status (in-progress | finished)
+        - class (AMB for ambulatory)
+        - type (VISIT_ENCOUNTER)
+        - subject (patient reference) - MANDATORY
+        - participant (practitioner reference) - MANDATORY
+        - location - MANDATORY
+        - period.start
+        
+        **Validations:**
+        - Practitioner reference is mandatory
+        - Location reference is mandatory
+        - Encounter type is mandatory
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/EncounterVisit'
+      responses:
+        '201':
+          description: Encounter created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/EncounterVisit'
+
+    get:
+      tags:
+        - Encounter (Visit)
+      summary: Search encounters
+      parameters:
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: searchSet
+          in: query
+          schema:
+            type: string
+            enum: [ALL, UPI, LOCATION]
+        - name: value
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Encounters found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Encounter/{id}:
+    get:
+      tags:
+        - Encounter (Visit)
+      summary: Read encounter by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Encounter found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/EncounterVisit'
+
+    delete:
+      tags:
+        - Encounter (Visit)
+      summary: Delete encounter
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Encounter deleted
+
+  /Encounter/$list-encounters:
+    get:
+      tags:
+        - Encounter (Visit)
+      summary: List encounters operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Encounters list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== ENCOUNTER (CONSULTATION) ==========
+  /Encounter/consultation:
+    post:
+      tags:
+        - Encounter (Consultation)
+      summary: Create consultation encounter
+      description: |
+        Create a consultation encounter (CONSULTATION_ENCOUNTER type)
+        
+        Must have partOf reference to parent VISIT_ENCOUNTER
+        
+        **Required Fields:** Same as Visit Encounter plus:
+        - partOf (reference to parent visit encounter)
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/EncounterConsultation'
+      responses:
+        '201':
+          description: Consultation encounter created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/EncounterConsultation'
+
+  # ========== OBSERVATION (VITAL SIGNS) ==========
+  /Observation/vital-signs:
+    post:
+      tags:
+        - Observation (Vital Signs)
+      summary: Create vital signs observation
+      description: |
+        Create a vital signs observation
+        
+        **Required Fields:**
+        - status (final | preliminary)
+        - category (vital-signs)
+        - code (LOINC code for vital sign)
+        - subject (patient reference) - MANDATORY
+        - encounter reference - MANDATORY
+        - performer (practitioner reference) - MANDATORY
+        - value (cannot be N/A)
+        - effectiveDateTime
+        
+        **Supported Value Types:**
+        - valueQuantity
+        - valueCodeableConcept
+        - valueString
+        - valueInteger
+        - valueTime
+        - valueDateTime
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ObservationVitalSigns'
+      responses:
+        '201':
+          description: Vital signs observation created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ObservationVitalSigns'
+
+  # ========== OBSERVATION (CONSULTATION) ==========
+  /Observation/consultation:
+    post:
+      tags:
+        - Observation (Consultation)
+      summary: Create consultation observation
+      description: |
+        Create consultation observations (chief complaints, survey data, etc.)
+        
+        **Required Fields:**
+        - status (final | preliminary)
+        - category (survey | exam)
+        - code
+        - subject (patient reference) - MANDATORY
+        - encounter reference - MANDATORY
+        - performer (practitioner reference) - MANDATORY
+        - value (cannot be N/A)
+        - effectiveDateTime
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ObservationConsultation'
+      responses:
+        '201':
+          description: Consultation observation created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ObservationConsultation'
+
+  /Observation/{id}:
+    get:
+      tags:
+        - Observation (Vital Signs)
+      summary: Read observation by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Observation found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ObservationVitalSigns'
+
+    delete:
+      tags:
+        - Observation (Vital Signs)
+      summary: Delete observation
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Observation deleted
+
+  /Observation:
+    get:
+      tags:
+        - Observation (Vital Signs)
+      summary: Search observations
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Observations found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Observation/$list-observations:
+    get:
+      tags:
+        - Observation (Vital Signs)
+      summary: List observations operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Observations list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== ALLERGY INTOLERANCE ==========
+  /AllergyIntolerance:
+    post:
+      tags:
+        - AllergyIntolerance
+      summary: Create allergy intolerance
+      description: |
+        Create an allergy or intolerance record
+        
+        **Required Fields:**
+        - clinicalStatus (active | inactive | resolved) - REQUIRED
+        - verificationStatus (unconfirmed | confirmed | refuted | entered-in-error) - REQUIRED
+        - patient reference - REQUIRED
+        - code (allergy identification code) - MANDATORY
+        - recordedDate - MANDATORY
+        - onsetDateTime (when identified) - MANDATORY
+        
+        **Optional Fields:**
+        - encounter reference
+        - asserter (who identified)
+        - reaction
+        - extension (location reference)
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/AllergyIntolerance'
+      responses:
+        '201':
+          description: AllergyIntolerance created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/AllergyIntolerance'
+
+    get:
+      tags:
+        - AllergyIntolerance
+      summary: Search allergies
+      parameters:
+        - name: patient
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Allergies found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /AllergyIntolerance/{id}:
+    get:
+      tags:
+        - AllergyIntolerance
+      summary: Read allergy by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Allergy found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/AllergyIntolerance'
+
+    delete:
+      tags:
+        - AllergyIntolerance
+      summary: Delete allergy
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Allergy deleted
+
+  /AllergyIntolerance/$list-allergies:
+    get:
+      tags:
+        - AllergyIntolerance
+      summary: List allergies operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Allergies list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== IMMUNIZATION ==========
+  /Immunization:
+    post:
+      tags:
+        - Immunization
+      summary: Create immunization record
+      description: |
+        Create an immunization record
+        
+        **Required Fields:**
+        - status (completed | not-done) - REQUIRED
+        - vaccineCode (NPC code) - REQUIRED
+        - patient reference - REQUIRED
+        - occurrenceDateTime (not in future) - REQUIRED
+        - performer (practitioner) - REQUIRED
+        - location - REQUIRED
+        
+        **Optional Fields:**
+        - encounter reference (NOT mandatory)
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Immunization'
+      responses:
+        '201':
+          description: Immunization created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Immunization'
+
+    get:
+      tags:
+        - Immunization
+      summary: Search immunizations
+      parameters:
+        - name: patient
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Immunizations found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Immunization/{id}:
+    get:
+      tags:
+        - Immunization
+      summary: Read immunization by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Immunization found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Immunization'
+
+    delete:
+      tags:
+        - Immunization
+      summary: Delete immunization
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Immunization deleted
+
+  /Immunization/$list-immunizations:
+    get:
+      tags:
+        - Immunization
+      summary: List immunizations operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Immunizations list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== SERVICE REQUEST (LAB ORDER) ==========
+  /ServiceRequest/lab:
+    post:
+      tags:
+        - ServiceRequest (Lab Order)
+      summary: Create lab order
+      description: |
+        Create a laboratory test order
+        
+        **Required Fields:**
+        - status (active | completed)
+        - intent (order)
+        - category (code: 108252007 - Laboratory procedure)
+        - code (SNOMED CT code)
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - occurrenceDateTime (not future) - MANDATORY
+        - requester (practitioner) - REQUIRED
+        - performer (practitioner) - REQUIRED
+        - locationReference - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequestLab'
+      responses:
+        '201':
+          description: Lab order created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestLab'
+
+  /ServiceRequest/{id}:
+    get:
+      tags:
+        - ServiceRequest (Lab Order)
+      summary: Read service request by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Service request found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestLab'
+
+    delete:
+      tags:
+        - ServiceRequest (Lab Order)
+      summary: Delete service request
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Service request deleted
+
+  /ServiceRequest:
+    get:
+      tags:
+        - ServiceRequest (Lab Order)
+      summary: Search service requests
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Service requests found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /ServiceRequest/$list-servicerequests:
+    get:
+      tags:
+        - ServiceRequest (Lab Order)
+      summary: List service requests operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service requests list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== OBSERVATION (LAB RESULTS) ==========
+  /Observation/lab-results:
+    post:
+      tags:
+        - Observation (Lab Results)
+      summary: Create lab results observation
+      description: |
+        Create laboratory test results
+        
+        **Required Fields:**
+        - status (final | preliminary)
+        - category (laboratory)
+        - code (LOINC code) - REQUIRED
+        - subject (patient reference) - REQUIRED
+        - encounter reference - MANDATORY
+        - performer (practitioner) - REQUIRED
+        - value (cannot be N/A) - MANDATORY
+        - effectiveDateTime (not future) - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ObservationLabResults'
+      responses:
+        '201':
+          description: Lab results created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ObservationLabResults'
+
+  # ========== SERVICE REQUEST (IMAGING) ==========
+  /ServiceRequest/imaging:
+    post:
+      tags:
+        - ServiceRequest (Imaging)
+      summary: Create imaging order
+      description: |
+        Create an imaging study order
+        
+        **Required Fields:**
+        - status (active | completed)
+        - intent (order)
+        - category (code: 363679005 - Imaging)
+        - code (SNOMED CT code)
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - occurrenceDateTime (not future) - MANDATORY
+        - requester (practitioner) - REQUIRED
+        - performer (practitioner) - REQUIRED
+        - locationReference - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequestImaging'
+      responses:
+        '201':
+          description: Imaging order created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequestImaging'
+
+  # ========== IMAGING STUDY ==========
+  /ImagingStudy:
+    post:
+      tags:
+        - ImagingStudy
+      summary: Create imaging study results
+      description: |
+        Create imaging study results
+        
+        **Required Fields:**
+        - status (available | registered)
+        - modality (DICOM modality code)
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - started (not future)
+        - procedureCode
+        - reasonCode
+        - description
+        - conclusion
+        - conclusionCode
+        - series (with instances)
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/ImagingStudy'
+      responses:
+        '201':
+          description: Imaging study created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ImagingStudy'
+
+    get:
+      tags:
+        - ImagingStudy
+      summary: Search imaging studies
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Imaging studies found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /ImagingStudy/{id}:
+    get:
+      tags:
+        - ImagingStudy
+      summary: Read imaging study by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Imaging study found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/ImagingStudy'
+
+    delete:
+      tags:
+        - ImagingStudy
+      summary: Delete imaging study
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Imaging study deleted
+
+  # ========== CONDITION (DIAGNOSIS) ==========
+  /Condition:
+    post:
+      tags:
+        - Condition
+      summary: Create diagnosis/condition
+      description: |
+        Create a diagnosis or medical condition
+        
+        **Required Fields:**
+        - clinicalStatus (active | resolved | recurrence | remission) - REQUIRED
+        - verificationStatus (unconfirmed | provisional | differential | confirmed) - REQUIRED
+        - code (ICD-11 code) - REQUIRED from valid terminology
+        - subject (patient reference) - MANDATORY
+        - encounter reference
+        - onsetDateTime
+        - asserter (practitioner) - MANDATORY
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Condition'
+      responses:
+        '201':
+          description: Condition created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Condition'
+
+    get:
+      tags:
+        - Condition
+      summary: Search conditions
+      parameters:
+        - name: patient
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Conditions found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Condition/{id}:
+    get:
+      tags:
+        - Condition
+      summary: Read condition by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Condition found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Condition'
+
+    delete:
+      tags:
+        - Condition
+      summary: Delete condition
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Condition deleted
+
+  /Condition/$list-conditions:
+    get:
+      tags:
+        - Condition
+      summary: List conditions operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conditions list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== PROCEDURE ==========
+  /Procedure:
+    post:
+      tags:
+        - Procedure
+      summary: Create procedure record
+      description: |
+        Create a medical procedure record
+        
+        **Required Fields:**
+        - status (completed by default) - REQUIRED
+        - code (ICHI code) - REQUIRED
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - performedDateTime (not future) - REQUIRED
+        - performer (practitioner) - REQUIRED
+        - location - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Procedure'
+      responses:
+        '201':
+          description: Procedure created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Procedure'
+
+    get:
+      tags:
+        - Procedure
+      summary: Search procedures
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Procedures found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Procedure/{id}:
+    get:
+      tags:
+        - Procedure
+      summary: Read procedure by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Procedure found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Procedure'
+
+    delete:
+      tags:
+        - Procedure
+      summary: Delete procedure
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Procedure deleted
+
+  /Procedure/$list-procedures:
+    get:
+      tags:
+        - Procedure
+      summary: List procedures operation
+      parameters:
+        - name: subject
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Procedures list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== MEDICATION REQUEST (PRESCRIPTION) ==========
+  /MedicationRequest:
+    post:
+      tags:
+        - MedicationRequest
+      summary: Create medication prescription
+      description: |
+        Create a medication prescription
+        
+        **Required Fields:**
+        - status (active | stopped | completed) - REQUIRED
+        - intent (order)
+        - medicationCodeableConcept (SNOMED CT code) - REQUIRED
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - authoredOn (date) - MANDATORY
+        - requester (practitioner) - REQUIRED
+        - groupIdentifier (prescription code)
+        - insurance reference
+        - dosageInstruction - MANDATORY (dose, frequency, route)
+        - extension (location reference) - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/MedicationRequest'
+      responses:
+        '201':
+          description: Medication request created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationRequest'
+
+    get:
+      tags:
+        - MedicationRequest
+      summary: Search medication requests
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Medication requests found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /MedicationRequest/{id}:
+    get:
+      tags:
+        - MedicationRequest
+      summary: Read medication request by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Medication request found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationRequest'
+
+    delete:
+      tags:
+        - MedicationRequest
+      summary: Delete medication request
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Medication request deleted
+
+  /MedicationRequest/$list-medicationrequests:
+    get:
+      tags:
+        - MedicationRequest
+      summary: List medication requests operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication requests list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== MEDICATION DISPENSE ==========
+  /MedicationDispense:
+    post:
+      tags:
+        - MedicationDispense
+      summary: Create medication dispense
+      description: |
+        Create a medication dispense record
+        
+        **Required Fields:**
+        - status (completed | in-progress) - REQUIRED
+        - medicationCodeableConcept (SNOMED CT) - REQUIRED
+        - subject (patient reference) - REQUIRED
+        - encounter reference
+        - authorizingPrescription (MedicationRequest reference)
+        - performer (practitioner) - REQUIRED
+        - destination (location) - REQUIRED
+        - whenHandedOver - REQUIRED
+        - quantity - REQUIRED
+        - dosageInstruction - MANDATORY
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/MedicationDispense'
+      responses:
+        '201':
+          description: Medication dispense created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationDispense'
+
+    get:
+      tags:
+        - MedicationDispense
+      summary: Search medication dispenses
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication dispenses found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /MedicationDispense/{id}:
+    get:
+      tags:
+        - MedicationDispense
+      summary: Read medication dispense by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Medication dispense found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationDispense'
+
+    delete:
+      tags:
+        - MedicationDispense
+      summary: Delete medication dispense
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Medication dispense deleted
+
+  /MedicationDispense/$list-medicationdispenses:
+    get:
+      tags:
+        - MedicationDispense
+      summary: List medication dispenses operation
+      parameters:
+        - name: subject
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication dispenses list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== MEDICATION ADMINISTRATION ==========
+  /MedicationAdministration:
+    post:
+      tags:
+        - MedicationAdministration
+      summary: Create medication administration
+      description: |
+        Create a medication administration record
+        
+        **Required Fields:**
+        - status (completed | in-progress | not-done) - REQUIRED
+        - medicationCodeableConcept (SNOMED CT) - REQUIRED
+        - subject (patient reference) - REQUIRED
+        - context (encounter reference)
+        - supportingInformation (MedicationRequest reference)
+        - effectiveDateTime - REQUIRED
+        - performer (practitioner) - REQUIRED
+        - reasonReference
+        - request (MedicationRequest reference)
+        - dosage (route, method, dose) - MANDATORY
+        - extension (location reference) - REQUIRED
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/MedicationAdministration'
+      responses:
+        '201':
+          description: Medication administration created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationAdministration'
+
+    get:
+      tags:
+        - MedicationAdministration
+      summary: Search medication administrations
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication administrations found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /MedicationAdministration/{id}:
+    get:
+      tags:
+        - MedicationAdministration
+      summary: Read medication administration by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Medication administration found
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/MedicationAdministration'
+
+    delete:
+      tags:
+        - MedicationAdministration
+      summary: Delete medication administration
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Medication administration deleted
+
+  /MedicationAdministration/$list-medicationadministrations:
+    get:
+      tags:
+        - MedicationAdministration
+      summary: List medication administrations operation
+      parameters:
+        - name: subject
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication administrations list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== ENCOUNTER (TRANSFER) ==========
+  /Encounter/transfer:
+    post:
+      tags:
+        - Encounter (Transfer)
+      summary: Create transfer encounter
+      description: |
+        Create a transfer encounter (TRANSFER_ENCOUNTER type)
+        
+        **Required Fields:**
+        - status (in-progress | finished)
+        - class (AMB)
+        - type (TRANSFER_ENCOUNTER)
+        - subject (patient reference) - MANDATORY
+        - participant (practitioner reference) - MANDATORY
+        - period.start
+        - hospitalization.origin (source location) - REQUIRED
+        - hospitalization.destination (target location) - REQUIRED
+        - location - MANDATORY
+        - partOf (reference to parent visit encounter)
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/EncounterTransfer'
+      responses:
+        '201':
+          description: Transfer encounter created
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/EncounterTransfer'
+
+  /Encounter/$list-transfers:
+    get:
+      tags:
+        - Encounter (Transfer)
+      summary: List transfer encounters operation
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer encounters list
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  # ========== ADDITIONAL OPERATIONS ==========
+  /Bundle/$ips:
+    get:
+      tags:
+        - Bundle Operations
+      summary: Get International Patient Summary
+      description: Generate an International Patient Summary (IPS) document for a patient
+      parameters:
+        - name: patient
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Patient ID
+      responses:
+        '200':
+          description: IPS Bundle generated
+          content:
+            application/fhir+json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+
+  /Bundle/$submit-ips:
+    post:
+      tags:
+        - Bundle Operations
+      summary: Submit International Patient Summary
+      description: Submit an International Patient Summary (IPS) document
+      requestBody:
+        required: true
+        content:
+          application/fhir+json:
+            schema:
+              $ref: '#/components/schemas/Bundle'
+      responses:
+        '200':
+          description: IPS submitted successfully
+
+  /metadata:
+    get:
+      tags:
+        - Metadata
+      summary: Get server capability statement
+      description: Retrieve the server's capability statement
+      responses:
+        '200':
+          description: Capability statement
+          content:
+            application/fhir+json:
+              schema:
+                type: object
+
+  /AuditEvent/{id}:
+    get:
+      tags:
+        - AuditEvent
+      summary: Read audit event by ID
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Audit event found
+
+  /AuditEvent:
+    get:
+      tags:
+        - AuditEvent
+      summary: Search audit events
+      parameters:
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Audit events found
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: HTTP Basic Authentication with username and password
+
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Resource ID (UUID)
+
+  responses:
+    Unauthorized:
+      description: Authentication required or failed
+    BadRequest:
+      description: Invalid request data
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    Bundle:
+      type: object
+      properties:
+        resourceType:
+          type: string
+          enum: [Bundle]
+        type:
+          type: string
+          enum: [searchset, document, transaction, collection]
+        total:
+          type: integer
+        entry:
+          type: array
+          items:
+            type: object
+    
+    Citizen:
+      type: object
+      required:
+        - documentType
+        - documentNumber
+        - fosaid
+      properties:
+        documentType:
+          type: string
+          enum: [NID, NIDA, NID_APPLICATION_NUMBER, APPLICATION_NUMBER, NIN, OTHERS, PASSPORT, UPI, TEMPID, FOREIGNER_ID, RESOLVE_UPI]
+        documentNumber:
+          type: string
+          description: Must be a valid document number based on the selected type
+        fosaid:
+          type: string
+          description: Must be 4 digits facility code
+          pattern: '^\d{4}'
+        
+    CitizenData:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          description: response status information
+        data:
+          type: object
+          description: Citizen Information
+          properties:
+            documentType:
+              type: string
+            documentNumber:
+              type: string
+            issueNumber:
+              type: string
+            dateOfIssue:
+              type: date
+            dateOfExpiry:
+              type: date
+            placeOfIssue:
+              type: string
+            applicationNumber:
+              type: string
+            nin:
+              type: string
+            upi:
+              type: string
+            nid:
+              type: string
+            passportNumber:
+              type: string
+            surName:
+              type: string
+            postNames:
+              type: string
+            fatherName:
+              type: string
+            motherName:
+              type: string
+            sex:
+              type: string
+            dateOfBirth:
+              type: date
+            placeOfBirth:
+              type: string
+            countryOfBirth:
+              type: string
+            birthCountry:
+              type: string
+            villageId:
+              type: string
+            domicileCountry:
+              type: string
+            domicileDistrict:
+              type: string
+            domicileProvince:
+              type: string
+            domicileSector:
+              type: string
+            domicileCell:
+              type: string
+            domicileVillage:
+              type: string
+            civilStatus:
+              type: string
+            maritalStatus:
+              type: string
+            spouse:
+              type: string
+            photo:
+              type: string
+            citizenStatus:
+              type: string
+            nationality:
+              type: string
+            applicantType:
+              type: string
+            fosaid:
+              type: string
+            nidaServiceAvailable:
+              type: boolean
+
+    Patient:
+      type: object
+      required:
+        - resourceType
+        - id
+        - identifier
+        - name
+        - gender
+        - birthDate
+      properties:
+        resourceType:
+          type: string
+          enum: [Patient]
+        id:
+          type: string
+          description: Must equal UPID identifier
+          pattern: '^\d{6}-\d{4}-\d{4}'
+        identifier:
+          type: array
+          items:
+            type: object
+            properties:
+              system:
+                type: string
+                enum: [NID, UPI, NIN, NID_APPLICATION_NUMBER, PASSPORT]
+              value:
+                type: string
+        active:
+          type: boolean
+          default: true
+        name:
+          type: array
+          items:
+            type: object
+            required: [family, given]
+            properties:
+              family:
+                type: string
+              given:
+                type: array
+                items:
+                  type: string
+        gender:
+          type: string
+          enum: [male, female, other, unknown]
+        birthDate:
+          type: string
+          format: date
+          description: Cannot be in the future
+        deceasedBoolean:
+          type: boolean
+        telecom:
+          type: array
+          items:
+            type: object
+            properties:
+              system:
+                type: string
+                enum: [phone, email]
+              value:
+                type: string
+              use:
+                type: string
+                enum: [mobile, home, work]
+        address:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [physical, postal]
+              country:
+                type: string
+              state:
+                type: string
+              district:
+                type: string
+              line:
+                type: string
+              city:
+                type: string
+              postalCode:
+                type: string
+        maritalStatus:
+          type: object
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [S, M, D, W, A]
+                  display:
+                    type: string
+        extension:
+          type: array
+          items:
+            type: object
+
+    Consent:
+      type: object
+      required:
+        - resourceType
+        - status
+        - scope
+        - category
+        - patient
+        - dateTime
+      properties:
+        resourceType:
+          type: string
+          enum: [Consent]
+        status:
+          type: string
+          enum: [draft, proposed, active, rejected, inactive, entered-in-error]
+        scope:
+          type: object
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [patient-privacy, treatment, research]
+                  display:
+                    type: string
+        category:
+          type: array
+          items:
+            type: object
+        patient:
+          type: object
+          required: [reference]
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        dateTime:
+          type: string
+          format: date-time
+
+    EncounterVisit:
+      type: object
+      required:
+        - resourceType
+        - status
+        - class
+        - type
+        - subject
+        - participant
+        - period
+        - location
+      properties:
+        resourceType:
+          type: string
+          enum: [Encounter]
+        id:
+          type: string
+          format: uuid
+        meta:
+          type: object
+          properties:
+            tag:
+              type: array
+              items:
+                type: object
+        status:
+          type: string
+          enum: [planned, arrived, triaged, in-progress, onleave, finished, cancelled]
+        class:
+          type: object
+          properties:
+            system:
+              type: string
+            code:
+              type: string
+              enum: [AMB, EMER, FLD, HH, IMP, ACUTE, NONAC, OBSENC, PRENC, SS, VR]
+            display:
+              type: string
+        type:
+          type: array
+          items:
+            type: object
+            properties:
+              coding:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    display:
+                      type: string
+                      enum: [VISIT_ENCOUNTER]
+        serviceType:
+          type: object
+        subject:
+          type: object
+          required: [reference]
+          description: Patient reference - MANDATORY
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+            type:
+              type: string
+            identifier:
+              type: object
+            display:
+              type: string
+        participant:
+          type: array
+          description: Practitioner reference - MANDATORY
+          items:
+            type: object
+            properties:
+              individual:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Practitioner/.+'
+                  display:
+                    type: string
+        period:
+          type: object
+          required: [start]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        location:
+          type: array
+          description: Location reference - MANDATORY
+          items:
+            type: object
+            properties:
+              location:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Location/.+'
+                  display:
+                    type: string
+
+    EncounterConsultation:
+      allOf:
+        - $ref: '#/components/schemas/EncounterVisit'
+        - type: object
+          required:
+            - partOf
+          properties:
+            type:
+              type: array
+              items:
+                type: object
+                properties:
+                  coding:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        display:
+                          type: string
+                          enum: [CONSULTATION_ENCOUNTER]
+            partOf:
+              type: object
+              description: Reference to parent VISIT_ENCOUNTER
+              properties:
+                reference:
+                  type: string
+                  pattern: '^Encounter/.+'
+
+    EncounterTransfer:
+      allOf:
+        - $ref: '#/components/schemas/EncounterVisit'
+        - type: object
+          required:
+            - hospitalization
+            - partOf
+          properties:
+            type:
+              type: array
+              items:
+                type: object
+                properties:
+                  coding:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        display:
+                          type: string
+                          enum: [TRANSFER_ENCOUNTER]
+            hospitalization:
+              type: object
+              required: [origin, destination]
+              properties:
+                origin:
+                  type: object
+                  description: Source location - REQUIRED
+                  properties:
+                    reference:
+                      type: string
+                      pattern: '^Location/.+'
+                    identifier:
+                      type: object
+                    display:
+                      type: string
+                destination:
+                  type: object
+                  description: Target location - REQUIRED
+                  properties:
+                    reference:
+                      type: string
+                      pattern: '^Location/.+'
+                    identifier:
+                      type: object
+                    display:
+                      type: string
+            partOf:
+              type: object
+              description: Reference to parent VISIT_ENCOUNTER
+              properties:
+                reference:
+                  type: string
+                  pattern: '^Encounter/.+'
+
+    ObservationVitalSigns:
+      type: object
+      required:
+        - resourceType
+        - status
+        - category
+        - code
+        - subject
+        - encounter
+        - performer
+        - effectiveDateTime
+      properties:
+        resourceType:
+          type: string
+          enum: [Observation]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [registered, preliminary, final, amended, corrected, cancelled, entered-in-error, unknown]
+        category:
+          type: array
+          items:
+            type: object
+            properties:
+              coding:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    system:
+                      type: string
+                    code:
+                      type: string
+                      enum: [vital-signs]
+                    display:
+                      type: string
+        code:
+          type: object
+          description: LOINC code for vital sign
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://loinc.org']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: Patient reference - MANDATORY
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          required: [reference]
+          description: Encounter reference - MANDATORY
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        performer:
+          type: array
+          description: Practitioner reference - MANDATORY
+          items:
+            type: object
+            properties:
+              reference:
+                type: string
+                pattern: '^Practitioner/.+'
+              display:
+                type: string
+        valueQuantity:
+          type: object
+          description: Value cannot be N/A
+          properties:
+            value:
+              type: number
+            unit:
+              type: string
+            system:
+              type: string
+            code:
+              type: string
+        valueCodeableConcept:
+          type: object
+        valueString:
+          type: string
+          description: Value cannot be N/A
+        valueInteger:
+          type: integer
+        valueTime:
+          type: string
+          format: time
+        valueDateTime:
+          type: string
+          format: date-time
+        effectiveDateTime:
+          type: string
+          format: date-time
+
+    ObservationConsultation:
+      allOf:
+        - $ref: '#/components/schemas/ObservationVitalSigns'
+        - type: object
+          properties:
+            category:
+              type: array
+              items:
+                type: object
+                properties:
+                  coding:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                          enum: [survey, exam, social-history]
+
+    ObservationLabResults:
+      allOf:
+        - $ref: '#/components/schemas/ObservationVitalSigns'
+        - type: object
+          properties:
+            category:
+              type: array
+              items:
+                type: object
+                properties:
+                  coding:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                          enum: [laboratory]
+            code:
+              type: object
+              description: LOINC code - REQUIRED
+              properties:
+                coding:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      system:
+                        type: string
+                        enum: ['http://loinc.org']
+
+    AllergyIntolerance:
+      type: object
+      required:
+        - resourceType
+        - clinicalStatus
+        - verificationStatus
+        - patient
+        - code
+        - recordedDate
+        - onsetDateTime
+      properties:
+        resourceType:
+          type: string
+          enum: [AllergyIntolerance]
+        id:
+          type: string
+          format: uuid
+        clinicalStatus:
+          type: object
+          required: [coding]
+          description: REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [active, inactive, resolved]
+        verificationStatus:
+          type: object
+          required: [coding]
+          description: REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [unconfirmed, confirmed, refuted, entered-in-error]
+        patient:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          description: Optional
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        code:
+          type: object
+          description: Allergy identification code - MANDATORY
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+        onsetDateTime:
+          type: string
+          format: date-time
+          description: When identified - MANDATORY
+        recordedDate:
+          type: string
+          format: date
+          description: MANDATORY
+        asserter:
+          type: object
+          description: Who identified - Optional
+          properties:
+            reference:
+              type: string
+              pattern: '^Practitioner/.+'
+        reaction:
+          type: array
+          description: Optional
+          items:
+            type: object
+        extension:
+          type: array
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              valueReference:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Location/.+'
+
+    Immunization:
+      type: object
+      required:
+        - resourceType
+        - status
+        - vaccineCode
+        - patient
+        - occurrenceDateTime
+        - location
+        - performer
+      properties:
+        resourceType:
+          type: string
+          enum: [Immunization]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed, not-done]
+          description: REQUIRED
+        vaccineCode:
+          type: object
+          description: NPC code - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://npc.rw']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        patient:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          description: NOT mandatory
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        occurrenceDateTime:
+          type: string
+          format: date-time
+          description: Not in future - REQUIRED
+        location:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Location/.+'
+            display:
+              type: string
+        performer:
+          type: array
+          description: Practitioner - REQUIRED
+          items:
+            type: object
+            properties:
+              function:
+                type: object
+              actor:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Practitioner/.+'
+                  display:
+                    type: string
+
+    ServiceRequestLab:
+      type: object
+      required:
+        - resourceType
+        - status
+        - intent
+        - category
+        - code
+        - subject
+        - encounter
+        - occurrenceDateTime
+        - requester
+        - performer
+        - locationReference
+      properties:
+        resourceType:
+          type: string
+          enum: [ServiceRequest]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [draft, active, on-hold, revoked, completed, entered-in-error, unknown]
+        intent:
+          type: string
+          enum: [proposal, plan, directive, order, original-order, reflex-order, filler-order, instance-order, option]
+        category:
+          type: object
+          description: Code 108252007 - Laboratory procedure
+          properties:
+            coding:
+              type: object
+              properties:
+                system:
+                  type: string
+                  enum: ['http://snomed.info/sct']
+                code:
+                  type: string
+                  enum: ['108252007']
+                display:
+                  type: string
+        code:
+          type: object
+          description: SNOMED CT code
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://snomed.info/sct']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        occurrenceDateTime:
+          type: string
+          format: date-time
+          description: Not future - MANDATORY
+        requester:
+          type: object
+          required: [reference]
+          description: Practitioner - REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Practitioner/.+'
+            display:
+              type: string
+        performer:
+          type: object
+          required: [reference]
+          description: Practitioner - REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Practitioner/.+'
+            display:
+              type: string
+        locationReference:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Location/.+'
+            display:
+              type: string
+
+    ServiceRequestImaging:
+      allOf:
+        - $ref: '#/components/schemas/ServiceRequestLab'
+        - type: object
+          properties:
+            category:
+              type: object
+              description: Code 363679005 - Imaging
+              properties:
+                coding:
+                  type: object
+                  properties:
+                    code:
+                      type: string
+                      enum: ['363679005']
+                    display:
+                      type: string
+
+    ImagingStudy:
+      type: object
+      required:
+        - resourceType
+        - status
+        - modality
+        - subject
+        - encounter
+        - started
+        - procedureCode
+        - reasonCode
+        - description
+        - conclusion
+        - conclusionCode
+        - series
+      properties:
+        resourceType:
+          type: string
+          enum: [ImagingStudy]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [registered, available, cancelled, entered-in-error, unknown]
+        modality:
+          type: object
+          description: DICOM modality code
+          properties:
+            system:
+              type: string
+              enum: ['https://dicom.nema.org/']
+            code:
+              type: string
+              enum: [CR, CT, DX, MG, MR, NM, PT, US, XA, RF]
+            display:
+              type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        started:
+          type: string
+          format: date-time
+          description: Not future
+        procedureCode:
+          type: array
+          items:
+            type: object
+            properties:
+              coding:
+                type: array
+                items:
+                  type: object
+        reasonCode:
+          type: array
+          items:
+            type: object
+        description:
+          type: string
+        conclusion:
+          type: string
+        conclusionCode:
+          type: array
+          items:
+            type: object
+        note:
+          type: array
+          items:
+            type: object
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              uid:
+                type: string
+              number:
+                type: integer
+              description:
+                type: string
+              bodySite:
+                type: object
+              instance:
+                type: array
+                items:
+                  type: object
+
+    Condition:
+      type: object
+      required:
+        - resourceType
+        - clinicalStatus
+        - verificationStatus
+        - code
+        - subject
+        - encounter
+        - onsetDateTime
+        - asserter
+      properties:
+        resourceType:
+          type: string
+          enum: [Condition]
+        id:
+          type: string
+          format: uuid
+        clinicalStatus:
+          type: object
+          required: [coding]
+          description: REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [active, recurrence, relapse, inactive, remission, resolved]
+        verificationStatus:
+          type: object
+          required: [coding]
+          description: REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                  code:
+                    type: string
+                    enum: [unconfirmed, provisional, differential, confirmed, refuted, entered-in-error]
+        code:
+          type: object
+          description: ICD-11 code - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['https://icd.who.int']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: Patient reference - MANDATORY
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        onsetDateTime:
+          type: string
+          format: date-time
+        asserter:
+          type: object
+          required: [reference]
+          description: Practitioner - MANDATORY
+          properties:
+            reference:
+              type: string
+              pattern: '^Practitioner/.+'
+            display:
+              type: string
+
+    Procedure:
+      type: object
+      required:
+        - resourceType
+        - status
+        - code
+        - subject
+        - encounter
+        - performedDateTime
+        - performer
+        - location
+      properties:
+        resourceType:
+          type: string
+          enum: [Procedure]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [preparation, in-progress, not-done, on-hold, stopped, completed, entered-in-error, unknown]
+          default: completed
+          description: REQUIRED
+        code:
+          type: object
+          description: ICHI code - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: [ICHI]
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        performedDateTime:
+          type: string
+          format: date-time
+          description: Not future - REQUIRED
+        performer:
+          type: array
+          description: Practitioner - REQUIRED
+          items:
+            type: object
+            properties:
+              function:
+                type: object
+              actor:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Practitioner/.+'
+                  display:
+                    type: string
+        location:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Location/.+'
+            display:
+              type: string
+
+    MedicationRequest:
+      type: object
+      required:
+        - resourceType
+        - status
+        - intent
+        - medicationCodeableConcept
+        - subject
+        - encounter
+        - authoredOn
+        - requester
+        - groupIdentifier
+        - insurance
+        - dosageInstruction
+        - extension
+      properties:
+        resourceType:
+          type: string
+          enum: [MedicationRequest]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, on-hold, cancelled, completed, entered-in-error, stopped, draft, unknown]
+          description: REQUIRED
+        intent:
+          type: string
+          enum: [proposal, plan, order, original-order, reflex-order, filler-order, instance-order, option]
+        medicationCodeableConcept:
+          type: object
+          description: SNOMED CT code - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://snomed.info/sct']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        authoredOn:
+          type: string
+          format: date-time
+          description: MANDATORY
+        requester:
+          type: object
+          required: [reference]
+          description: Practitioner - REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Practitioner/.+'
+            display:
+              type: string
+            extension:
+              type: array
+              items:
+                type: object
+        groupIdentifier:
+          type: object
+          description: Prescription code
+          properties:
+            system:
+              type: string
+            value:
+              type: string
+        insurance:
+          type: array
+          items:
+            type: object
+            properties:
+              reference:
+                type: string
+                pattern: '^Coverage/.+'
+              display:
+                type: string
+        dosageInstruction:
+          type: array
+          description: MANDATORY (dose, frequency, route)
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+              timing:
+                type: object
+                properties:
+                  repeat:
+                    type: object
+                    properties:
+                      frequency:
+                        type: integer
+                      period:
+                        type: number
+                      periodUnit:
+                        type: string
+                        enum: [s, min, h, d, wk, mo, a]
+              route:
+                type: object
+                properties:
+                  coding:
+                    type: array
+                    items:
+                      type: object
+              method:
+                type: object
+              doseAndRate:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: object
+                    doseQuantity:
+                      type: object
+                      properties:
+                        value:
+                          type: number
+                        unit:
+                          type: string
+                        system:
+                          type: string
+                        code:
+                          type: string
+        extension:
+          type: array
+          description: Location reference - REQUIRED
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              valueReference:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Location/.+'
+                  display:
+                    type: string
+
+    MedicationDispense:
+      type: object
+      required:
+        - resourceType
+        - status
+        - medicationCodeableConcept
+        - subject
+        - encounter
+        - authorizingPrescription
+        - performer
+        - destination
+        - whenHandedOver
+        - quantity
+        - dosageInstruction
+      properties:
+        resourceType:
+          type: string
+          enum: [MedicationDispense]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [preparation, in-progress, cancelled, on-hold, completed, entered-in-error, stopped, declined, unknown]
+          description: REQUIRED
+        medicationCodeableConcept:
+          type: object
+          description: SNOMED CT - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://snomed.info/sct']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        encounter:
+          type: object
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        authorizingPrescription:
+          type: array
+          items:
+            type: object
+            properties:
+              reference:
+                type: string
+                pattern: '^MedicationRequest/.+'
+        performer:
+          type: array
+          description: Practitioner - REQUIRED
+          items:
+            type: object
+            properties:
+              actor:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Practitioner/.+'
+                  display:
+                    type: string
+        destination:
+          type: object
+          required: [reference]
+          description: Location - REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Location/.+'
+            display:
+              type: string
+        whenHandedOver:
+          type: string
+          format: date-time
+          description: REQUIRED
+        quantity:
+          type: object
+          description: REQUIRED
+          properties:
+            value:
+              type: number
+            unit:
+              type: string
+            system:
+              type: string
+        dosageInstruction:
+          type: array
+          description: MANDATORY
+          items:
+            type: object
+            properties:
+              timing:
+                type: object
+              route:
+                type: object
+              doseAndRate:
+                type: array
+                items:
+                  type: object
+
+    MedicationAdministration:
+      type: object
+      required:
+        - resourceType
+        - status
+        - medicationCodeableConcept
+        - subject
+        - context
+        - supportingInformation
+        - effectiveDateTime
+        - performer
+        - reasonReference
+        - request
+        - dosage
+        - extension
+      properties:
+        resourceType:
+          type: string
+          enum: [MedicationAdministration]
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [in-progress, not-done, on-hold, completed, entered-in-error, stopped, unknown]
+          description: REQUIRED
+        medicationCodeableConcept:
+          type: object
+          description: SNOMED CT - REQUIRED
+          properties:
+            coding:
+              type: array
+              items:
+                type: object
+                properties:
+                  system:
+                    type: string
+                    enum: ['http://snomed.info/sct']
+                  code:
+                    type: string
+                  display:
+                    type: string
+        subject:
+          type: object
+          required: [reference]
+          description: REQUIRED
+          properties:
+            reference:
+              type: string
+              pattern: '^Patient/.+'
+        context:
+          type: object
+          description: Encounter reference
+          properties:
+            reference:
+              type: string
+              pattern: '^Encounter/.+'
+        supportingInformation:
+          type: array
+          items:
+            type: object
+            properties:
+              reference:
+                type: string
+                pattern: '^MedicationRequest/.+'
+        effectiveDateTime:
+          type: string
+          format: date-time
+          description: REQUIRED
+        performer:
+          type: array
+          description: Practitioner - REQUIRED
+          items:
+            type: object
+            properties:
+              function:
+                type: object
+              actor:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Practitioner/.+'
+                  display:
+                    type: string
+        reasonReference:
+          type: array
+          items:
+            type: object
+            properties:
+              display:
+                type: string
+        request:
+          type: object
+          description: MedicationRequest reference
+          properties:
+            reference:
+              type: string
+              pattern: '^MedicationRequest/.+'
+        dosage:
+          type: object
+          description: MANDATORY (route, method, dose)
+          properties:
+            text:
+              type: string
+            route:
+              type: object
+              properties:
+                coding:
+                  type: array
+                  items:
+                    type: object
+            method:
+              type: object
+              properties:
+                coding:
+                  type: array
+                  items:
+                    type: object
+            dose:
+              type: object
+              properties:
+                value:
+                  type: number
+                unit:
+                  type: string
+                system:
+                  type: string
+                code:
+                  type: string
+        note:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+        extension:
+          type: array
+          description: Location reference - REQUIRED
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              valueReference:
+                type: object
+                properties:
+                  reference:
+                    type: string
+                    pattern: '^Location/.+'
+                  display:
+                    type: string

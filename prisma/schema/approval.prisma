@@ -1,39 +1,39 @@
 model Approval {
-    id            Int            @id @default(autoincrement())
-    clinic        Clinic         @relation(fields: [clinicId], references: [id])
-    clinicId      Int
-    branch        Branch?        @relation(fields: [branchId], references: [id])
-    branchId      Int?
-    type          ApprovalType
-    status        ApprovalStatus @default(PENDING)
-    requestedBy   User           @relation("ApprovalRequester", fields: [requestedById], references: [id])
-    requestedById Int
-    approvedBy    User?          @relation("ApprovalApprover", fields: [approvedById], references: [id])
-    approvedById  Int?
-    reason        String?
-    payload       Json?
-    createdAt     DateTime       @default(now())
-    updatedAt     DateTime       @updatedAt
-    discount      Discount?      @relation(fields: [discountId], references: [id], onDelete: Cascade)
-    discountId    Int?           @unique
-    treatment     Treatment?     @relation(fields: [treatmentId], references: [id])
-    treatmentId   Int?
-    exam          Exam?          @relation(fields: [examId], references: [id])
-    examId        Int?
-    refunds       Refund[]
+  id            Int            @id @default(autoincrement())
+  clinic        Clinic         @relation(fields: [clinicId], references: [id])
+  clinicId      Int
+  branch        Branch?        @relation(fields: [branchId], references: [id])
+  branchId      Int?
+  type          ApprovalType
+  status        ApprovalStatus @default(PENDING)
+  requestedBy   User           @relation("ApprovalRequester", fields: [requestedById], references: [id])
+  requestedById Int
+  approvedBy    User?          @relation("ApprovalApprover", fields: [approvedById], references: [id])
+  approvedById  Int?
+  reason        String?
+  payload       Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  discount      Discount?      @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  discountId    Int?           @unique
+  treatment     Treatment?     @relation(fields: [treatmentId], references: [id])
+  treatmentId   Int?
+  exam          Exam?          @relation(fields: [examId], references: [id])
+  examId        Int?
+  refunds       Refund[]
 }
 
 enum ApprovalType {
-    DISCOUNT
-    REFUND
-    PRICE_OVERRIDE
-    EXAM_EDIT
-    TREATMENT_EDIT
-    EXTRA_INVENTORY
+  DISCOUNT
+  REFUND
+  PRICE_OVERRIDE
+  EXAM_EDIT
+  TREATMENT_EDIT
+  EXTRA_INVENTORY
 }
 
 enum ApprovalStatus {
-    PENDING
-    APPROVED
-    REJECTED
+  PENDING
+  APPROVED
+  REJECTED
 }

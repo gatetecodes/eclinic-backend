@@ -2,65 +2,65 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-    provider = "prisma-client"
-    // Generate directly into ./generated/prisma so imports like
-    // `../../generated/prisma/client` resolve to a concrete file.
-    output   = "../../generated/prisma"
+  provider = "prisma-client"
+  // Generate directly into ./generated/prisma so imports like
+  // `../../generated/prisma/client` resolve to a concrete file.
+  output   = "../../generated/prisma"
 }
 
 datasource db {
-    provider = "postgresql"
+  provider = "postgresql"
 }
 
 // Better-Auth required models
 model Account {
-    id                    String    @id @default(uuid())
-    accountId             String
-    providerId            String
-    userId                Int
-    user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-    accessToken           String?
-    refreshToken          String?
-    idToken               String?
-    accessTokenExpiresAt  DateTime?
-    refreshTokenExpiresAt DateTime?
-    scope                 String?
-    password              String?
-    createdAt             DateTime  @default(now())
-    updatedAt             DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  accountId             String
+  providerId            String
+  userId                Int
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-    @@map("account")
+  @@map("account")
 }
 
 model Session {
-    id        String    @id @default(uuid())
-    token     String    @unique
-    userId    Int
-    expiresAt DateTime
-    createdAt DateTime? @default(now())
-    updatedAt DateTime? @updatedAt
-    ipAddress String?
-    userAgent String?
-    user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime? @default(now())
+  updatedAt DateTime? @updatedAt
+  ipAddress String?
+  userAgent String?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    /// Set when a platform operator is acting as this session's user. Holds the
-    /// operator's own user id.
-    ///
-    /// Typed String, not Int, because better-auth's admin plugin defines it that
-    /// way (it models every id as a string) — see the coercion carve-out in
-    /// createCoercingPrisma in src/lib/auth.ts, which must NOT convert this field.
-    impersonatedBy String?
+  /// Set when a platform operator is acting as this session's user. Holds the
+  /// operator's own user id.
+  ///
+  /// Typed String, not Int, because better-auth's admin plugin defines it that
+  /// way (it models every id as a string) — see the coercion carve-out in
+  /// createCoercingPrisma in src/lib/auth.ts, which must NOT convert this field.
+  impersonatedBy String?
 
-    @@map("session")
+  @@map("session")
 }
 
 model Verification {
-    id         String    @id @default(uuid())
-    identifier String
-    value      String
-    expiresAt  DateTime
-    createdAt  DateTime? @default(now())
-    updatedAt  DateTime? @updatedAt
+  id         String    @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
 
-    @@map("verification")
+  @@map("verification")
 }

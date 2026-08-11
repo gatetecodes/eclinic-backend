@@ -152,3 +152,15 @@ Multi-tenant clinic OS rooted at **Clinic** (tenant) → **Branch** (sub-tenant)
 - **AS SOON AS A NEW PERMISSION/RESOURCE/ACTION IS ADDED**, update `src/lib/permissions.ts` (`ROLE_PERMISSIONS`) and, where relevant, the entitlements matrix.
 - Consider runtime complexity and payload size — endpoints are consumed on mobile, so avoid over-fetching and heavy responses.
 - ALWAYS MAKE A PLAN FIRST, UNLESS I ASK YOU TO NOT DO IT.
+- Every time you implement a new feature, change, or significant piece of functionality, please provide a thorough implementation rundown at the end.
+
+It should include:
+
+- What was implemented and how it works
+- The key files/components that were added or modified
+- Important code snippets for future reference
+- Any important technical decisions, assumptions, or dependencies
+- Clear step-by-step instructions for testing the implementation
+- Any edge cases, limitations, or follow-up work I should be aware of
+
+The goal is for me to be able to understand, verify, and revisit the implementation later without having to dig through the entire codebase.

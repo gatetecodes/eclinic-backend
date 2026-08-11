@@ -4,159 +4,170 @@
 /// operator (data preserved). INACTIVE = archived; see Clinic.archivedAt, which
 /// is what distinguishes an archived clinic from a merely suspended one.
 enum SubscriptionStatus {
-    ACTIVE
-    INACTIVE
-    TRIAL
-    SUSPENDED
-    ONBOARDING
+  ACTIVE
+  INACTIVE
+  TRIAL
+  SUSPENDED
+  ONBOARDING
 }
 
 enum SubscriptionPlan {
-    CLINIC_STARTER
-    MEDICAL_PLUS
-    HOSPITAL_SUITE
+  CLINIC_STARTER
+  MEDICAL_PLUS
+  HOSPITAL_SUITE
 }
 
 enum BranchStatus {
-    ACTIVE
-    INACTIVE
-    SUSPENDED
+  ACTIVE
+  INACTIVE
+  SUSPENDED
 }
 
 enum CurrencyCode {
-    RWF
-    USD
-    EUR
+  RWF
+  USD
+  EUR
 }
 
 model Clinic {
-    id                       Int                  @id @default(autoincrement())
-    name                     String
-    logo                     String?
-    defaultLocale            String               @default("en")
-    operatingCountry         String               @default("RW")
-    defaultCurrency          CurrencyCode         @default(RWF)
-    subscriptionStatus       SubscriptionStatus   @default(TRIAL)
-    subscriptionPlan         SubscriptionPlan
-    contactPhone             String?
-    contactEmail             String?
-    isSmsEnabled             Boolean              @default(false)
-    smsOnQueueJoined         Boolean              @default(true)
-    smsOnQueueTurn           Boolean              @default(true)
-    smsOnLabResultsReady     Boolean              @default(true)
-    smsOnVisitCompletion     Boolean              @default(true)
-    subscriptionExpiryDate   DateTime?
-    createdAt                DateTime             @default(now())
-    updatedAt                DateTime             @updatedAt
-    users                    User[]
-    patients                 Patient[]
-    payments                 Payment[]
-    inventoryItems           InventoryItem[]
-    prescriptions            Prescription[]
-    medicalRecords           MedicalRecord[]
-    examResults              ExamResult[]
-    visits                   Visit[]
-    departments              ClinicalDepartment[]
-    products                 Product[]
-    events                   Event[]
-    expenses                 Expense[]
-    discounts                Discount[]
-    approvals                Approval[]
-    wards                    Ward[]
-    exams                    Exam[]
-    hospitalizations         Hospitalization[]
-    insuranceClaims          InsuranceClaim[]
-    refunds                  Refund[]
-    branches                 Branch[]
-    patientAppointments      PatientAppointment[]
-    isPatientPortalEnabled   Boolean              @default(false)
-    isQueueManagementEnabled Boolean              @default(false)
-    portalSettings           Json? // Store portal configuration
+  id                       Int                  @id @default(autoincrement())
+  name                     String
+  logo                     String?
+  defaultLocale            String               @default("en")
+  operatingCountry         String               @default("RW")
+  defaultCurrency          CurrencyCode         @default(RWF)
+  subscriptionStatus       SubscriptionStatus   @default(TRIAL)
+  subscriptionPlan         SubscriptionPlan
+  contactPhone             String?
+  contactEmail             String?
+  isSmsEnabled             Boolean              @default(false)
+  smsOnQueueJoined         Boolean              @default(true)
+  smsOnQueueTurn           Boolean              @default(true)
+  smsOnLabResultsReady     Boolean              @default(true)
+  smsOnVisitCompletion     Boolean              @default(true)
+  subscriptionExpiryDate   DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  users                    User[]
+  patients                 Patient[]
+  payments                 Payment[]
+  inventoryItems           InventoryItem[]
+  prescriptions            Prescription[]
+  medicalRecords           MedicalRecord[]
+  examResults              ExamResult[]
+  visits                   Visit[]
+  departments              ClinicalDepartment[]
+  products                 Product[]
+  events                   Event[]
+  expenses                 Expense[]
+  discounts                Discount[]
+  approvals                Approval[]
+  wards                    Ward[]
+  exams                    Exam[]
+  hospitalizations         Hospitalization[]
+  insuranceClaims          InsuranceClaim[]
+  refunds                  Refund[]
+  branches                 Branch[]
+  patientAppointments      PatientAppointment[]
+  isPatientPortalEnabled   Boolean              @default(false)
+  isQueueManagementEnabled Boolean              @default(false)
+  portalSettings           Json? // Store portal configuration
 
-    // Entitlements & quotas
-    entitlementOverrides         EntitlementOverride[]
-    entitlementUsages            EntitlementUsage[]
-    pharmacyDispenseOrders       PharmacyDispenseOrder[]
-    pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
-    pharmacyIdempotencyRecords   PharmacyIdempotencyRecord[]
+  // Entitlements & quotas
+  entitlementOverrides         EntitlementOverride[]
+  entitlementUsages            EntitlementUsage[]
+  pharmacyDispenseOrders       PharmacyDispenseOrder[]
+  pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
+  pharmacyIdempotencyRecords   PharmacyIdempotencyRecord[]
 
-    // Pricing
-    clinicProductPrices ClinicProductPrice[]
-    insurancePrices     InsurancePrice[]
+  // Pricing
+  clinicProductPrices ClinicProductPrice[]
+  insurancePrices     InsurancePrice[]
 
-    convertedAt                  DateTime?
-    // Soft-delete for the operator archive lifecycle. Archived clinics are
-    // filtered out of operator listings unless explicitly requested.
-    archivedAt                   DateTime?
-    demoRequests                 DemoRequest[]
-    staffTimesheets              StaffTimesheet[]
-    purchaseOrders               PurchaseOrder[]
-    suppliers                    Supplier[]
-    goodsReceipts                GoodsReceipt[]
-    inventoryExpiryNotifications InventoryExpiryNotification[]
-    queues                       Queue[]
-    queueConfigs                 QueueConfig[]
-    outboundSmsLogs              OutboundSmsLog[]
-    flowConfigs                  ClinicFlowConfig[]
-    hieTenantConfig              HieTenantConfig?
-    hieFacilityLinks             HieFacilityLink[]
-    hieConsents                  HieConsent[]
-    hieResourceLinks             HieResourceLink[]
-    hieOutboxEvents              HieOutboxEvent[]
-    hieAuditEvents               HieAuditEvent[]
-    hieReconciliations           HieReconciliation[]
-    hieExternalTransfers         HieExternalTransfer[]
+  convertedAt                  DateTime?
+  // Soft-delete for the operator archive lifecycle. Archived clinics are
+  // filtered out of operator listings unless explicitly requested.
+  archivedAt                   DateTime?
+  demoRequests                 DemoRequest[]
+  staffTimesheets              StaffTimesheet[]
+  purchaseOrders               PurchaseOrder[]
+  suppliers                    Supplier[]
+  goodsReceipts                GoodsReceipt[]
+  inventoryExpiryNotifications InventoryExpiryNotification[]
+  queues                       Queue[]
+  queueConfigs                 QueueConfig[]
+  outboundSmsLogs              OutboundSmsLog[]
+  flowConfigs                  ClinicFlowConfig[]
+  hieTenantConfig              HieTenantConfig?
+  hieFacilityLinks             HieFacilityLink[]
+  hieConsents                  HieConsent[]
+  hieResourceLinks             HieResourceLink[]
+  hieOutboxEvents              HieOutboxEvent[]
+  hieAuditEvents               HieAuditEvent[]
+  hieReconciliations           HieReconciliation[]
+  hieExternalTransfers         HieExternalTransfer[]
+  hieDestinationFacilities     HieDestinationFacility[]
+  hieIdentityReconciliations   HieIdentityReconciliation[]
+  hieInboundTransfers          HieInboundTransfer[]
+  hieInsuranceIdentities       PatientInsuranceExternalIdentity[]
+  hieConsultationObservations  HieConsultationObservation[]
+  hieStructuredAllergies       HieStructuredAllergy[]
+  hieImmunizations             HieImmunization[]
+  hieImagingOrders             HieImagingOrder[]
+  hieImagingStudies            HieImagingStudy[]
+  hieEmergencyAccesses         HieEmergencyAccess[]
+  hieDobDiscrepancies           HieDobDiscrepancy[]
 
-    @@index([convertedAt])
+  @@index([convertedAt])
 }
 
 model Branch {
-    id                     Int                     @id @default(autoincrement())
-    name                   String
-    code                   String
-    address                String?
-    latitude               Float?
-    longitude              Float?
-    contactPhone           String?
-    contactEmail           String?
-    isHeadOffice           Boolean                 @default(false)
-    status                 BranchStatus            @default(ACTIVE)
-    users                  User[]
-    patients               Patient[]
-    payments               Payment[]
-    inventory              InventoryItem[]
-    prescriptions          Prescription[]
-    medicalRecords         MedicalRecord[]
-    examResults            ExamResult[]
-    visits                 Visit[]
-    departments            ClinicalDepartment[]
-    events                 Event[]
-    approvals              Approval[]
-    wards                  Ward[]
-    exams                  Exam[]
-    hospitalizations       Hospitalization[]
-    insuranceClaims        InsuranceClaim[]
-    discounts              Discount[]
-    spectaclePrescriptions SpectaclePrescription[]
-    patientAppointments    PatientAppointment[]
-    isPatientPortalEnabled Boolean                 @default(false)
-    clinicId               Int
-    clinic                 Clinic                  @relation(fields: [clinicId], references: [id])
-    createdAt              DateTime                @default(now())
-    updatedAt              DateTime                @updatedAt
-    staffShifts            StaffShift[]
-    inventoryStocks        InventoryStock[]
-    inventoryBatches       InventoryBatch[]
-    queues                 Queue[]
-    queueConfigs           QueueConfig[]
-    pharmacyDispenseOrders PharmacyDispenseOrder[]
-    flowConfigs            ClinicFlowConfig[]
-    hieFacilityLinks       HieFacilityLink[]
-    hieExternalTransfers   HieExternalTransfer[]
+  id                     Int                     @id @default(autoincrement())
+  name                   String
+  code                   String
+  address                String?
+  latitude               Float?
+  longitude              Float?
+  contactPhone           String?
+  contactEmail           String?
+  isHeadOffice           Boolean                 @default(false)
+  status                 BranchStatus            @default(ACTIVE)
+  users                  User[]
+  patients               Patient[]
+  payments               Payment[]
+  inventory              InventoryItem[]
+  prescriptions          Prescription[]
+  medicalRecords         MedicalRecord[]
+  examResults            ExamResult[]
+  visits                 Visit[]
+  departments            ClinicalDepartment[]
+  events                 Event[]
+  approvals              Approval[]
+  wards                  Ward[]
+  exams                  Exam[]
+  hospitalizations       Hospitalization[]
+  insuranceClaims        InsuranceClaim[]
+  discounts              Discount[]
+  spectaclePrescriptions SpectaclePrescription[]
+  patientAppointments    PatientAppointment[]
+  isPatientPortalEnabled Boolean                 @default(false)
+  clinicId               Int
+  clinic                 Clinic                  @relation(fields: [clinicId], references: [id])
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  staffShifts            StaffShift[]
+  inventoryStocks        InventoryStock[]
+  inventoryBatches       InventoryBatch[]
+  queues                 Queue[]
+  queueConfigs           QueueConfig[]
+  pharmacyDispenseOrders PharmacyDispenseOrder[]
+  flowConfigs            ClinicFlowConfig[]
+  hieFacilityLinks       HieFacilityLink[]
+  hieExternalTransfers   HieExternalTransfer[]
 
-    @@unique([id, clinicId])
-    @@index([clinicId])
-    @@index([code])
+  @@unique([id, clinicId])
+  @@index([clinicId])
+  @@index([code])
 }
 
 /// Per-clinic (optionally per-branch) configuration of which care-flow stages
@@ -171,44 +182,44 @@ model Branch {
 /// a future reordering feature and is not consulted in phase 1 (the resolver
 /// filters the canonical order by `enabled`).
 model ClinicFlowConfig {
-    id        Int       @id @default(autoincrement())
-    clinic    Clinic    @relation(fields: [clinicId], references: [id])
-    clinicId  Int
-    branch    Branch?   @relation(fields: [branchId, clinicId], references: [id, clinicId], onDelete: Cascade)
-    branchId  Int?
-    stage     CareStage
-    position  Int       @default(0)
-    enabled   Boolean   @default(true)
-    createdAt DateTime  @default(now())
-    updatedAt DateTime  @updatedAt
+  id        Int       @id @default(autoincrement())
+  clinic    Clinic    @relation(fields: [clinicId], references: [id])
+  clinicId  Int
+  branch    Branch?   @relation(fields: [branchId, clinicId], references: [id, clinicId], onDelete: Cascade)
+  branchId  Int?
+  stage     CareStage
+  position  Int       @default(0)
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-    @@unique([clinicId, branchId, stage])
-    @@index([clinicId, branchId])
+  @@unique([clinicId, branchId, stage])
+  @@index([clinicId, branchId])
 }
 
 model EntitlementOverride {
-    id         Int      @id @default(autoincrement())
-    clinicId   Int
-    clinic     Clinic   @relation(fields: [clinicId], references: [id])
-    featureKey String
-    allowed    Boolean?
-    limit      Int?
-    notes      String?
-    updatedAt  DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  clinicId   Int
+  clinic     Clinic   @relation(fields: [clinicId], references: [id])
+  featureKey String
+  allowed    Boolean?
+  limit      Int?
+  notes      String?
+  updatedAt  DateTime @updatedAt
 
-    @@unique([clinicId, featureKey])
-    @@index([clinicId])
+  @@unique([clinicId, featureKey])
+  @@index([clinicId])
 }
 
 model EntitlementUsage {
-    id         Int      @id @default(autoincrement())
-    clinicId   Int
-    clinic     Clinic   @relation(fields: [clinicId], references: [id])
-    featureKey String
-    period     String
-    count      Int      @default(0)
-    updatedAt  DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  clinicId   Int
+  clinic     Clinic   @relation(fields: [clinicId], references: [id])
+  featureKey String
+  period     String
+  count      Int      @default(0)
+  updatedAt  DateTime @updatedAt
 
-    @@unique([clinicId, featureKey, period])
-    @@index([clinicId, featureKey])
+  @@unique([clinicId, featureKey, period])
+  @@index([clinicId, featureKey])
 }

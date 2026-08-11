@@ -7,343 +7,356 @@
 // ============================================================================
 
 enum WardType {
-    MEDICAL
-    SURGICAL
-    MATERNITY
-    PAEDIATRIC
-    ICU
-    GENERAL
+  MEDICAL
+  SURGICAL
+  MATERNITY
+  PAEDIATRIC
+  ICU
+  GENERAL
 }
 
 enum BedStatus {
-    AVAILABLE
-    OCCUPIED
-    CLEANING
-    OUT_OF_SERVICE
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  OUT_OF_SERVICE
 }
 
 // Bed category — a ward mixes categories at different daily rates.
 enum BedClass {
-    STANDARD
-    SEMI_PRIVATE
-    PRIVATE
-    SUITE
+  STANDARD
+  SEMI_PRIVATE
+  PRIVATE
+  SUITE
 }
 
 enum AdmissionStatus {
-    CRITICAL
-    SERIOUS
-    STABLE
-    IMPROVING
-    FOR_DISCHARGE
+  CRITICAL
+  SERIOUS
+  STABLE
+  IMPROVING
+  FOR_DISCHARGE
 }
 
 enum AdmissionSource {
-    CONSULTATION
-    EMERGENCY
-    TRANSFER_IN
+  CONSULTATION
+  EMERGENCY
+  TRANSFER_IN
 }
 
 enum MedicationRoute {
-    IV
-    IM
-    PO
-    SC
+  IV
+  IM
+  PO
+  SC
 }
 
 enum MarStatus {
-    GIVEN
-    DUE
-    MISSED
-    NOT_APPLICABLE
+  GIVEN
+  DUE
+  MISSED
+  NOT_APPLICABLE
 }
 
 enum ProgressNoteType {
-    WARD_ROUND
-    CONSULTANT_REVIEW
-    ON_CALL_REVIEW
-    PROCEDURE
-    ADMISSION
+  WARD_ROUND
+  CONSULTANT_REVIEW
+  ON_CALL_REVIEW
+  PROCEDURE
+  ADMISSION
 }
 
 enum DischargeDestination {
-    HOME
-    REFERRAL_HOSPITAL
-    HEALTH_CENTRE_FOLLOWUP
+  HOME
+  REFERRAL_HOSPITAL
+  HEALTH_CENTRE_FOLLOWUP
 }
 
 enum WardChargeCategory {
-    BED
-    REVIEW
-    MEDS
-    LAB
-    IMAGING
-    PROCEDURE
+  BED
+  REVIEW
+  MEDS
+  LAB
+  IMAGING
+  PROCEDURE
 }
 
 enum WardOrderCategory {
-    LAB
-    IMAGING
+  LAB
+  IMAGING
 }
 
 enum WardOrderStatus {
-    ORDERED
-    IN_PROGRESS
-    RESULTED
+  ORDERED
+  IN_PROGRESS
+  RESULTED
 }
 
 model Ward {
-    id        Int      @id @default(autoincrement())
-    name      String
-    wardType  WardType @default(GENERAL)
-    // UI accent key used by the bed board (brand | plum | pink | gold | danger | info)
-    accent    String   @default("brand")
-    // Default daily rate applied to newly-created beds; each Bed carries its own
-    // authoritative rate so a ward can mix bed categories at different prices.
-    dailyRate Decimal  @db.Decimal(10, 2)
-    clinic    Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId  Int
-    branch    Branch?  @relation(fields: [branchId], references: [id])
-    branchId  Int?
-    beds      Bed[]
+  id        Int      @id @default(autoincrement())
+  name      String
+  wardType  WardType @default(GENERAL)
+  // UI accent key used by the bed board (brand | plum | pink | gold | danger | info)
+  accent    String   @default("brand")
+  // Default daily rate applied to newly-created beds; each Bed carries its own
+  // authoritative rate so a ward can mix bed categories at different prices.
+  dailyRate Decimal  @db.Decimal(10, 2)
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+  clinicId  Int
+  branch    Branch?  @relation(fields: [branchId], references: [id])
+  branchId  Int?
+  beds      Bed[]
 
-    hospitalizations Hospitalization[]
+  hospitalizations Hospitalization[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([clinicId])
-    @@index([branchId])
+  @@index([clinicId])
+  @@index([branchId])
 }
 
 model Bed {
-    id        Int       @id @default(autoincrement())
-    ward      Ward      @relation(fields: [wardId], references: [id])
-    wardId    Int
-    // Sequential number within the ward; label is the human-facing code (e.g. M-01).
-    number    Int
-    label     String
-    class     BedClass  @default(STANDARD)
-    // Authoritative daily rate for this bed (beds in one ward may differ).
-    dailyRate Decimal   @db.Decimal(10, 2)
-    status    BedStatus @default(AVAILABLE)
+  id        Int       @id @default(autoincrement())
+  ward      Ward      @relation(fields: [wardId], references: [id])
+  wardId    Int
+  // Sequential number within the ward; label is the human-facing code (e.g. M-01).
+  number    Int
+  label     String
+  class     BedClass  @default(STANDARD)
+  // Authoritative daily rate for this bed (beds in one ward may differ).
+  dailyRate Decimal   @db.Decimal(10, 2)
+  status    BedStatus @default(AVAILABLE)
 
-    hospitalizations Hospitalization[]
+  hospitalizations Hospitalization[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@unique([wardId, number])
-    @@index([wardId])
+  @@unique([wardId, number])
+  @@index([wardId])
 }
 
 model Hospitalization {
-    id                     Int             @id @default(autoincrement())
-    clinic                 Clinic          @relation(fields: [clinicId], references: [id])
-    clinicId               Int
-    branch                 Branch?         @relation(fields: [branchId], references: [id])
-    branchId               Int?
-    ward                   Ward            @relation(fields: [wardId], references: [id])
-    wardId                 Int
-    bed                    Bed             @relation(fields: [bedId], references: [id])
-    bedId                  Int
-    patient                Patient         @relation(fields: [patientId], references: [id])
-    patientId              Int
-    visit                  Visit           @relation(fields: [visitId], references: [id])
-    visitId                Int             @unique
-    attending              User?           @relation("AttendingPhysician", fields: [attendingId], references: [id])
-    attendingId            Int?
-    status                 AdmissionStatus @default(STABLE)
-    source                 AdmissionSource @default(CONSULTATION)
-    presentingComplaint    String?
-    admittingDiagnosis     String?
-    admittingIcdCode       String?
-    estimatedStayDays      Int?
-    admittedAt             DateTime        @default(now())
-    dischargedAt           DateTime?
-    roomCoveredByInsurance Boolean         @default(false)
+  id                     Int             @id @default(autoincrement())
+  clinic                 Clinic          @relation(fields: [clinicId], references: [id])
+  clinicId               Int
+  branch                 Branch?         @relation(fields: [branchId], references: [id])
+  branchId               Int?
+  ward                   Ward            @relation(fields: [wardId], references: [id])
+  wardId                 Int
+  bed                    Bed             @relation(fields: [bedId], references: [id])
+  bedId                  Int
+  patient                Patient         @relation(fields: [patientId], references: [id])
+  patientId              Int
+  visit                  Visit           @relation(fields: [visitId], references: [id])
+  visitId                Int             @unique
+  attending              User?           @relation("AttendingPhysician", fields: [attendingId], references: [id])
+  attendingId            Int?
+  status                 AdmissionStatus @default(STABLE)
+  source                 AdmissionSource @default(CONSULTATION)
+  presentingComplaint    String?
+  admittingDiagnosis     String?
+  admittingIcdCode       String?
+  estimatedStayDays      Int?
+  admittedAt             DateTime        @default(now())
+  dischargedAt           DateTime?
+  roomCoveredByInsurance Boolean         @default(false)
 
-    observations    WardObservation[]
-    medications     WardMedication[]
-    progressNotes   ProgressNote[]
-    orders          WardOrder[]
-    bedTransfers    BedTransfer[]
-    charges         WardCharge[]
-    dischargeSummary DischargeSummary?
+  observations     WardObservation[]
+  medications      WardMedication[]
+  progressNotes    ProgressNote[]
+  orders           WardOrder[]
+  bedTransfers     BedTransfer[]
+  charges          WardCharge[]
+  dischargeSummary DischargeSummary?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([wardId])
-    @@index([bedId])
-    @@index([patientId])
-    @@index([visitId])
-    @@index([branchId])
-    @@index([status])
+  @@index([wardId])
+  @@index([bedId])
+  @@index([patientId])
+  @@index([visitId])
+  @@index([branchId])
+  @@index([status])
 }
 
 // Vitals rounds. Mirrors the Triage vitals capture format (free-unit strings)
 // and adds pain, level of consciousness (AVPU) and a derived early-warning score.
 model WardObservation {
-    id                Int             @id @default(autoincrement())
-    hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    temperature       String?
-    heartRate         String?
-    bloodPressure     String?
-    respiratoryRate   String?
-    spo2              String?
-    pain              Int?
-    avpu              String?
-    ewsScore          Int             @default(0)
-    recordedBy        User?           @relation("WardObsRecordedBy", fields: [recordedById], references: [id])
-    recordedById      Int?
-    recordedAt        DateTime        @default(now())
+  id                Int             @id @default(autoincrement())
+  hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  temperature       String?
+  heartRate         String?
+  bloodPressure     String?
+  respiratoryRate   String?
+  spo2              String?
+  pain              Int?
+  avpu              String?
+  ewsScore          Int             @default(0)
+  recordedBy        User?           @relation("WardObsRecordedBy", fields: [recordedById], references: [id])
+  recordedById      Int?
+  recordedAt        DateTime        @default(now())
 
-    @@index([hospitalizationId])
-    @@index([recordedById])
+  @@index([hospitalizationId])
+  @@index([recordedById])
 }
 
 // A drug on the medication administration record (MAR). Each scheduled slot is a
 // WardMedicationAdministration row; a MEDS WardCharge posts as each dose is given.
 model WardMedication {
-    id                Int             @id @default(autoincrement())
-    hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    product           Product?        @relation(fields: [productId], references: [id])
-    productId         Int?
-    drugName          String
-    dose              String
-    route             MedicationRoute
-    frequency         String
-    firstDoseAt       DateTime?
-    pricePerDose      Decimal         @db.Decimal(10, 2)
-    active            Boolean         @default(true)
-    prescribedBy      User?           @relation("WardMedPrescribedBy", fields: [prescribedById], references: [id])
-    prescribedById    Int?
+  id                Int             @id @default(autoincrement())
+  hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  product           Product?        @relation(fields: [productId], references: [id])
+  productId         Int?
+  drugName          String
+  dose              String
+  route             MedicationRoute
+  frequency         String
+  doseValue         Decimal?        @db.Decimal(14, 4)
+  doseUnit          String?
+  frequencyCount    Int?
+  frequencyPeriod   Decimal?        @db.Decimal(14, 4)
+  frequencyPeriodUnit String?
+  routeSystem       String?
+  routeCode         String?
+  routeDisplay      String?
+  methodSystem      String?
+  methodCode        String?
+  methodDisplay     String?
+  durationValue     Decimal?        @db.Decimal(14, 4)
+  durationUnit      String?
+  firstDoseAt       DateTime?
+  pricePerDose      Decimal         @db.Decimal(10, 2)
+  active            Boolean         @default(true)
+  prescribedBy      User?           @relation("WardMedPrescribedBy", fields: [prescribedById], references: [id])
+  prescribedById    Int?
 
-    administrations WardMedicationAdministration[]
+  administrations WardMedicationAdministration[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([hospitalizationId])
-    @@index([productId])
+  @@index([hospitalizationId])
+  @@index([productId])
 }
 
 model WardMedicationAdministration {
-    id               Int            @id @default(autoincrement())
-    wardMedication   WardMedication @relation(fields: [wardMedicationId], references: [id])
-    wardMedicationId Int
-    scheduledAt      DateTime
-    status           MarStatus      @default(DUE)
-    administeredBy   User?          @relation("WardMedAdministeredBy", fields: [administeredById], references: [id])
-    administeredById Int?
-    administeredAt   DateTime?
+  id               Int            @id @default(autoincrement())
+  wardMedication   WardMedication @relation(fields: [wardMedicationId], references: [id])
+  wardMedicationId Int
+  scheduledAt      DateTime
+  status           MarStatus      @default(DUE)
+  administeredBy   User?          @relation("WardMedAdministeredBy", fields: [administeredById], references: [id])
+  administeredById Int?
+  administeredAt   DateTime?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([wardMedicationId])
-    @@index([administeredById])
+  @@index([wardMedicationId])
+  @@index([administeredById])
 }
 
 model ProgressNote {
-    id                Int              @id @default(autoincrement())
-    hospitalization   Hospitalization  @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    author            User?            @relation("ProgressNoteAuthor", fields: [authorId], references: [id])
-    authorId          Int?
-    noteType          ProgressNoteType @default(WARD_ROUND)
-    text              String
-    createdAt         DateTime         @default(now())
+  id                Int              @id @default(autoincrement())
+  hospitalization   Hospitalization  @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  author            User?            @relation("ProgressNoteAuthor", fields: [authorId], references: [id])
+  authorId          Int?
+  noteType          ProgressNoteType @default(WARD_ROUND)
+  text              String
+  createdAt         DateTime         @default(now())
 
-    @@index([hospitalizationId])
-    @@index([authorId])
+  @@index([hospitalizationId])
+  @@index([authorId])
 }
 
 model WardOrder {
-    id                Int               @id @default(autoincrement())
-    hospitalization   Hospitalization   @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    investigation     String
-    category          WardOrderCategory @default(LAB)
-    status            WardOrderStatus   @default(ORDERED)
-    result            String?
-    resultSeverity    String? // ok | warn | danger | neutral (UI result pill)
-    price             Decimal           @db.Decimal(10, 2)
-    orderedBy         User?             @relation("WardOrderBy", fields: [orderedById], references: [id])
-    orderedById       Int?
-    orderedAt         DateTime          @default(now())
-    resultedAt        DateTime?
+  id                Int               @id @default(autoincrement())
+  hospitalization   Hospitalization   @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  investigation     String
+  category          WardOrderCategory @default(LAB)
+  status            WardOrderStatus   @default(ORDERED)
+  result            String?
+  resultSeverity    String? // ok | warn | danger | neutral (UI result pill)
+  price             Decimal           @db.Decimal(10, 2)
+  orderedBy         User?             @relation("WardOrderBy", fields: [orderedById], references: [id])
+  orderedById       Int?
+  orderedAt         DateTime          @default(now())
+  resultedAt        DateTime?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([hospitalizationId])
-    @@index([orderedById])
+  @@index([hospitalizationId])
+  @@index([orderedById])
 }
 
 model BedTransfer {
-    id                Int             @id @default(autoincrement())
-    hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    fromBedId         Int?
-    toBedId           Int
-    reason            String?
-    transferredBy     User?           @relation("BedTransferBy", fields: [transferredById], references: [id])
-    transferredById   Int?
-    createdAt         DateTime        @default(now())
+  id                Int             @id @default(autoincrement())
+  hospitalization   Hospitalization @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  fromBedId         Int?
+  toBedId           Int
+  reason            String?
+  transferredBy     User?           @relation("BedTransferBy", fields: [transferredById], references: [id])
+  transferredById   Int?
+  createdAt         DateTime        @default(now())
 
-    @@index([hospitalizationId])
+  @@index([hospitalizationId])
 }
 
 model DischargeSummary {
-    id                  Int                  @id @default(autoincrement())
-    hospitalization     Hospitalization      @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId   Int                  @unique
-    finalDiagnosis      String?
-    summary             String?
-    followUpDate        DateTime?
-    destination         DischargeDestination @default(HOME)
-    patientInstructions String?
-    dischargedBy        User?                @relation("DischargeBy", fields: [dischargedById], references: [id])
-    dischargedById      Int?
-    createdAt           DateTime             @default(now())
+  id                  Int                  @id @default(autoincrement())
+  hospitalization     Hospitalization      @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId   Int                  @unique
+  finalDiagnosis      String?
+  summary             String?
+  followUpDate        DateTime?
+  destination         DischargeDestination @default(HOME)
+  patientInstructions String?
+  dischargedBy        User?                @relation("DischargeBy", fields: [dischargedById], references: [id])
+  dischargedById      Int?
+  createdAt           DateTime             @default(now())
 
-    @@index([hospitalizationId])
+  @@index([hospitalizationId])
 }
 
 // The running inpatient bill: every act on an admission posts a categorised
 // charge row here. Rolled into the visit Payment at discharge.
 model WardCharge {
-    id                Int                @id @default(autoincrement())
-    hospitalization   Hospitalization    @relation(fields: [hospitalizationId], references: [id])
-    hospitalizationId Int
-    category          WardChargeCategory
-    label             String
-    detail            String?
-    amount            Decimal            @db.Decimal(10, 2)
-    // Traceability back to the act that generated the charge (e.g.
-    // "administration":<id>, "observation":<id>, "bedDay":<yyyy-mm-dd>).
-    sourceType        String?
-    sourceId          String?
-    postedAt          DateTime           @default(now())
+  id                Int                @id @default(autoincrement())
+  hospitalization   Hospitalization    @relation(fields: [hospitalizationId], references: [id])
+  hospitalizationId Int
+  category          WardChargeCategory
+  label             String
+  detail            String?
+  amount            Decimal            @db.Decimal(10, 2)
+  // Traceability back to the act that generated the charge (e.g.
+  // "administration":<id>, "observation":<id>, "bedDay":<yyyy-mm-dd>).
+  sourceType        String?
+  sourceId          String?
+  postedAt          DateTime           @default(now())
 
-    @@index([hospitalizationId])
-    @@index([category])
+  @@index([hospitalizationId])
+  @@index([category])
 }
 
 model HospitalizationProduct {
-    id        Int      @id @default(autoincrement())
-    visit     Visit    @relation(fields: [visitId], references: [id])
-    visitId   Int
-    product   Product  @relation(fields: [productId], references: [id])
-    productId Int
-    quantity  Int
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  visit     Visit    @relation(fields: [visitId], references: [id])
+  visitId   Int
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([visitId])
-    @@index([productId])
+  @@index([visitId])
+  @@index([productId])
 }

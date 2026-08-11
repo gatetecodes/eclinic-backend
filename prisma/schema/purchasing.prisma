@@ -1,76 +1,76 @@
 model Supplier {
-    id        Int      @id @default(autoincrement())
-    clinic    Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId  Int
-    name      String
-    contact   String?
-    email     String?
-    phone     String?
-    address   String?
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+  clinicId  Int
+  name      String
+  contact   String?
+  email     String?
+  phone     String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    purchaseOrders PurchaseOrder[]
-    goodsReceipts  GoodsReceipt[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
 }
 
 model PurchaseOrder {
-    id         Int      @id @default(autoincrement())
-    clinic     Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId   Int
-    supplier   Supplier @relation(fields: [supplierId], references: [id])
-    supplierId Int
-    status     POStatus @default(DRAFT)
-    notes      String?
-    createdAt  DateTime @default(now())
-    updatedAt  DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  clinic     Clinic   @relation(fields: [clinicId], references: [id])
+  clinicId   Int
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  supplierId Int
+  status     POStatus @default(DRAFT)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-    lines    PurchaseOrderLine[]
-    receipts GoodsReceipt[]
+  lines    PurchaseOrderLine[]
+  receipts GoodsReceipt[]
 }
 
 model PurchaseOrderLine {
-    id              Int           @id @default(autoincrement())
-    purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
-    purchaseOrderId Int
-    item            InventoryItem @relation(fields: [itemId], references: [id])
-    itemId          Int
-    quantity        Int
-    unitPrice       Decimal?      @db.Decimal(10, 2)
-    notes           String?
+  id              Int           @id @default(autoincrement())
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrderId Int
+  item            InventoryItem @relation(fields: [itemId], references: [id])
+  itemId          Int
+  quantity        Int
+  unitPrice       Decimal?      @db.Decimal(10, 2)
+  notes           String?
 }
 
 model GoodsReceipt {
-    id              Int            @id @default(autoincrement())
-    clinic          Clinic         @relation(fields: [clinicId], references: [id])
-    clinicId        Int
-    supplier        Supplier       @relation(fields: [supplierId], references: [id])
-    supplierId      Int
-    purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
-    purchaseOrderId Int?
-    notes           String?
-    createdAt       DateTime       @default(now())
-    updatedAt       DateTime       @updatedAt
+  id              Int            @id @default(autoincrement())
+  clinic          Clinic         @relation(fields: [clinicId], references: [id])
+  clinicId        Int
+  supplier        Supplier       @relation(fields: [supplierId], references: [id])
+  supplierId      Int
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrderId Int?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-    lines GoodsReceiptLine[]
+  lines GoodsReceiptLine[]
 }
 
 model GoodsReceiptLine {
-    id             Int           @id @default(autoincrement())
-    goodsReceipt   GoodsReceipt  @relation(fields: [goodsReceiptId], references: [id])
-    goodsReceiptId Int
-    item           InventoryItem @relation(fields: [itemId], references: [id])
-    itemId         Int
-    quantity       Int
-    unitPrice      Decimal?      @db.Decimal(10, 2)
-    batchNumber    String?
-    expiryDate     DateTime?
-    notes          String?
+  id             Int           @id @default(autoincrement())
+  goodsReceipt   GoodsReceipt  @relation(fields: [goodsReceiptId], references: [id])
+  goodsReceiptId Int
+  item           InventoryItem @relation(fields: [itemId], references: [id])
+  itemId         Int
+  quantity       Int
+  unitPrice      Decimal?      @db.Decimal(10, 2)
+  batchNumber    String?
+  expiryDate     DateTime?
+  notes          String?
 }
 
 enum POStatus {
-    DRAFT
-    APPROVED
-    RECEIVED
-    CANCELLED
+  DRAFT
+  APPROVED
+  RECEIVED
+  CANCELLED
 }
