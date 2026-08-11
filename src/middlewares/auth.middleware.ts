@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { db } from "@/database/db";
 import { jsonError } from "@/lib/api-response";
 import { httpCodes } from "@/lib/constants";
 import { unauthorized } from "@/lib/errors";
@@ -99,7 +100,27 @@ async function resolveSession(
   }
   const raw = (session.session as { impersonatedBy?: unknown } | undefined)
     ?.impersonatedBy;
-  return { user, impersonatedBy: toNumber(raw) ?? null };
+  if (raw === undefined || raw === null) {
+    return { user, impersonatedBy: null };
+  }
+
+  const impersonatedBy = toNumber(raw);
+  if (!impersonatedBy) {
+    return null;
+  }
+  const operator = await db.user.findUnique({
+    where: { id: impersonatedBy },
+    select: { role: true, status: true, banned: true },
+  });
+  if (
+    !operator ||
+    operator.role !== "SUPER_ADMIN" ||
+    operator.status !== "ACTIVE" ||
+    operator.banned === true
+  ) {
+    return null;
+  }
+  return { user, impersonatedBy };
 }
 
 /**
@@ -115,6 +136,16 @@ const REVOKED_STATUSES = new Set(["BLOCKED", "INACTIVE"]);
 
 const isAccessRevoked = (user: User): boolean =>
   REVOKED_STATUSES.has((user as { status?: string }).status ?? "ACTIVE");
+
+const isAccessAuthoritativelyRevoked = async (
+  userId: number
+): Promise<boolean> => {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { status: true, banned: true },
+  });
+  return !user || user.banned === true || REVOKED_STATUSES.has(user.status);
+};
 
 /**
  * Publish the resolved identity onto the request context.
@@ -133,17 +164,40 @@ function applySession(
   }
 }
 
+async function isCachedAccessRevoked(user: User): Promise<boolean> {
+  return (
+    isAccessRevoked(user) || (await isAccessAuthoritativelyRevoked(user.id))
+  );
+}
+
+function resolveSessionDeduplicated(
+  c: Parameters<MiddlewareHandler<AppEnv>>[0],
+  cookieHeader: string | undefined
+): Promise<ResolvedSession | null> {
+  const cacheKey = getSessionCacheKey(cookieHeader);
+  if (!cacheKey) {
+    return resolveSession(c);
+  }
+  const inFlight = pendingSessionLookups.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+  const lookupPromise = resolveSession(c).finally(() => {
+    pendingSessionLookups.delete(cacheKey);
+  });
+  pendingSessionLookups.set(cacheKey, lookupPromise);
+  return lookupPromise;
+}
+
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const cookieHeader = c.req.header("cookie");
 
   try {
     const cached = getCachedSession(cookieHeader);
     if (cached) {
-      // Normally the endpoint that revoked access also purged the cache; this
-      // catches the entry going stale by any other route (direct DB edit, a
-      // second app instance). Purge so the next request re-reads the real status
-      // rather than looping on a stale allow.
-      if (isAccessRevoked(cached.user)) {
+      // The in-process invalidation index cannot observe revocation performed by
+      // another app instance, so a cache hit must confirm authoritative state.
+      if (await isCachedAccessRevoked(cached.user)) {
         invalidateCachedUser(cookieHeader);
         return unauthorized(c);
       }
@@ -152,23 +206,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       return;
     }
 
-    const cacheKey = getSessionCacheKey(cookieHeader);
-    let session: ResolvedSession | null = null;
-
-    if (cacheKey) {
-      const inFlight = pendingSessionLookups.get(cacheKey);
-      if (inFlight) {
-        session = await inFlight;
-      } else {
-        const lookupPromise = resolveSession(c).finally(() => {
-          pendingSessionLookups.delete(cacheKey);
-        });
-        pendingSessionLookups.set(cacheKey, lookupPromise);
-        session = await lookupPromise;
-      }
-    } else {
-      session = await resolveSession(c);
-    }
+    const session = await resolveSessionDeduplicated(c, cookieHeader);
 
     if (!session || isAccessRevoked(session.user)) {
       return unauthorized(c);
@@ -180,12 +218,23 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   } catch (_error) {
     // Transient auth service/rate-limit failures should not force immediate logout
     const stale = getCachedSession(cookieHeader, { allowStale: true });
-    // ...but never let the stale fallback resurrect an account whose access was
-    // revoked, or a suspension would be bypassable for the whole stale window.
-    if (stale && !isAccessRevoked(stale.user)) {
-      applySession(c, stale);
-      await next();
-      return;
+    try {
+      // ...but never let the stale fallback resurrect an account whose access
+      // was revoked locally or by another app instance.
+      if (
+        stale &&
+        !isAccessRevoked(stale.user) &&
+        !(await isAccessAuthoritativelyRevoked(stale.user.id))
+      ) {
+        applySession(c, stale);
+        await next();
+        return;
+      }
+    } catch {
+      // Fail closed when authoritative revocation state cannot be checked.
+    }
+    if (stale) {
+      invalidateCachedUser(cookieHeader);
     }
     return unauthorized(c);
   }

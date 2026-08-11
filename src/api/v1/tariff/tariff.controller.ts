@@ -1,6 +1,5 @@
 import { parse } from "csv-parse/sync";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   PriceType,
   type Prisma,
@@ -70,16 +69,6 @@ const terminologyWarningMeta = (ignored: boolean) =>
 
 function tariffError(status: number, code: string, message: string): never {
   throw new AppError({ status, code, message, exposeMessage: true });
-}
-
-function tariffJson(
-  c: Context<AppEnv>,
-  body: Record<string, unknown>,
-  status?: ContentfulStatusCode
-): Response {
-  return (
-    status === undefined ? c.json(body) : c.json(body, status)
-  ) as Response;
 }
 
 async function departmentsExistByIds(departmentIds: number[]) {
@@ -218,11 +207,7 @@ export const getTariff = async (c: Context<AppEnv>): Promise<Response> => {
     const { where, orderBy, ...restOptions } = queryOptions;
 
     if (!targetClinicId) {
-      return tariffJson(
-        c,
-        { error: "Clinic not found" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+      tariffError(httpCodes.FORBIDDEN, "CLINIC_NOT_FOUND", "Clinic not found");
     }
 
     const clinicFilter = targetClinicId
@@ -326,18 +311,20 @@ export const getTariff = async (c: Context<AppEnv>): Promise<Response> => {
       };
     });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Tariff fetched successfully",
       data: productsWithPricing,
-      totalCount,
-      pageCount,
+      meta: { totalCount, pageCount },
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -348,11 +335,7 @@ export const getProductsList = async (
   try {
     const user = c.get("user");
     if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return tariffJson(
-        c,
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+      tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
     const { departmentIds } = c.req.query();
@@ -417,16 +400,19 @@ export const getProductsList = async (
       },
     });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Products list fetched successfully",
       data: products,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -570,16 +556,19 @@ export const getProductsListWithPricing = async (
       };
     });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Products list with pricing fetched successfully",
       data: productsWithPricing,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -587,12 +576,8 @@ export const getProductsListWithPricing = async (
 export const getProductById = async (c: Context<AppEnv>): Promise<Response> => {
   try {
     const user = c.get("user");
-    if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return tariffJson(
-        c,
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+    if (!userHasTariffWriteAccess(user)) {
+      tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
     const { id } = c.get("validatedParam");
@@ -673,23 +658,16 @@ export const getProductById = async (c: Context<AppEnv>): Promise<Response> => {
     });
 
     if (!product) {
-      return tariffJson(
-        c,
-        { error: "Product not found" },
-        httpCodes.NOT_FOUND as ContentfulStatusCode
+      tariffError(
+        httpCodes.NOT_FOUND,
+        "PRODUCT_NOT_FOUND",
+        "Product not found"
       );
     }
 
     // Check if user has access to this product
-    if (
-      user.role !== Role.SUPER_ADMIN &&
-      !product.clinics.some((clinic) => clinic.id === user.clinic.id)
-    ) {
-      return tariffJson(
-        c,
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+    if (!userCanAccessProduct(user, product)) {
+      tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
     // Transform product to include clinic-specific prices with fallback
@@ -723,16 +701,19 @@ export const getProductById = async (c: Context<AppEnv>): Promise<Response> => {
       clinicProductPrices: undefined, // Remove from response
     };
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Product fetched successfully",
       data: transformedProduct,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -740,10 +721,15 @@ export const getProductById = async (c: Context<AppEnv>): Promise<Response> => {
 export const createProduct = async (c: Context<AppEnv>): Promise<Response> => {
   const user = c.get("user");
   if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-    return tariffJson(
-      c,
-      { error: "Forbidden" },
-      httpCodes.FORBIDDEN as ContentfulStatusCode
+    tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
+  }
+
+  const { clinicId } = getScope(user, c.req.query());
+  if (!clinicId) {
+    tariffError(
+      httpCodes.BAD_REQUEST,
+      "CLINIC_SCOPE_REQUIRED",
+      "Clinic scope is required to create a product"
     );
   }
 
@@ -767,11 +753,6 @@ export const createProduct = async (c: Context<AppEnv>): Promise<Response> => {
     restOfWorldPrice,
     unit,
     normalRange,
-    icd11Code,
-    loincCode,
-    snomedCode,
-    ichiCode,
-    nationalTariffCode,
     consumables,
     departmentIds,
   } = validatedData;
@@ -819,7 +800,7 @@ export const createProduct = async (c: Context<AppEnv>): Promise<Response> => {
         ? (consumables as Prisma.InputJsonValue)
         : undefined,
       clinics: {
-        connect: { id: user.clinicId },
+        connect: { id: clinicId },
       },
       departments: departmentIds
         ? {
@@ -847,11 +828,6 @@ export const createProduct = async (c: Context<AppEnv>): Promise<Response> => {
     status: httpCodes.CREATED,
     message: "Product created successfully",
     data: product,
-    meta: terminologyWarningMeta(
-      [icd11Code, loincCode, snomedCode, ichiCode, nationalTariffCode].some(
-        (value) => value !== undefined
-      )
-    ),
   });
 };
 
@@ -979,9 +955,6 @@ export const updateProduct = async (c: Context<AppEnv>): Promise<Response> => {
     status: httpCodes.OK,
     message: "Product updated successfully",
     data: updatedProduct,
-    meta: terminologyWarningMeta(
-      containsLegacyTerminologyFields(validatedData)
-    ),
   });
 };
 
@@ -1190,11 +1163,7 @@ export const getConsultationProducts = async (
   try {
     const user = c.get("user");
     if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return tariffJson(
-        c,
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+      tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
     const products = await db.product.findMany({
@@ -1267,16 +1236,19 @@ export const getConsultationProducts = async (
     //biome-ignore lint/suspicious/noConsole: <>
     console.log({ productsWithPricing });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Consultation products fetched successfully",
       data: productsWithPricing,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -1374,16 +1346,19 @@ export const getConsultationProductsWithPricing = async (
       };
     });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Consultation products with pricing fetched successfully",
       data: productsWithPricing,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -1461,16 +1436,19 @@ export const getLabProductsWithPricing = async (
       };
     });
 
-    return tariffJson(c, {
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: "Lab products with pricing fetched successfully",
       data: productsWithPricing,
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };
@@ -1481,21 +1459,17 @@ export const importProductsFromCSV = async (
   try {
     const user = c.get("user");
     if (user.role !== Role.CLINIC_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      return tariffJson(
-        c,
-        { error: "Forbidden" },
-        httpCodes.FORBIDDEN as ContentfulStatusCode
-      );
+      tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
     const validatedData = c.get("validatedJson") as
       | ImportProductsData
       | undefined;
     if (!validatedData) {
-      return tariffJson(
-        c,
-        { error: "Invalid request body" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      tariffError(
+        httpCodes.BAD_REQUEST,
+        "INVALID_REQUEST_BODY",
+        "Invalid request body"
       );
     }
 
@@ -1511,10 +1485,10 @@ export const importProductsFromCSV = async (
     });
 
     if (!records || records.length === 0) {
-      return tariffJson(
-        c,
-        { error: "No valid records found in CSV" },
-        httpCodes.BAD_REQUEST as ContentfulStatusCode
+      tariffError(
+        httpCodes.BAD_REQUEST,
+        "CSV_RECORDS_REQUIRED",
+        "No valid records found in CSV"
       );
     }
 
@@ -1590,7 +1564,7 @@ export const importProductsFromCSV = async (
       });
     }
 
-    return c.json({
+    return jsonSuccess(c, {
       status: httpCodes.OK,
       message: `Successfully imported ${successfulImports} products`,
       data: {
@@ -1599,11 +1573,14 @@ export const importProductsFromCSV = async (
         errors: errors.slice(0, 10), // Limit errors to first 10
       },
     });
-  } catch (_error) {
-    return tariffJson(
-      c,
-      { error: "Internal Server Error" },
-      httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    tariffError(
+      httpCodes.INTERNAL_SERVER_ERROR,
+      "INTERNAL_SERVER_ERROR",
+      "Internal Server Error"
     );
   }
 };

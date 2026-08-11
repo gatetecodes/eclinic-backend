@@ -7,15 +7,23 @@ const SETTINGS_ID = 1;
 /**
  * Read global platform settings, creating the row on first access.
  *
- * Upserting here means no caller has to handle "settings don't exist yet" — a
- * fresh database and a seeded one behave identically, and the migration's seed
- * insert is a convenience rather than a prerequisite.
+ * A conflict-safe insert means no caller has to handle "settings don't exist
+ * yet" and concurrent first reads cannot race each other.
  */
-export function getPlatformSettings(): Promise<PlatformSetting> {
-  return db.platformSetting.upsert({
+export async function getPlatformSettings(): Promise<PlatformSetting> {
+  const existing = await db.platformSetting.findUnique({
     where: { id: SETTINGS_ID },
-    create: { id: SETTINGS_ID },
-    update: {},
+  });
+  if (existing) {
+    return existing;
+  }
+
+  await db.platformSetting.createMany({
+    data: { id: SETTINGS_ID },
+    skipDuplicates: true,
+  });
+  return db.platformSetting.findUniqueOrThrow({
+    where: { id: SETTINGS_ID },
   });
 }
 
@@ -34,6 +42,10 @@ export type PlatformSettingsPatch = Partial<
 export function updatePlatformSettings(
   patch: PlatformSettingsPatch
 ): Promise<PlatformSetting> {
+  if (Object.keys(patch).length === 0) {
+    return getPlatformSettings();
+  }
+
   return db.platformSetting.upsert({
     where: { id: SETTINGS_ID },
     create: { id: SETTINGS_ID, ...patch },

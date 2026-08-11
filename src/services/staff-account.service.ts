@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   type Prisma,
   type Role,
@@ -52,9 +53,7 @@ export async function createStaffAccount(
       providerId: "credential",
       accountId: user.id.toString(),
       userId: user.id,
-      password: hashCredentialPassword(
-        process.env.DEFAULT_USER_PASSWORD as string
-      ),
+      password: hashCredentialPassword(randomBytes(32).toString("base64url")),
     },
   });
 

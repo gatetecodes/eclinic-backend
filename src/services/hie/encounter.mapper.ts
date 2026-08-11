@@ -11,12 +11,22 @@ const visitPublicationInputSchema = z.object({
 
 export type VisitPublicationInput = z.infer<typeof visitPublicationInputSchema>;
 
+function encounterLifecycle(startedAt: Date, endedAt: Date | null) {
+  return {
+    status: endedAt ? ("finished" as const) : ("in-progress" as const),
+    period: {
+      start: startedAt.toISOString(),
+      ...(endedAt ? { end: endedAt.toISOString() } : {}),
+    },
+  };
+}
+
 export function mapVisitEncounter(input: VisitPublicationInput) {
   const value = visitPublicationInputSchema.parse(input);
   return {
     resourceType: "Encounter" as const,
     id: value.id,
-    status: "finished" as const,
+    ...encounterLifecycle(value.startedAt, value.endedAt),
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
       code: "AMB",
@@ -41,10 +51,6 @@ export function mapVisitEncounter(input: VisitPublicationInput) {
         },
       },
     ],
-    period: {
-      start: value.startedAt.toISOString(),
-      end: (value.endedAt ?? new Date()).toISOString(),
-    },
     location: [{ location: { reference: value.locationReference } }],
   };
 }
@@ -65,7 +71,7 @@ export function mapTransferEncounter(input: TransferPublicationInput) {
   return {
     resourceType: "Encounter" as const,
     id: value.id,
-    status: "finished" as const,
+    ...encounterLifecycle(value.startedAt, value.endedAt),
     class: {
       system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
       code: "AMB",
@@ -91,10 +97,6 @@ export function mapTransferEncounter(input: TransferPublicationInput) {
         },
       },
     ],
-    period: {
-      start: value.startedAt.toISOString(),
-      end: (value.endedAt ?? new Date()).toISOString(),
-    },
     hospitalization: {
       origin: { reference: value.originReference },
       destination: { reference: value.destinationReference },

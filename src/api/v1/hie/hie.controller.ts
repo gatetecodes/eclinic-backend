@@ -22,7 +22,10 @@ import {
   birthDateStorageWindow,
   prioritizeLinkedCandidates,
 } from "@/services/hie/local-patient-matching";
-import { retryHieEvent } from "@/services/hie/outbox.service";
+import {
+  resumeBlockedPatientEvents,
+  retryHieEvent,
+} from "@/services/hie/outbox.service";
 import { RhieRequestError, rhieRequest } from "@/services/hie/rhie-client";
 import { getInternationalPatientSummaryView } from "@/services/hie/shared-record.service";
 import type { Prisma } from "../../../../generated/prisma/client";
@@ -347,6 +350,60 @@ async function recordIdentityConflict(params: {
   });
 }
 
+class PatientIdentityConflictError extends Error {
+  constructor() {
+    super("National identity is linked to another patient");
+    this.name = "PatientIdentityConflictError";
+  }
+}
+
+function assertIdentityCanBeDeferred(
+  identity: { patientId: number; verificationStatus: string } | null,
+  patientId: number
+) {
+  if (identity && identity.patientId !== patientId) {
+    throw new PatientIdentityConflictError();
+  }
+  if (identity?.verificationStatus === "VERIFIED") {
+    throw new AppError({
+      status: 409,
+      code: "HIE_IDENTITY_ALREADY_VERIFIED",
+      message: "A verified national identity cannot be deferred",
+      exposeMessage: true,
+    });
+  }
+}
+
+async function throwRecordedIdentityConflict(params: {
+  clinicId: number;
+  patientId: number;
+  actorId: number;
+  identifierHash: string;
+  identifier: string;
+}): Promise<never> {
+  await recordIdentityConflict(params);
+  throw new AppError({
+    status: 409,
+    code: "HIE_IDENTITY_ALREADY_LINKED",
+    message: "This national identity is already linked to another patient",
+    exposeMessage: true,
+  });
+}
+
+async function runPatientIdentityWrite<T>(
+  operation: () => Promise<T>,
+  conflict: Parameters<typeof throwRecordedIdentityConflict>[0]
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof PatientIdentityConflictError)) {
+      throw error;
+    }
+    return throwRecordedIdentityConflict(conflict);
+  }
+}
+
 export async function getStatus(c: Context<AppEnv>) {
   const { clinicId } = tenant(c);
   const configWithClinic = await db.hieTenantConfig.findUnique({
@@ -617,79 +674,84 @@ export async function linkPatient(c: Context<AppEnv>) {
     });
   }
   const identifierHash = hashHieIdentifier(input.nid);
-  const conflictingLink = await db.patientExternalIdentity.findFirst({
-    where: {
-      identifierType: "NID",
-      identifierHash,
-      patientId: { not: input.patientId },
-    },
-    select: { patientId: true },
-  });
-  if (conflictingLink) {
-    await recordIdentityConflict({
-      clinicId,
-      patientId: input.patientId,
-      actorId,
-      identifierHash,
-      identifier: input.nid,
-    });
-    throw new AppError({
-      status: 409,
-      code: "HIE_IDENTITY_ALREADY_LINKED",
-      message: "This national identity is already linked to another patient",
-      exposeMessage: true,
-    });
-  }
   const snapshot = {
     nationalPatient,
     reviewedFields: input.reviewedFields,
     linkedAgainstPatientUpdatedAt: input.expectedPatientUpdatedAt,
   };
   const resourceHash = hashHieIdentifier(input.externalPatientId);
-  const identity = await db.$transaction(async (tx) => {
-    const linkedIdentity = await tx.patientExternalIdentity.upsert({
-      where: {
-        identifierType_identifierHash: {
-          identifierType: "NID",
-          identifierHash,
-        },
-      },
-      create: {
-        patientId: input.patientId,
-        identifierType: "NID",
-        identifierHash,
-        identifierEncrypted: encryptHieValue(input.nid),
-        resourceIdHash: resourceHash,
-        resourceIdEncrypted: encryptHieValue(input.externalPatientId),
-        verificationStatus: "VERIFIED",
-        verifiedAt: new Date(),
-        demographicsSnapshotEncrypted: encryptHieJson(snapshot),
-      },
-      update: {
-        patientId: input.patientId,
-        resourceIdHash: resourceHash,
-        resourceIdEncrypted: encryptHieValue(input.externalPatientId),
-        verificationStatus: "VERIFIED",
-        verifiedAt: new Date(),
-        deferredReason: null,
-        demographicsSnapshotEncrypted: encryptHieJson(snapshot),
-      },
-      select: {
-        id: true,
-        patientId: true,
-        identifierType: true,
-        verificationStatus: true,
-        verifiedAt: true,
-      },
-    });
-    if (nationalPatient.structuredAddress) {
-      await tx.patient.update({
-        where: { id: input.patientId },
-        data: { structuredAddress: nationalPatient.structuredAddress },
-      });
+  const identity = await runPatientIdentityWrite(
+    () =>
+      db.$transaction(async (tx) => {
+        const conflictingLink = await tx.patientExternalIdentity.findUnique({
+          where: {
+            identifierType_identifierHash: {
+              identifierType: "NID",
+              identifierHash,
+            },
+          },
+          select: { patientId: true },
+        });
+        if (conflictingLink && conflictingLink.patientId !== input.patientId) {
+          throw new PatientIdentityConflictError();
+        }
+        const linkedIdentity = await tx.patientExternalIdentity.upsert({
+          where: {
+            identifierType_identifierHash: {
+              identifierType: "NID",
+              identifierHash,
+            },
+          },
+          create: {
+            patientId: input.patientId,
+            identifierType: "NID",
+            identifierHash,
+            identifierEncrypted: encryptHieValue(input.nid),
+            resourceIdHash: resourceHash,
+            resourceIdEncrypted: encryptHieValue(input.externalPatientId),
+            verificationStatus: "VERIFIED",
+            verifiedAt: new Date(),
+            demographicsSnapshotEncrypted: encryptHieJson(snapshot),
+          },
+          update: {
+            resourceIdHash: resourceHash,
+            resourceIdEncrypted: encryptHieValue(input.externalPatientId),
+            verificationStatus: "VERIFIED",
+            verifiedAt: new Date(),
+            deferredReason: null,
+            demographicsSnapshotEncrypted: encryptHieJson(snapshot),
+          },
+          select: {
+            id: true,
+            patientId: true,
+            identifierType: true,
+            verificationStatus: true,
+            verifiedAt: true,
+          },
+        });
+        if (linkedIdentity.patientId !== input.patientId) {
+          throw new PatientIdentityConflictError();
+        }
+        if (nationalPatient.structuredAddress) {
+          await tx.patient.update({
+            where: { id: input.patientId },
+            data: { structuredAddress: nationalPatient.structuredAddress },
+          });
+        }
+        await resumeBlockedPatientEvents(tx, {
+          clinicId,
+          patientId: input.patientId,
+        });
+        return linkedIdentity;
+      }),
+    {
+      clinicId,
+      patientId: input.patientId,
+      actorId,
+      identifierHash,
+      identifier: input.nid,
     }
-    return linkedIdentity;
-  });
+  );
   await audit({
     clinicId,
     actorId,
@@ -709,63 +771,66 @@ export async function deferVerification(c: Context<AppEnv>) {
   const input = c.get("validatedJson") as DeferInput;
   await scopedPatient(clinicId, input.patientId);
   const identifierHash = hashHieIdentifier(input.nid);
-  const conflictingLink = await db.patientExternalIdentity.findFirst({
-    where: {
-      identifierType: "NID",
-      identifierHash,
-      patientId: { not: input.patientId },
-    },
-    select: { patientId: true },
-  });
-  if (conflictingLink) {
-    await recordIdentityConflict({
+  const identity = await runPatientIdentityWrite(
+    () =>
+      db.$transaction(async (tx) => {
+        const conflictingLink = await tx.patientExternalIdentity.findUnique({
+          where: {
+            identifierType_identifierHash: {
+              identifierType: "NID",
+              identifierHash,
+            },
+          },
+          select: { patientId: true, verificationStatus: true },
+        });
+        assertIdentityCanBeDeferred(conflictingLink, input.patientId);
+        const deferredIdentity = await tx.patientExternalIdentity.upsert({
+          where: {
+            identifierType_identifierHash: {
+              identifierType: "NID",
+              identifierHash,
+            },
+            verificationStatus: { not: "VERIFIED" },
+          },
+          create: {
+            patientId: input.patientId,
+            identifierType: "NID",
+            identifierHash,
+            identifierEncrypted: encryptHieValue(input.nid),
+            verificationStatus: "PENDING",
+            deferredReason: input.note
+              ? `${input.reason}: ${input.note}`
+              : input.reason,
+            demographicsSnapshotEncrypted: encryptHieJson({
+              birthDate: input.birthDate,
+            }),
+          },
+          update: {
+            verificationStatus: "PENDING",
+            deferredReason: input.note
+              ? `${input.reason}: ${input.note}`
+              : input.reason,
+          },
+          select: {
+            id: true,
+            patientId: true,
+            identifierType: true,
+            verificationStatus: true,
+          },
+        });
+        if (deferredIdentity.patientId !== input.patientId) {
+          throw new PatientIdentityConflictError();
+        }
+        return deferredIdentity;
+      }),
+    {
       clinicId,
       patientId: input.patientId,
       actorId,
       identifierHash,
       identifier: input.nid,
-    });
-    throw new AppError({
-      status: 409,
-      code: "HIE_IDENTITY_ALREADY_LINKED",
-      message: "This national identity is already linked to another patient",
-      exposeMessage: true,
-    });
-  }
-  const identity = await db.patientExternalIdentity.upsert({
-    where: {
-      identifierType_identifierHash: {
-        identifierType: "NID",
-        identifierHash,
-      },
-    },
-    create: {
-      patientId: input.patientId,
-      identifierType: "NID",
-      identifierHash,
-      identifierEncrypted: encryptHieValue(input.nid),
-      verificationStatus: "PENDING",
-      deferredReason: input.note
-        ? `${input.reason}: ${input.note}`
-        : input.reason,
-      demographicsSnapshotEncrypted: encryptHieJson({
-        birthDate: input.birthDate,
-      }),
-    },
-    update: {
-      patientId: input.patientId,
-      verificationStatus: "PENDING",
-      deferredReason: input.note
-        ? `${input.reason}: ${input.note}`
-        : input.reason,
-    },
-    select: {
-      id: true,
-      patientId: true,
-      identifierType: true,
-      verificationStatus: true,
-    },
-  });
+    }
+  );
   await audit({
     clinicId,
     actorId,
@@ -817,18 +882,27 @@ export async function createConsent(c: Context<AppEnv>) {
   const { clinicId, actorId } = tenant(c);
   const input = c.get("validatedJson") as ConsentInput;
   await scopedPatient(clinicId, input.patientId);
-  const consent = await db.hieConsent.create({
-    data: {
+  const consent = await db.$transaction(async (tx) => {
+    const created = await tx.hieConsent.create({
+      data: {
+        clinicId,
+        patientId: input.patientId,
+        status: "ACTIVE",
+        scope: input.scope,
+        purpose: input.purpose,
+        evidence: input.evidence as Prisma.InputJsonValue | undefined,
+        effectiveFrom: new Date(input.effectiveFrom),
+        effectiveTo: input.effectiveTo
+          ? new Date(input.effectiveTo)
+          : undefined,
+        recordedById: actorId,
+      },
+    });
+    await resumeBlockedPatientEvents(tx, {
       clinicId,
       patientId: input.patientId,
-      status: "ACTIVE",
-      scope: input.scope,
-      purpose: input.purpose,
-      evidence: input.evidence as Prisma.InputJsonValue | undefined,
-      effectiveFrom: new Date(input.effectiveFrom),
-      effectiveTo: input.effectiveTo ? new Date(input.effectiveTo) : undefined,
-      recordedById: actorId,
-    },
+    });
+    return created;
   });
   await audit({
     clinicId,
@@ -1105,17 +1179,24 @@ export async function queueExternalTransfer(c: Context<AppEnv>) {
   const { clinicId, actorId } = tenant(c);
   await requireCapability(clinicId, "transferEnabled");
   const transferId = Number(c.req.param("transferId"));
-  const transfer = await db.hieExternalTransfer.findFirst({
-    where: { id: transferId, clinicId, status: { in: ["DRAFT", "FAILED"] } },
-  });
-  if (!transfer) {
-    throw notFoundError("Draft or failed transfer not found");
-  }
-  const eventId = await db.$transaction(async (tx) => {
-    await tx.hieExternalTransfer.update({
-      where: { id: transferId },
+  const queued = await db.$transaction(async (tx) => {
+    const transfer = await tx.hieExternalTransfer.findFirst({
+      where: {
+        id: transferId,
+        clinicId,
+        status: { in: ["DRAFT", "FAILED"] },
+      },
+    });
+    if (!transfer) {
+      throw notFoundError("Draft or failed transfer not found");
+    }
+    const claimed = await tx.hieExternalTransfer.updateMany({
+      where: { id: transferId, clinicId, status: transfer.status },
       data: { status: "QUEUED" },
     });
+    if (claimed.count !== 1) {
+      throw notFoundError("Draft or failed transfer not found");
+    }
     if (transfer.status === "FAILED") {
       const existing = await tx.hieOutboxEvent.findFirst({
         where: {
@@ -1144,7 +1225,7 @@ export async function queueExternalTransfer(c: Context<AppEnv>) {
           lockedAt: null,
         },
       });
-      return existing.id;
+      return { eventId: existing.id, patientId: transfer.patientId };
     }
     const created = await tx.hieOutboxEvent.create({
       data: {
@@ -1159,19 +1240,22 @@ export async function queueExternalTransfer(c: Context<AppEnv>) {
       },
       select: { id: true },
     });
-    return created.id;
+    return { eventId: created.id, patientId: transfer.patientId };
   });
   await audit({
     clinicId,
     actorId,
-    patientId: transfer.patientId,
+    patientId: queued.patientId,
     action: "transfer.queued",
     capability: "TRANSFER",
     outcome: "QUEUED",
     correlationId: randomUUID(),
     metadata: { transferId },
   });
-  return jsonSuccess(c, { status: 202, data: { queued: true, eventId } });
+  return jsonSuccess(c, {
+    status: 202,
+    data: { queued: true, eventId: queued.eventId },
+  });
 }
 
 export async function cancelExternalTransfer(c: Context<AppEnv>) {

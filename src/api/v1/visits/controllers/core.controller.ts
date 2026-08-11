@@ -1966,23 +1966,24 @@ export const finalizeVisit = async (c: Context) => {
       // are no internal lines with a price and quantity.
       await createMedicationPaymentForVisit(visitId, { tx });
 
-      // When configured, the clinical commit and HIE publication intent are
-      // atomic. An integration configuration/runtime fault must never roll back
-      // local care; it is logged without patient identifiers or payloads.
-      try {
-        await enqueueFinalizedVisit(tx, {
-          clinicId: visit.clinicId,
-          visitId,
-          patientId: visit.patientId,
-        });
-      } catch {
-        logger.error("hie.outbox.enqueue_failed", {
-          capability: "SHARED_RECORD_WRITE",
-        });
-      }
-
       return finalizedVisit;
     });
+
+    // HIE enqueue is best-effort and happens only after local clinical care is
+    // committed. The outbox cron reconciles finalized visits missing an event.
+    try {
+      await enqueueFinalizedVisit(db, {
+        clinicId: visit.clinicId,
+        visitId,
+        patientId: visit.patientId,
+      });
+    } catch (error) {
+      logger.error("hie.outbox.enqueue_failed", {
+        capability: "SHARED_RECORD_WRITE",
+        visitId,
+        error,
+      });
+    }
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,

@@ -15,6 +15,7 @@ import {
   SubscriptionStatus,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
+import { throwAdminControllerError } from "./controller-error";
 
 /**
  * Statuses that generate revenue. A trial, an onboarding tenant or a suspended
@@ -22,13 +23,6 @@ import { db } from "../../../database/db";
  * inflate the headline figure the operator makes decisions on.
  */
 const BILLABLE_STATUSES: SubscriptionStatus[] = [SubscriptionStatus.ACTIVE];
-
-const serverError = (c: Context, error: unknown) =>
-  jsonError(c, {
-    status: httpCodes.INTERNAL_SERVER_ERROR,
-    code: "INTERNAL_SERVER_ERROR",
-    message: error instanceof Error ? error.message : "Internal Server Error",
-  });
 
 /**
  * Serialise a Plan for the wire.
@@ -69,7 +63,7 @@ export const getPlans = async (c: Context) => {
     const plans = await db.plan.findMany({ orderBy: { monthlyPrice: "asc" } });
     return jsonSuccess(c, { data: plans.map(serialisePlan) });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.plans_load_failed", error);
   }
 };
 
@@ -118,7 +112,7 @@ export const updatePlan = async (c: Context) => {
 
     return jsonSuccess(c, { data: serialisePlan(updated) });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.plan_update_failed", error);
   }
 };
 
@@ -215,7 +209,7 @@ export const getSubscriptions = async (c: Context) => {
       },
     });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.subscriptions_load_failed", error);
   }
 };
 
@@ -270,7 +264,7 @@ export const updateClinicPlan = async (c: Context) => {
 
     return jsonSuccess(c, { data: updated });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.clinic_plan_update_failed", error);
   }
 };
 
@@ -341,7 +335,10 @@ export const getClinicSubscription = async (c: Context) => {
       },
     });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError(
+      "admin.billing.clinic_subscription_load_failed",
+      error
+    );
   }
 };
 
@@ -351,7 +348,7 @@ export const getSettings = async (c: Context) => {
     const settings = await getPlatformSettings();
     return jsonSuccess(c, { data: settings });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.settings_load_failed", error);
   }
 };
 
@@ -369,6 +366,6 @@ export const updateSettings = async (c: Context) => {
 
     return jsonSuccess(c, { data: settings });
   } catch (error) {
-    return serverError(c, error);
+    throwAdminControllerError("admin.billing.settings_update_failed", error);
   }
 };

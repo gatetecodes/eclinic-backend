@@ -20,6 +20,12 @@ import {
   upsertClinicEntitlementOverrides,
 } from "./admin.controller.ts";
 import {
+  adminUsersQuerySchema,
+  auditExportQuerySchema,
+  auditQuerySchema,
+  entitlementUsageQuerySchema,
+} from "./admin.validation.ts";
+import {
   inviteUser,
   remindTwoFactor,
   revokeUser,
@@ -105,12 +111,20 @@ const lifecycleSchema = z.object({
   reason: z.string().trim().min(1).max(500),
 });
 
-router.get("/entitlements/usage/summary", getEntitlementUsageSummary);
+router.get(
+  "/entitlements/usage/summary",
+  validate(entitlementUsageQuerySchema, "query"),
+  getEntitlementUsageSummary
+);
 
 // Cross-tenant user directory + audit trail.
-router.get("/users", getAllUsers);
-router.get("/audit", getAuditLogs);
-router.get("/audit/export", exportAuditLogs);
+router.get("/users", validate(adminUsersQuerySchema, "query"), getAllUsers);
+router.get("/audit", validate(auditQuerySchema, "query"), getAuditLogs);
+router.get(
+  "/audit/export",
+  validate(auditExportQuerySchema, "query"),
+  exportAuditLogs
+);
 
 // PATIENT is excluded: a patient-portal account is not staff and must be created
 // through the portal signup flow, which links it to a Patient record.

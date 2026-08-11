@@ -238,8 +238,16 @@ describe("Encounter mapping", () => {
   it("maps a finalized local visit", () => {
     const encounter = mapVisitEncounter(base);
     expect(encounter.status).toBe("finished");
+    expect(encounter.period.end).toBe("2026-08-07T09:00:00.000Z");
     expect(encounter.subject.reference).toBe("Patient/123456-1234-1234");
     expect(encounter.location[0]?.location.reference).toBe("Location/fosa-42");
+  });
+
+  it("keeps an unfinished local visit in progress without an end time", () => {
+    const encounter = mapVisitEncounter({ ...base, endedAt: null });
+
+    expect(encounter.status).toBe("in-progress");
+    expect(encounter.period).not.toHaveProperty("end");
   });
 
   it("keeps an inter-facility transfer distinct", () => {
@@ -254,6 +262,22 @@ describe("Encounter mapping", () => {
     expect(encounter.hospitalization.destination.reference).toBe(
       "Location/destination"
     );
+    expect(encounter.status).toBe("finished");
+    expect(encounter.period.end).toBe("2026-08-07T09:00:00.000Z");
+  });
+
+  it("keeps an unfinished transfer in progress without an end time", () => {
+    const encounter = mapTransferEncounter({
+      ...base,
+      endedAt: null,
+      parentEncounterReference: "parent-encounter",
+      originReference: "Location/source",
+      destinationReference: "Location/destination",
+      reason: "Specialist care",
+    });
+
+    expect(encounter.status).toBe("in-progress");
+    expect(encounter.period).not.toHaveProperty("end");
   });
 
   it("creates a locally authored transfer IPS and escapes narrative markup", () => {

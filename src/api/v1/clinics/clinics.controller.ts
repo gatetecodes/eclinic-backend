@@ -8,13 +8,12 @@ import {
   UserStatus,
 } from "../../../../generated/prisma/client";
 import { db } from "../../../database/db";
-import { hashCredentialPassword } from "../../../helpers/auth-helper";
 import { buildQueryOptions } from "../../../helpers/query-helper";
-import { defaultFlowConfigRows } from "../../../lib/clinic-flow";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { logger } from "../../../lib/logger";
 import { writeAudit } from "../../../services/audit.service";
+import { provisionClinic } from "../../../services/clinic-provisioning.service";
 import { invalidateEntitlements } from "../../../services/entitlements.service";
 import { createVerificationEmail } from "../users/users.controller";
 import { clinicSchema } from "./clinics.validation";
@@ -83,57 +82,14 @@ export const createClinic = async (c: Context) => {
         httpCodes.FORBIDDEN as ContentfulStatusCode
       );
     }
-    const clinic = await db.$transaction(async (tx) => {
-      const { admin, operatingCountry, ...clinicData } = validatedFields.data;
-      const newClinic = await tx.clinic.create({
-        data: {
-          ...clinicData,
-          operatingCountry: operatingCountry.toUpperCase(),
-        },
-      });
-      const branch = await tx.branch.create({
-        data: {
-          name: "Main Branch",
-          code: "MAIN",
-          clinicId: newClinic.id,
-          isHeadOffice: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
-
-      // Seed the default care-flow config (all stages enabled, canonical order)
-      // so the clinic starts with the standard pipeline and the admin can toggle
-      // optional stages from day one.
-      await tx.clinicFlowConfig.createMany({
-        data: defaultFlowConfigRows(newClinic.id),
-      });
-      const adminUser = await tx.user.create({
-        data: {
-          name: admin.name,
-          email: admin.email,
-          phone_number: admin.phone_number,
-          branchId: branch.id,
-          clinicId: newClinic.id,
-          role: Role.CLINIC_ADMIN,
-          status: UserStatus.ACTIVE,
-          emailVerified: null, // Explicitly set to avoid coercion issues
-        },
-      });
-
-      // Create better-auth credential account for the admin user
-      const credentialHash = hashCredentialPassword(
-        process.env.DEFAULT_USER_PASSWORD as string
-      );
-      await tx.account.create({
-        data: {
-          providerId: "credential",
-          accountId: adminUser.id.toString(),
-          userId: adminUser.id,
-          password: credentialHash,
-        },
-      });
-      return { newClinic, branch, adminUser };
+    const { admin, expiryDate, logo, defaultCurrency, ...clinicData } =
+      validatedFields.data;
+    const clinic = await provisionClinic({
+      ...clinicData,
+      admin,
+      logo,
+      defaultCurrency,
+      subscriptionExpiryDate: expiryDate,
     });
 
     // Send verification email to the clinic admin so they can activate their account
