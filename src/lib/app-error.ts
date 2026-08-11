@@ -85,6 +85,30 @@ type MaybePrismaError = {
   name?: string;
 };
 
+/**
+ * True when `error` is a Prisma unique-constraint violation (P2002) reported
+ * against an index covering every one of `fields`.
+ *
+ * Callers use this to recognise a specific race — a check-then-write that lost —
+ * and recover from it, rather than letting the global handler turn it into a
+ * generic 409. `meta.target` is the field list on some driver adapters and the
+ * constraint name on others, so both are matched by substring.
+ */
+export function isUniqueViolationOn(
+  error: unknown,
+  fields: readonly string[]
+): boolean {
+  const e = error as MaybePrismaError;
+  if (!e || typeof e !== "object" || e.code !== "P2002") {
+    return false;
+  }
+  const target = e.meta?.target;
+  const described = (Array.isArray(target) ? target : [target])
+    .filter((entry): entry is string => typeof entry === "string")
+    .join(",");
+  return fields.every((field) => described.includes(field));
+}
+
 export function tryMapPrismaError(error: unknown): AppError | null {
   const e = error as MaybePrismaError;
   if (!e || typeof e !== "object" || !e.code) {

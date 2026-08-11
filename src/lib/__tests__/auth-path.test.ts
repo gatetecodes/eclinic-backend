@@ -24,6 +24,22 @@ describe("normalizeAuthPath", () => {
     expect(shouldBlockAuthPath(path, allowedAdminPaths)).toBe(false);
   });
 
+  // Each extra "25" is one more layer of encoding over "%61dmin", so decoding
+  // peels exactly one layer per pass.
+  const nestedAdmin = (layers: number) => `%${"25".repeat(layers - 1)}61dmin`;
+
+  it("still canonicalizes the deepest nesting the cap allows", () => {
+    const path = `/api/v1/auth/${nestedAdmin(4)}/delete-user`;
+    expect(normalizeAuthPath(path)).toBe("/auth/admin/delete-user");
+    expect(shouldBlockAuthPath(path, allowedAdminPaths)).toBe(true);
+  });
+
+  it("rejects a path that keeps decoding past the cap", () => {
+    const path = `/api/v1/auth/${nestedAdmin(13)}/delete-user`;
+    expect(normalizeAuthPath(path)).toBeNull();
+    expect(shouldBlockAuthPath(path, allowedAdminPaths)).toBe(true);
+  });
+
   it("rejects malformed percent encoding", () => {
     const path = "/api/v1/auth/%/admin/delete-user";
     expect(normalizeAuthPath(path)).toBeNull();

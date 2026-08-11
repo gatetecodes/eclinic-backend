@@ -150,8 +150,24 @@ async function cancelReader(reader: {
   }
 }
 
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Best effort: the validation error is what the caller must see.
+  }
+}
+
 export async function readBoundedJson(response: Response): Promise<unknown> {
-  validateContentLength(response);
+  try {
+    validateContentLength(response);
+  } catch (error) {
+    // Rejecting on the header alone means nothing will ever read this body, and
+    // an undrained response holds its connection out of the pool. Release it the
+    // same way the oversized-stream path below does, then propagate.
+    await cancelResponseBody(response);
+    throw error;
+  }
 
   if (!response.body) {
     return null;

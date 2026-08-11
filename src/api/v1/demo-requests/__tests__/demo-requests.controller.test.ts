@@ -61,7 +61,7 @@ beforeEach(() => {
   provisionClinic.mockClear();
 });
 
-const approve = async () => {
+const approve = () => {
   const app = new Hono();
   app.post("/:id", approveDemoRequest);
   return app.request("/1", {

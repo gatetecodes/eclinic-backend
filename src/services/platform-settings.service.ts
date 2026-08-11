@@ -38,11 +38,24 @@ export type PlatformSettingsPatch = Partial<
   >
 >;
 
+/**
+ * True when a patch carries no fields, so applying it writes nothing.
+ *
+ * Exported so callers that record an audit event for the update can gate on the
+ * same predicate this service uses to skip the write — otherwise an empty patch
+ * is logged as a settings change that never happened.
+ */
+export function isEmptyPlatformSettingsPatch(
+  patch: PlatformSettingsPatch
+): boolean {
+  return Object.keys(patch).length === 0;
+}
+
 /** Apply a partial update, creating the row if it is somehow missing. */
 export function updatePlatformSettings(
   patch: PlatformSettingsPatch
 ): Promise<PlatformSetting> {
-  if (Object.keys(patch).length === 0) {
+  if (isEmptyPlatformSettingsPatch(patch)) {
     return getPlatformSettings();
   }
 

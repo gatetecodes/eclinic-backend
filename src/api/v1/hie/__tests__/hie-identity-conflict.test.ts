@@ -8,6 +8,7 @@ let conflictingPatientId = 99;
 let existingVerificationStatus = "PENDING";
 let rolledBack = false;
 let recordedAfterRollback = false;
+let upsertError: unknown;
 let upsertArgs:
   | {
       update?: Record<string, unknown>;
@@ -29,6 +30,9 @@ const transactionClient = {
         where?: Record<string, unknown>;
       }) => {
         upsertArgs = args;
+        if (upsertError) {
+          return Promise.reject(upsertError);
+        }
         return Promise.resolve({
           id: 1,
           patientId: conflictingPatientId,
@@ -108,6 +112,7 @@ beforeEach(() => {
   existingVerificationStatus = "PENDING";
   rolledBack = false;
   recordedAfterRollback = false;
+  upsertError = undefined;
   upsertArgs = undefined;
   transactionClient.patientExternalIdentity.findUnique.mockClear();
   transactionClient.patientExternalIdentity.upsert.mockClear();
@@ -204,6 +209,99 @@ describe("patient identity conflict handling", () => {
     expect(upsertArgs?.where).toMatchObject({
       verificationStatus: { not: "VERIFIED" },
     });
+    expect(reconciliationCreate).not.toHaveBeenCalled();
+  });
+
+  it("records a conflict when a concurrent write loses the unique index race", async () => {
+    // The link check passed for this patient, so only the index catches the race.
+    conflictingPatientId = 7;
+    upsertError = Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: { target: ["identifierType", "identifierHash"] },
+    });
+
+    const caught = await captureError(
+      deferVerification(
+        context({
+          patientId: 7,
+          nid: "1234567890123456",
+          birthDate: "1990-01-01",
+          reason: "REGISTRY_UNAVAILABLE",
+        })
+      )
+    );
+
+    expect(caught).toMatchObject({ code: "HIE_IDENTITY_ALREADY_LINKED" });
+    expect(rolledBack).toBe(true);
+    expect(recordedAfterRollback).toBe(true);
+    expect(reconciliationCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognises a P2002 reported as a constraint name", async () => {
+    conflictingPatientId = 7;
+    upsertError = Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: {
+        target: "PatientExternalIdentity_identifierType_identifierHash_key",
+      },
+    });
+
+    const caught = await captureError(
+      deferVerification(
+        context({
+          patientId: 7,
+          nid: "1234567890123456",
+          birthDate: "1990-01-01",
+          reason: "REGISTRY_UNAVAILABLE",
+        })
+      )
+    );
+
+    expect(caught).toMatchObject({ code: "HIE_IDENTITY_ALREADY_LINKED" });
+    expect(reconciliationCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows unrelated Prisma failures untouched", async () => {
+    conflictingPatientId = 7;
+    upsertError = Object.assign(new Error("Foreign key constraint failed"), {
+      code: "P2003",
+      meta: { field_name: "patientId" },
+    });
+
+    const caught = await captureError(
+      deferVerification(
+        context({
+          patientId: 7,
+          nid: "1234567890123456",
+          birthDate: "1990-01-01",
+          reason: "REGISTRY_UNAVAILABLE",
+        })
+      )
+    );
+
+    expect(caught).toMatchObject({ code: "P2003" });
+    expect(reconciliationCreate).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 on an unrelated unique index", async () => {
+    conflictingPatientId = 7;
+    upsertError = Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: { target: ["clinicId", "fosaCode"] },
+    });
+
+    const caught = await captureError(
+      deferVerification(
+        context({
+          patientId: 7,
+          nid: "1234567890123456",
+          birthDate: "1990-01-01",
+          reason: "REGISTRY_UNAVAILABLE",
+        })
+      )
+    );
+
+    expect(caught).toMatchObject({ code: "P2002" });
     expect(reconciliationCreate).not.toHaveBeenCalled();
   });
 

@@ -49,14 +49,16 @@ describe("GET retry policy", () => {
     process.env.HIE_GET_MAX_ATTEMPTS = "3";
     const correlationIds: string[] = [];
     let calls = 0;
-    globalThis.fetch = mock(async (_input, init) => {
+    globalThis.fetch = mock((_input, init) => {
       calls += 1;
       correlationIds.push(
         new Headers(init?.headers).get("x-correlation-id") ?? ""
       );
-      return calls === 1
-        ? new Response('{"resourceType":"OperationOutcome"}', { status: 503 })
-        : new Response('{"resourceType":"Bundle","type":"searchset"}');
+      return Promise.resolve(
+        calls === 1
+          ? new Response('{"resourceType":"OperationOutcome"}', { status: 503 })
+          : new Response('{"resourceType":"Bundle","type":"searchset"}')
+      );
     }) as typeof fetch;
 
     await expect(
@@ -258,6 +260,69 @@ describe("readBoundedJson", () => {
       status: 200,
       retryable: false,
     });
+  });
+
+  it.each([
+    [
+      "an oversized content-length",
+      String(2 * 1024 * 1024 + 1),
+      {
+        message: "RHIE response exceeded the configured size limit",
+        code: "RESPONSE_TOO_LARGE",
+        retryable: false,
+      },
+    ],
+    [
+      "a malformed content-length",
+      "not-a-number",
+      {
+        message: "RHIE returned an invalid content-length header",
+        code: "INVALID_RESPONSE",
+        retryable: true,
+      },
+    ],
+  ])(
+    "cancels the stream when rejecting %s",
+    async (_label, header, expected) => {
+      let cancelled = false;
+      let read = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          read = true;
+          controller.enqueue(new Uint8Array([123, 125]));
+          controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      // 503 so the retryable flag differs between the two rejection paths.
+      const response = new Response(body, {
+        status: 503,
+        headers: { "content-length": header },
+      });
+
+      let caught: unknown;
+      try {
+        await readBoundedJson(response);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(cancelled).toBe(true);
+      expect(read).toBe(false);
+      expect(caught).toBeInstanceOf(RhieRequestError);
+      expect(caught).toMatchObject({ ...expected, status: 503 });
+    }
+  );
+
+  it("still reads a body whose content-length is within the limit", async () => {
+    const response = new Response('{"status":"ok"}', {
+      status: 200,
+      headers: { "content-length": "15" },
+    });
+
+    await expect(readBoundedJson(response)).resolves.toEqual({ status: "ok" });
   });
 });
 

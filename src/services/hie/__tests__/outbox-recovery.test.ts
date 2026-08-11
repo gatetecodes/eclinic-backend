@@ -5,12 +5,14 @@ import { decryptHieJson } from "../hie-crypto.service";
 process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test";
 process.env.HIE_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
+let enqueueFinalizedVisit: typeof import("../outbox.service").enqueueFinalizedVisit;
 let recoverMissingFinalizedVisitEvents: typeof import("../outbox.service").recoverMissingFinalizedVisitEvents;
 let resumeBlockedPatientEvents: typeof import("../outbox.service").resumeBlockedPatientEvents;
 let resumeBlockedHieDependencies: typeof import("../outbox.service").resumeBlockedHieDependencies;
 
 beforeAll(async () => {
   ({
+    enqueueFinalizedVisit,
     recoverMissingFinalizedVisitEvents,
     resumeBlockedHieDependencies,
     resumeBlockedPatientEvents,
@@ -139,6 +141,84 @@ describe("finalized visit outbox recovery", () => {
     expect(conditionEvents[0]?.correlationId).not.toBe(
       conditionEvents[1]?.correlationId
     );
+  });
+});
+
+describe("concurrent finalized visit enqueues", () => {
+  const duplicateKeyError = () =>
+    Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: { target: ["idempotencyKey"] },
+    });
+
+  function raceClient(error: unknown, winner: unknown) {
+    const lookups: Record<string, unknown>[] = [];
+    const client = {
+      $transaction: () => Promise.reject(error),
+      hieOutboxEvent: {
+        findFirst: (args: { where: Record<string, unknown> }) => {
+          lookups.push(args.where);
+          return Promise.resolve(winner);
+        },
+      },
+    } as unknown as PrismaClient;
+    return { client, lookups };
+  }
+
+  it("returns the event the winning enqueue already created", async () => {
+    const winner = { id: "event-1", resourceType: "Encounter" };
+    const { client, lookups } = raceClient(duplicateKeyError(), winner);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).resolves.toEqual(winner);
+    expect(lookups).toEqual([
+      {
+        clinicId: 2,
+        aggregateType: "Visit",
+        aggregateId: "4",
+        resourceType: "Encounter",
+        operation: "CREATE",
+      },
+    ]);
+  });
+
+  it("counts a lost race as a successful recovery", async () => {
+    const winner = { id: "event-1", resourceType: "Encounter" };
+    const { client } = raceClient(duplicateKeyError(), winner);
+    const recoveryClient = Object.assign(client, {
+      $queryRaw: () =>
+        Promise.resolve([{ clinicId: 2, patientId: 3, visitId: 4 }]),
+    }) as unknown as PrismaClient;
+
+    await expect(
+      recoverMissingFinalizedVisitEvents(recoveryClient)
+    ).resolves.toBe(1);
+  });
+
+  it("propagates a unique violation on another index", async () => {
+    const otherIndexError = Object.assign(
+      new Error("Unique constraint failed"),
+      {
+        code: "P2002",
+        meta: { target: ["correlationId"] },
+      }
+    );
+    const { client, lookups } = raceClient(otherIndexError, null);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).rejects.toMatchObject({ code: "P2002" });
+    expect(lookups).toEqual([]);
+  });
+
+  it("propagates unrelated failures", async () => {
+    const { client, lookups } = raceClient(new Error("connection reset"), null);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).rejects.toThrow("connection reset");
+    expect(lookups).toEqual([]);
   });
 });
 

@@ -22,9 +22,9 @@ describe("HIE operational metrics tenancy and alerts", () => {
     };
     const client = {
       hieTenantConfig: {
-        findUnique: async (args: { where: { clinicId: number } }) => {
+        findUnique: (args: { where: { clinicId: number } }) => {
           seenClinicIds.push(args.where.clinicId);
-          return {
+          return Promise.resolve({
             enabled: true,
             clientRegistryEnabled: true,
             sharedRecordReadEnabled: true,
@@ -32,101 +32,105 @@ describe("HIE operational metrics tenancy and alerts", () => {
             transferEnabled: true,
             lastHealthStatus: "DEGRADED",
             lastHealthCheckedAt: new Date("2026-08-11T08:00:00.000Z"),
-          };
+          });
         },
       },
       hieOutboxEvent: {
-        groupBy: async (args: {
-          by: string[];
-          where: { clinicId: number };
-        }) => {
+        groupBy: (args: { by: string[]; where: { clinicId: number } }) => {
           capture(args);
-          return args.by[0] === "status"
-            ? [
-                { status: "SUCCEEDED", _count: { _all: 8 } },
-                { status: "DEAD_LETTER", _count: { _all: 2 } },
-              ]
-            : [{ resourceType: "Observation", _count: { _all: 10 } }];
+          return Promise.resolve(
+            args.by[0] === "status"
+              ? [
+                  { status: "SUCCEEDED", _count: { _all: 8 } },
+                  { status: "DEAD_LETTER", _count: { _all: 2 } },
+                ]
+              : [{ resourceType: "Observation", _count: { _all: 10 } }]
+          );
         },
-        findFirst: async (args: { where: { clinicId: number } }) => {
+        findFirst: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return { createdAt: new Date("2026-08-11T07:00:00.000Z") };
+          return Promise.resolve({
+            createdAt: new Date("2026-08-11T07:00:00.000Z"),
+          });
         },
-        count: async (args: { where: { clinicId: number } }) => {
+        count: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return 1;
+          return Promise.resolve(1);
         },
       },
       hieSyncAttempt: {
-        groupBy: async (args: { where: { event: { clinicId: number } } }) => {
+        groupBy: (args: { where: { event: { clinicId: number } } }) => {
           seenClinicIds.push(args.where.event.clinicId);
-          return [
+          return Promise.resolve([
             { outcome: "SUCCEEDED", _count: { _all: 4 } },
             { outcome: "RETRY", _count: { _all: 2 } },
-          ];
+          ]);
         },
-        aggregate: async (args: { where: { event: { clinicId: number } } }) => {
+        aggregate: (args: { where: { event: { clinicId: number } } }) => {
           seenClinicIds.push(args.where.event.clinicId);
-          return { _avg: { durationMs: 150 }, _max: { durationMs: 400 } };
+          return Promise.resolve({
+            _avg: { durationMs: 150 },
+            _max: { durationMs: 400 },
+          });
         },
       },
       hieFacilityLink: {
-        groupBy: async (args: { where: { clinicId: number } }) => {
+        groupBy: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return [
+          return Promise.resolve([
             { verificationStatus: "VERIFIED", _count: { _all: 1 } },
             { verificationStatus: "PENDING", _count: { _all: 1 } },
-          ];
+          ]);
         },
-        count: async (args: { where: { clinicId: number } }) => {
+        count: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return 0;
+          return Promise.resolve(0);
         },
       },
       userExternalIdentity: {
-        groupBy: async (args: { where: { user: { clinicId: number } } }) => {
+        groupBy: (args: { where: { user: { clinicId: number } } }) => {
           capture(args);
-          return [];
+          return Promise.resolve([]);
         },
-        count: async (args: { where: { user: { clinicId: number } } }) => {
+        count: (args: { where: { user: { clinicId: number } } }) => {
           capture(args);
-          return 0;
+          return Promise.resolve(0);
         },
       },
       hieDestinationFacility: {
-        groupBy: async (args: { where: { clinicId: number } }) => {
+        groupBy: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return [];
+          return Promise.resolve([]);
         },
-        count: async (args: { where: { clinicId: number } }) => {
+        count: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return 0;
+          return Promise.resolve(0);
         },
       },
       patientInsuranceExternalIdentity: {
-        groupBy: async (args: { where: { clinicId: number } }) => {
+        groupBy: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return [];
+          return Promise.resolve([]);
         },
-        count: async (args: { where: { clinicId: number } }) => {
+        count: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return 0;
+          return Promise.resolve(0);
         },
       },
       hieConsent: {
-        groupBy: async (args: { where: { clinicId: number } }) => {
+        groupBy: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return [];
+          return Promise.resolve([]);
         },
       },
       hieEmergencyAccess: {
-        count: async (args: { where: { clinicId: number } }) => {
+        count: (args: { where: { clinicId: number } }) => {
           capture(args);
-          return 0;
+          return Promise.resolve(0);
         },
       },
       hieClinicalConcept: {
-        groupBy: async () => [],
+        groupBy: () => Promise.resolve([]),
       },
     } as unknown as PrismaClient;
 

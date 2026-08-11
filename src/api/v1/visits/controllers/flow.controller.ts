@@ -283,7 +283,7 @@ export const getStageSummary = async (c: Context) => {
       stage: visit.careStage,
       allowedStages: flow.transitions[visit.careStage] ?? [],
     });
-  } catch (_error) {
+  } catch {
     return c.json(
       { error: t("flow.stageSummaryLoadFailed") },
       httpCodes.INTERNAL_SERVER_ERROR as ContentfulStatusCode

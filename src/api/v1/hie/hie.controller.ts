@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { db } from "@/database/db";
 import { jsonSuccess } from "@/lib/api-response";
-import { AppError, notFoundError } from "@/lib/app-error";
+import { AppError, isUniqueViolationOn, notFoundError } from "@/lib/app-error";
 import type { AppEnv } from "@/middlewares/auth.middleware";
 import { lookupNationalPatient } from "@/services/hie/client-registry.service";
 import {
@@ -606,6 +606,16 @@ async function throwRecordedIdentityConflict(params: {
   });
 }
 
+const IDENTITY_UNIQUE_FIELDS = ["identifierType", "identifierHash"];
+
+/**
+ * The identity writes below read the existing link and then upsert, so two
+ * concurrent requests for the same identifier can both clear the check and race
+ * into the `identifierType_identifierHash` unique index. Postgres rejects the
+ * loser with P2002 — the same conflict the explicit check raises, so it has to be
+ * recorded rather than escaping to the global handler as a bare
+ * UNIQUE_CONSTRAINT_VIOLATION with no reconciliation row and no audit event.
+ */
 async function runPatientIdentityWrite<T>(
   operation: () => Promise<T>,
   conflict: Parameters<typeof throwRecordedIdentityConflict>[0]
@@ -613,7 +623,12 @@ async function runPatientIdentityWrite<T>(
   try {
     return await operation();
   } catch (error) {
-    if (!(error instanceof PatientIdentityConflictError)) {
+    if (
+      !(
+        error instanceof PatientIdentityConflictError ||
+        isUniqueViolationOn(error, IDENTITY_UNIQUE_FIELDS)
+      )
+    ) {
       throw error;
     }
     return throwRecordedIdentityConflict(conflict);

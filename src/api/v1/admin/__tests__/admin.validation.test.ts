@@ -41,6 +41,25 @@ describe("admin cross-tenant query validation", () => {
     );
   });
 
+  it("accepts only allowlisted user sort columns and directions", () => {
+    expect(
+      adminUsersQuerySchema.parse({ sort: "createdAt.desc" })
+    ).toMatchObject({ sort: "createdAt.desc" });
+    expect(adminUsersQuerySchema.parse({ sort: "name" })).toMatchObject({
+      sort: "name",
+    });
+    // An empty sort keeps meaning "unset", as it did before the allowlist.
+    expect(adminUsersQuerySchema.safeParse({ sort: "" }).success).toBe(true);
+    for (const sort of [
+      "foo.asc",
+      "name.sideways",
+      "name.asc.desc",
+      "clinic.name",
+    ]) {
+      expect(adminUsersQuerySchema.safeParse({ sort }).success).toBe(false);
+    }
+  });
+
   it("validates paginated audit filters against Prisma enums", () => {
     expect(
       auditQuerySchema.parse({

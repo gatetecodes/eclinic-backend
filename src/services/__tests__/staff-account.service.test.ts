@@ -14,9 +14,12 @@ beforeAll(async () => {
   ({ createStaffAccount } = await import("../staff-account.service"));
 });
 
+// Assigning `undefined` to a process.env key stores the string "undefined", so
+// the variable stays set (and truthy). Deleting it is the only way to express
+// "not configured" — both here and in the test below.
 afterEach(() => {
   if (originalDefaultPassword === undefined) {
-    process.env.DEFAULT_USER_PASSWORD = undefined;
+    Reflect.deleteProperty(process.env, "DEFAULT_USER_PASSWORD");
   } else {
     process.env.DEFAULT_USER_PASSWORD = originalDefaultPassword;
   }
@@ -24,7 +27,7 @@ afterEach(() => {
 
 describe("createStaffAccount", () => {
   it("creates a credential without a configured shared default password", async () => {
-    process.env.DEFAULT_USER_PASSWORD = undefined;
+    Reflect.deleteProperty(process.env, "DEFAULT_USER_PASSWORD");
     const user = {
       id: 42,
       email: "invitee@example.com",

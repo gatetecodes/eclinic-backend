@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/database/db";
+import { isUniqueViolationOn } from "@/lib/app-error";
 import { logger } from "@/lib/logger";
 import { Prisma, type PrismaClient } from "../../../generated/prisma/client";
 import {
@@ -1115,6 +1116,24 @@ async function buildVitalEvents(
   });
 }
 
+/**
+ * Identifies the one Encounter event a finalized visit may have. Shared by the
+ * fast path below and the duplicate-race recovery in `enqueueFinalizedVisit`, so
+ * the two can never look for different rows.
+ */
+function finalizedVisitEncounterWhere(params: {
+  clinicId: number;
+  visitId: number;
+}): Prisma.HieOutboxEventWhereInput {
+  return {
+    clinicId: params.clinicId,
+    aggregateType: "Visit",
+    aggregateId: String(params.visitId),
+    resourceType: "Encounter",
+    operation: "CREATE",
+  };
+}
+
 export async function enqueueFinalizedVisitInTransaction(
   tx: Prisma.TransactionClient,
   params: { clinicId: number; visitId: number; patientId: number }
@@ -1157,13 +1176,7 @@ export async function enqueueFinalizedVisitInTransaction(
     );
   }
   const existingEncounter = await tx.hieOutboxEvent.findFirst({
-    where: {
-      clinicId: params.clinicId,
-      aggregateType: "Visit",
-      aggregateId: String(params.visitId),
-      resourceType: "Encounter",
-      operation: "CREATE",
-    },
+    where: finalizedVisitEncounterWhere(params),
   });
   if (existingEncounter) {
     return existingEncounter;
@@ -1312,13 +1325,27 @@ export async function enqueueFinalizedVisitInTransaction(
   return encounterEvent;
 }
 
-export function enqueueFinalizedVisit(
+export async function enqueueFinalizedVisit(
   client: PrismaClient,
   params: { clinicId: number; visitId: number; patientId: number }
 ) {
-  return client.$transaction((tx) =>
-    enqueueFinalizedVisitInTransaction(tx, params)
-  );
+  try {
+    return await client.$transaction((tx) =>
+      enqueueFinalizedVisitInTransaction(tx, params)
+    );
+  } catch (error) {
+    if (!isUniqueViolationOn(error, ["idempotencyKey"])) {
+      throw error;
+    }
+    // A concurrent enqueue created the event between our findFirst and our
+    // insert. Enqueueing is idempotent, so the winner's event is this call's
+    // result rather than an error. The re-read has to happen out here: a unique
+    // violation aborts the surrounding Postgres transaction, so nothing can be
+    // queried from inside it after the insert fails.
+    return await client.hieOutboxEvent.findFirst({
+      where: finalizedVisitEncounterWhere(params),
+    });
+  }
 }
 
 export async function enqueueCurrentClinicalEventsInTransaction(

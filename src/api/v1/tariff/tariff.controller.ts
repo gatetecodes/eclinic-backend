@@ -1462,6 +1462,18 @@ export const importProductsFromCSV = async (
       tariffError(httpCodes.FORBIDDEN, "FORBIDDEN", "Forbidden");
     }
 
+    // A SUPER_ADMIN carries no clinicId of their own, so the import has to run
+    // against the scope resolved from the request (`?clinicId=`). Reading
+    // `user.clinicId` here handed `undefined` to every product write below.
+    const { clinicId } = getScope(user, c.req.query());
+    if (!clinicId) {
+      tariffError(
+        httpCodes.BAD_REQUEST,
+        "CLINIC_SCOPE_REQUIRED",
+        "Clinic scope is required to import products"
+      );
+    }
+
     const validatedData = c.get("validatedJson") as
       | ImportProductsData
       | undefined;
@@ -1533,7 +1545,7 @@ export const importProductsFromCSV = async (
             );
             const startTime = Date.now();
             const result = await processRecord(
-              user.clinicId,
+              clinicId,
               companyMap,
               existingProduct
             )(record);
