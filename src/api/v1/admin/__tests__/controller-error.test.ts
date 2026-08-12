@@ -1,10 +1,19 @@
 import { beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { AppError } from "@/lib/app-error";
 
-const logError = mock(() => {});
+const noop = () => {
+  // the logger is a silent sink in these tests
+};
+
+const logError = mock(noop);
 
 mock.module("@/lib/logger", () => ({
-  logger: { error: logError },
+  logger: {
+    debug: mock(noop),
+    info: mock(noop),
+    warn: mock(noop),
+    error: logError,
+  },
 }));
 
 let throwAdminControllerError: typeof import("../controller-error").throwAdminControllerError;

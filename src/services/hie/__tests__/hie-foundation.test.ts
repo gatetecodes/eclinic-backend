@@ -8,7 +8,16 @@ import {
   formatRwandaAdministrativeAddress,
   parseRwandaAdministrativeAddress,
 } from "../client-registry.service";
+import {
+  mapLabResultObservation,
+  mapLabServiceRequest,
+  mapMedicationAdministration,
+  mapMedicationDispense,
+  mapMedicationRequest,
+  mapProcedure,
+} from "../clinical-resource.mapper";
 import { mapVisitCondition } from "../condition.mapper";
+import { mapDischargeIpsBundle } from "../discharge-ips.mapper";
 import {
   mapTransferEncounter,
   mapTransferIpsBundle,
@@ -35,6 +44,10 @@ import {
   terminologyVerificationFields,
 } from "../product-terminology.service";
 import { summarizeInternationalPatientSummary } from "../shared-record.service";
+import {
+  mapVitalObservation,
+  parseVitalValue,
+} from "../vital-observation.mapper";
 
 const originalKey = process.env.HIE_DATA_ENCRYPTION_KEY;
 const originalHashKey = process.env.HIE_IDENTIFIER_HASH_KEY;
@@ -154,6 +167,7 @@ describe("FHIR boundary validation", () => {
     const items = summarizeInternationalPatientSummary(bundle, 42);
     expect(items).toHaveLength(1);
     expect(items[0]?.label).toBe("Cholera");
+    expect(items[0]?.resourceId).toBe("condition-7");
     expect(JSON.stringify(items)).not.toContain("national-patient-id");
     expect(JSON.stringify(items)).not.toContain("1199880011223344");
     const token = items[0]?.reconciliationToken;
@@ -334,6 +348,135 @@ describe("Condition mapping", () => {
         recordedAt: new Date("2026-08-07T09:00:00.000Z"),
       })
     ).toThrow();
+  });
+});
+
+describe("Vital-sign Observation mapping", () => {
+  it("normalizes a numeric string to a LOINC and UCUM quantity", () => {
+    expect(parseVitalValue("98.5 %")).toBe(98.5);
+    const observation = mapVitalObservation({
+      id: "37d79901-863c-4289-a9c9-a251dbb7fa23",
+      metric: "spo2",
+      value: 98.5,
+      patientReference: "patient-1",
+      practitionerReference: "practitioner-1",
+      encounterReference: "encounter-1",
+      effectiveAt: new Date("2026-08-07T09:00:00.000Z"),
+    });
+    expect(observation.code.coding[0]?.system).toBe("http://loinc.org");
+    expect(observation.code.coding[0]?.code).toBe("2708-6");
+    expect(observation.valueQuantity).toMatchObject({
+      value: 98.5,
+      system: "http://unitsofmeasure.org",
+      code: "%",
+    });
+  });
+
+  it("rejects non-numeric placeholder values", () => {
+    expect(parseVitalValue("N/A")).toBeNull();
+    expect(parseVitalValue("unknown")).toBeNull();
+  });
+});
+
+describe("Phase 3 clinical resource mapping", () => {
+  const reference = {
+    id: "37d79901-863c-4289-a9c9-a251dbb7fa23",
+    patientReference: "patient-1",
+    practitionerReference: "practitioner-1",
+    encounterReference: "encounter-1",
+    locationReference: "Location/facility-1",
+    code: "123456",
+    display: "Mapped clinical concept",
+  };
+  const at = new Date("2026-08-11T08:00:00.000Z");
+
+  it("maps coded laboratory orders and final results", () => {
+    const order = mapLabServiceRequest({ ...reference, orderedAt: at });
+    const result = mapLabResultObservation({
+      ...reference,
+      effectiveAt: at,
+      value: "7.2",
+      unit: "mmol/L",
+      serviceRequestReference: order.id,
+    });
+    expect(order.code.coding[0]?.system).toBe("http://snomed.info/sct");
+    expect(result.code.coding[0]?.system).toBe("http://loinc.org");
+    expect(result.valueQuantity).toMatchObject({
+      value: 7.2,
+      system: "http://unitsofmeasure.org",
+      code: "mmol/L",
+    });
+    expect(result.basedOn?.[0]?.reference).toBe(`ServiceRequest/${order.id}`);
+  });
+
+  it("maps the medication lifecycle with stable references", () => {
+    const dosage = {
+      text: "500 mg twice daily for 5 days",
+      doseValue: 500,
+      doseUnit: "mg",
+      frequencyCount: 2,
+      frequencyPeriod: 1,
+      frequencyPeriodUnit: "d",
+      routeSystem: "http://snomed.info/sct",
+      routeCode: "26643006",
+      routeDisplay: "Oral route",
+      methodSystem: "http://snomed.info/sct",
+      methodCode: "421521009",
+      methodDisplay: "Swallow",
+      durationValue: 5,
+      durationUnit: "d",
+    };
+    const request = mapMedicationRequest({
+      ...reference,
+      authoredAt: at,
+      groupIdentifier: "prescription-1",
+      coverageReference: "coverage-1",
+      dosage,
+    });
+    const dispense = mapMedicationDispense({
+      ...reference,
+      handedOverAt: at,
+      quantity: 10,
+      unit: "tablet",
+      medicationRequestReference: request.id,
+      dosage,
+    });
+    const administration = mapMedicationAdministration({
+      ...reference,
+      effectiveAt: at,
+      reason: "Treatment of confirmed condition",
+      medicationRequestReference: request.id,
+      dosage,
+    });
+    expect(request.medicationCodeableConcept.coding[0]?.system).toBe(
+      "http://snomed.info/sct"
+    );
+    expect(dispense.authorizingPrescription?.[0]?.reference).toBe(
+      `MedicationRequest/${request.id}`
+    );
+    expect(administration.request?.reference).toBe(
+      `MedicationRequest/${request.id}`
+    );
+  });
+
+  it("maps ICHI procedures and an escaped discharge IPS", () => {
+    const procedure = mapProcedure({ ...reference, performedAt: at });
+    const bundle = mapDischargeIpsBundle({
+      id: reference.id,
+      patientReference: reference.patientReference,
+      practitionerReference: reference.practitionerReference,
+      encounterReference: reference.encounterReference,
+      authoredAt: at,
+      finalDiagnosis: "Stable",
+      clinicalSummary: "Recovered after <observation>",
+      patientInstructions: null,
+      followUpAt: null,
+      destination: "Home",
+    });
+    expect(procedure.code.coding[0]?.system).toBe("ICHI");
+    expect(bundle.type).toBe("document");
+    expect(JSON.stringify(bundle)).toContain("&lt;observation&gt;");
+    expect(JSON.stringify(bundle)).not.toContain("<observation>");
   });
 });
 

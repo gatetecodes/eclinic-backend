@@ -1,9 +1,11 @@
 # Rwanda HIE integration
 
-CareLogic connects to Rwanda's HIE through the backend only. The first release
-supports NID and date-of-birth lookup/linking, consent, on-demand IPS retrieval,
-facility mapping, asynchronous finalized Encounter and ICD-11 Condition
-publication, and a distinct inter-facility transfer workflow.
+CareLogic connects to Rwanda's HIE through the backend only. The code-ready
+surface includes national identity lookup/linking, synchronized consent,
+comprehensive read-only national records, finalized clinical publication,
+structured allergy and immunization records, imaging metadata, emergency-read
+governance, and distinct inter-facility transfers. Every high-risk capability
+is tenant controlled and disabled by default.
 
 ## Safety boundaries
 
@@ -27,14 +29,23 @@ publication, and a distinct inter-facility transfer workflow.
 Configure the backend variables documented in `.env.example`. Use distinct URLs
 for the Client Registry and Shared Health Record even if the test environment
 temporarily exposes both on the same host. The default request timeout is eight
-seconds and the maximum accepted response is two MiB.
+seconds and the maximum accepted response is two MiB. Safe GET requests retry
+transient network, 429, and 5xx failures up to `HIE_GET_MAX_ATTEMPTS` with
+bounded exponential backoff. POST requests are never transport-retried by the
+client; durable outbox idempotency governs publication retries.
 Keep the identifier HMAC key separate and stable across application encryption
 key rotations, because it enforces NID/UPID uniqueness without storing plaintext.
 
-For the supplied MoH test environment, configure both base URLs as
-`http://197.243.24.138:5001/` and set `HIE_ALLOW_INSECURE_TEST=true`. Use only
-synthetic identities over that plain-HTTP connection. The Swagger's embedded
-`192.243.24.138:5000` server value is deliberately not used by the code.
+For the supplied MoH test environment, configure
+`HIE_CLIENT_REGISTRY_BASE_URL=http://197.243.24.138:5001/clientregistry/` and
+`HIE_SHR_BASE_URL=http://197.243.24.138:5001/shr/`, set
+`HIE_DEPLOYMENT_ENVIRONMENT=TEST`, and set `HIE_ALLOW_INSECURE_TEST=true`. Use
+only synthetic identities over that plain-HTTP connection. The Swagger's
+embedded server value is deliberately not used by the code.
+
+The tenant environment must match `HIE_DEPLOYMENT_ENVIRONMENT`. A test-labelled
+tenant cannot use a production deployment and a production-labelled tenant
+cannot use test endpoints or credentials. Production always rejects plain HTTP.
 
 The HIE entitlement defaults to disabled for all plans. An administrator must:
 
@@ -60,9 +71,22 @@ All routes are under `/api/v1/hie` and are tenant scoped.
 - `POST /patients/link`: reviewed NID/UPID link with optimistic concurrency.
 - `POST /patients/defer-verification`: record an offline/deferred outcome.
 - `GET /patients/:patientId/ips`: on-demand national record retrieval.
+- `GET /patients/:patientId/national-record`: sectioned national record with
+  independent partial-failure metadata.
 - `POST /consents` and `POST /consents/:id/withdraw`: sharing consent lifecycle.
+- `POST /patients/:patientId/consent/reconcile`: reconcile national consent.
+- `POST /patients/:patientId/emergency-access` and
+  `POST /emergency-access/:id/review`: time-bounded read-only break glass.
+- Structured consultation observation, allergy, immunization, imaging order,
+  and imaging-study APIs use dedicated permissions and capability gates.
+- Super-admin clinical-concept APIs govern national codes; clinic users cannot
+  verify or alter global terminology.
+- Coverage mapping and DOB discrepancy APIs provide audited remediation.
+- `GET /national-audit`: validated, tenant-scoped national AuditEvent reads.
 - `POST /reconciliations`: clinician review of an external item.
 - `GET /outbox` and `POST /outbox/:id/retry`: administrator operations.
+- `GET /operations/summary`: tenant-scoped publication status, resource volume,
+  latency, retry age, facility readiness, and operational alerts.
 - `GET|POST /transfers`, `POST /transfers/:id/queue`, and
   `POST /transfers/:id/cancel`: external transfers, separate from bed moves and
   clinician handoffs.
@@ -71,6 +95,11 @@ The worker processes the durable outbox every minute. Retry delays are one
 minute, five minutes, thirty minutes, two hours, twelve hours, and then daily.
 Events dead-letter after eight failed attempts. Authorization headers,
 identifiers, and FHIR payloads are excluded from application logs.
+Blocked dependencies are automatically reconsidered when their scheduled retry
+time arrives, up to the same eight-attempt bound. A five-minute monitor emits
+redacted operational alerts for dead letters, stale work, degraded health,
+unverified publishing facilities, and elevated failure rates. Configure stale
+age with `HIE_ALERT_STALE_MINUTES`.
 
 Finalized visits publish in dependency order. The Encounter is first, followed
 by ICD-11-coded visit diagnoses. Uncoded diagnoses remain `BLOCKED` with an
@@ -88,3 +117,6 @@ FHIR profiles, identifier systems, FOSA and Practitioner identifiers, consent
 rules, rate limits, idempotency behavior, error contract, UPID workflow, and
 secure connectivity. It also requires the approved DPIA, incident runbook,
 credential rotation, monitoring, access review, and rollback rehearsal.
+
+The pinned contract and endpoint-by-endpoint implementation status are recorded
+in `docs/RHIE_CONFORMANCE_MATRIX.md`. Code readiness is not production approval.

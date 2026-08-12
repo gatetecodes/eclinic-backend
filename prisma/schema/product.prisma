@@ -1,102 +1,103 @@
 enum ProductCategory {
-    TREATMENT
-    EXAM
-    MEDICATION
-    SUPPLY
-    // Add other categories as needed
+  TREATMENT
+  EXAM
+  MEDICATION
+  SUPPLY
+  // Add other categories as needed
 }
 
 enum ProductTerminologyStatus {
-    DRAFT
-    VERIFIED
+  DRAFT
+  VERIFIED
 }
 
 model Product {
-    id                      Int                      @id @default(autoincrement())
-    code                    String                   @unique
-    name                    String
-    description             String?
-    basePrice               Decimal?                 @db.Decimal(10, 2) //Default price if no insurance is present
-    eastAfricaPrice         Decimal?                 @db.Decimal(10, 2) //Price for East African foreigners
-    africaPrice             Decimal?                 @db.Decimal(10, 2) //Price for other African foreigners
-    restOfWorldPrice        Decimal?                 @db.Decimal(10, 2) //Price for rest of world foreigners
-    unit                    String?
-    normalRange             String?
-    consumables             Json? // Json array of consumable items, each item has a name and quantity
-    isActive                Boolean                  @default(true)
-    icd11Code               String? // ICD-11 diagnosis/procedure code (RHIP/insurer standard)
-    loincCode               String? // LOINC code for lab & exam tests (RHIP/insurer standard)
-    snomedCode              String? // SNOMED CT code for RHIE medication and service-request mapping
-    ichiCode                String? // ICHI code for RHIE procedure mapping
-    nationalTariffCode      String? // RSSB/MoH national nomenclature code
-    terminologyStatus       ProductTerminologyStatus @default(DRAFT)
-    terminologyVerifiedAt   DateTime?
-    terminologyVerifiedById Int?
-    terminologyVerifiedBy   User?                    @relation("ProductTerminologyVerifier", fields: [terminologyVerifiedById], references: [id], onDelete: SetNull)
-    clinics                 Clinic[]
-    category                ProductCategory?         @default(TREATMENT)
-    departments             Department[]
-    payments                Payment[]
-    invoices                Invoice[]
-    exams                   Exam[]
-    insurancePrices         InsurancePrice[]
-    clinicProductPrices     ClinicProductPrice[]
-    hospitalizationProducts HospitalizationProduct[]
-    wardMedications         WardMedication[]
-    insuranceClaimItems     InsuranceClaimItem[]
-    consultations           Visit[]
-    visitConsultations      Visit[]                  @relation("ConsultationProducts")
-    treatments              Treatment[]
-    tests                   ExamTest[]
-    examResults             ExamResult[]
-    refunds                 Refund[]
-    createdAt               DateTime                 @default(now())
-    updatedAt               DateTime                 @updatedAt
+  id                      Int                      @id @default(autoincrement())
+  code                    String                   @unique
+  name                    String
+  description             String?
+  basePrice               Decimal?                 @db.Decimal(10, 2) //Default price if no insurance is present
+  eastAfricaPrice         Decimal?                 @db.Decimal(10, 2) //Price for East African foreigners
+  africaPrice             Decimal?                 @db.Decimal(10, 2) //Price for other African foreigners
+  restOfWorldPrice        Decimal?                 @db.Decimal(10, 2) //Price for rest of world foreigners
+  unit                    String?
+  normalRange             String?
+  consumables             Json? // Json array of consumable items, each item has a name and quantity
+  isActive                Boolean                  @default(true)
+  icd11Code               String? // ICD-11 diagnosis/procedure code (RHIP/insurer standard)
+  loincCode               String? // LOINC code for lab & exam tests (RHIP/insurer standard)
+  snomedCode              String? // SNOMED CT code for RHIE medication and service-request mapping
+  ichiCode                String? // ICHI code for RHIE procedure mapping
+  nationalTariffCode      String? // RSSB/MoH national nomenclature code
+  terminologyStatus       ProductTerminologyStatus @default(DRAFT)
+  terminologyVerifiedAt   DateTime?
+  terminologyVerifiedById Int?
+  terminologyVerifiedBy   User?                    @relation("ProductTerminologyVerifier", fields: [terminologyVerifiedById], references: [id], onDelete: SetNull)
+  clinics                 Clinic[]
+  category                ProductCategory?         @default(TREATMENT)
+  departments             Department[]
+  payments                Payment[]
+  invoices                Invoice[]
+  exams                   Exam[]
+  insurancePrices         InsurancePrice[]
+  clinicProductPrices     ClinicProductPrice[]
+  hospitalizationProducts HospitalizationProduct[]
+  wardMedications         WardMedication[]
+  insuranceClaimItems     InsuranceClaimItem[]
+  consultations           Visit[]
+  visitConsultations      Visit[]                  @relation("ConsultationProducts")
+  treatments              Treatment[]
+  tests                   ExamTest[]
+  examResults             ExamResult[]
+  inventoryItems          InventoryItem[]
+  refunds                 Refund[]
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
 
-    @@index([nationalTariffCode])
-    @@index([snomedCode])
-    @@index([ichiCode])
-    @@index([terminologyStatus])
-    @@index([terminologyVerifiedById])
+  @@index([nationalTariffCode])
+  @@index([snomedCode])
+  @@index([ichiCode])
+  @@index([terminologyStatus])
+  @@index([terminologyVerifiedById])
 }
 
 model InsurancePrice {
-    id                 Int              @id @default(autoincrement())
-    product            Product          @relation(fields: [productId], references: [id])
-    productId          Int
-    price              Decimal
-    priceWithCo        Decimal?
-    insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
-    insuranceCompanyId Int
-    clinic             Clinic?          @relation(fields: [clinicId], references: [id])
-    clinicId           Int?
-    priceType          PriceType?
-    insurerItemCode    String? // This insurer's own code for the item, when it differs from the national code
+  id                 Int              @id @default(autoincrement())
+  product            Product          @relation(fields: [productId], references: [id])
+  productId          Int
+  price              Decimal
+  priceWithCo        Decimal?
+  insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
+  insuranceCompanyId Int
+  clinic             Clinic?          @relation(fields: [clinicId], references: [id])
+  clinicId           Int?
+  priceType          PriceType?
+  insurerItemCode    String? // This insurer's own code for the item, when it differs from the national code
 
-    @@unique([productId, insuranceCompanyId, clinicId])
-    @@index([clinicId])
-    @@index([productId, clinicId])
+  @@unique([productId, insuranceCompanyId, clinicId])
+  @@index([clinicId])
+  @@index([productId, clinicId])
 }
 
 model ClinicProductPrice {
-    id               Int      @id @default(autoincrement())
-    clinic           Clinic   @relation(fields: [clinicId], references: [id])
-    clinicId         Int
-    product          Product  @relation(fields: [productId], references: [id])
-    productId        Int
-    basePrice        Decimal? @db.Decimal(10, 2)
-    eastAfricaPrice  Decimal? @db.Decimal(10, 2)
-    africaPrice      Decimal? @db.Decimal(10, 2)
-    restOfWorldPrice Decimal? @db.Decimal(10, 2)
-    createdAt        DateTime @default(now())
-    updatedAt        DateTime @updatedAt
+  id               Int      @id @default(autoincrement())
+  clinic           Clinic   @relation(fields: [clinicId], references: [id])
+  clinicId         Int
+  product          Product  @relation(fields: [productId], references: [id])
+  productId        Int
+  basePrice        Decimal? @db.Decimal(10, 2)
+  eastAfricaPrice  Decimal? @db.Decimal(10, 2)
+  africaPrice      Decimal? @db.Decimal(10, 2)
+  restOfWorldPrice Decimal? @db.Decimal(10, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-    @@unique([clinicId, productId])
-    @@index([clinicId])
-    @@index([productId])
+  @@unique([clinicId, productId])
+  @@index([clinicId])
+  @@index([productId])
 }
 
 enum PriceType {
-    PRIVATE
-    GOV
+  PRIVATE
+  GOV
 }

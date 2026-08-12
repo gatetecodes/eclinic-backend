@@ -5,6 +5,7 @@ import { writeAudit } from "@/services/audit.service";
 import { invalidateEntitlements } from "@/services/entitlements.service";
 import {
   getPlatformSettings,
+  isEmptyPlatformSettingsPatch,
   type PlatformSettingsPatch,
   updatePlatformSettings,
 } from "@/services/platform-settings.service";
@@ -359,10 +360,15 @@ export const updateSettings = async (c: Context) => {
     const patch = c.get("validatedJson") as PlatformSettingsPatch;
     const settings = await updatePlatformSettings(patch);
 
-    await writeAudit(c, "platform.settingsUpdated", {
-      targetType: "platform",
-      metadata: { fields: Object.keys(patch) },
-    });
+    // Every field is optional, so an empty body is a valid request that changes
+    // nothing. Auditing it would record a configuration change that never
+    // happened, with an empty `fields` list.
+    if (!isEmptyPlatformSettingsPatch(patch)) {
+      await writeAudit(c, "platform.settingsUpdated", {
+        targetType: "platform",
+        metadata: { fields: Object.keys(patch) },
+      });
+    }
 
     return jsonSuccess(c, { data: settings });
   } catch (error) {

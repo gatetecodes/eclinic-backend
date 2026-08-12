@@ -50,13 +50,20 @@ import whatsappRouter from "./whatsapp/whatsapp.routes";
 
 const v1 = new Hono();
 
+// Mounting through a deliberately schema-erased boundary keeps TypeScript from
+// expanding every child router into one enormous aggregate conditional type.
+// Each child router remains fully typed and validated in its own module.
+const mount = (path: string, childRouter: unknown) => {
+  v1.route(path, childRouter as Hono);
+};
+
 v1.use("*", initializeLocaleContext);
 
-v1.route("/demo-requests", demoRequestsRouter);
-v1.route("/onboarding", onboardingRouter);
-v1.route("/public/queues", publicQueuesRouter);
-v1.route("/whatsapp", whatsappRouter);
-v1.route("/sms", smsRouter);
+mount("/demo-requests", demoRequestsRouter);
+mount("/onboarding", onboardingRouter);
+mount("/public/queues", publicQueuesRouter);
+mount("/whatsapp", whatsappRouter);
+mount("/sms", smsRouter);
 
 /**
  * The only better-auth admin-plugin routes this app exposes.
@@ -91,7 +98,7 @@ v1.all("/auth/*", (c) => {
   return auth.handler(request);
 });
 
-v1.route("/users", publicUsersRouter);
+mount("/users", publicUsersRouter);
 
 // Global auth for v1 (protect everything else)
 v1.use("*", requireAuth);
@@ -100,40 +107,43 @@ v1.use("*", finalizeLocaleContext);
 // Impersonation exit/status: auth-only, before tenant scoping. While impersonating
 // the session carries a tenant role, so this must NOT sit behind requireSuperAdmin
 // or the operator could never leave the borrowed identity.
-v1.route("/impersonation", impersonationRouter);
+mount("/impersonation", impersonationRouter);
 
 // Mount patient-portal routes BEFORE tenant/entitlements to bypass them while keeping auth
-v1.route("/patient-portal", patientPortalRouter);
+mount("/patient-portal", patientPortalRouter);
 
 // Tenant + Entitlements for the rest
 v1.use("*", tenantContext);
 v1.use("*", entitlementsContext);
 
 // Mount resources
-v1.route("/files", fileUploadRouter);
-v1.route("/users", usersRouter);
-v1.route("/availability", availabilityRouter);
-v1.route("/patients", patientsRouter);
-v1.route("/clinics", clinicsRouter);
-v1.route("/departments", departmentsRouter);
-v1.route("/exams", examsRouter);
-v1.route("/tariff", tariffRouter);
-v1.route("/visits", visitsRouter);
-v1.route("/payments", paymentsRouter);
-v1.route("/inventory", inventoryRouter);
-v1.route("/suppliers", suppliersRouter);
-v1.route("/purchase-orders", purchaseOrdersRouter);
-v1.route("/analytics", analyticsRouter);
-v1.route("/notifications", notificationsRouter);
-v1.route("/admin", adminRouter);
-v1.route("/activity", activityRouter);
-v1.route("/appointments", appointmentsRouter);
-v1.route("/approvals", approvalsRouter);
-v1.route("/queues", queuesRouter);
-v1.route("/insurance-claims", insuranceClaimsRouter);
-v1.route("/insurance", insuranceRouter);
-v1.route("/hospitalization", hospitalizationRouter);
-v1.route("/hie", hieRouter);
-v1.route("/performance-reports", performanceReportsRouter);
-v1.route("/pharmacy", pharmacyRouter);
+mount("/files", fileUploadRouter);
+mount("/users", usersRouter);
+mount("/availability", availabilityRouter);
+mount("/patients", patientsRouter);
+mount("/clinics", clinicsRouter);
+mount("/departments", departmentsRouter);
+mount("/exams", examsRouter);
+mount("/tariff", tariffRouter);
+mount("/visits", visitsRouter);
+mount("/payments", paymentsRouter);
+mount("/inventory", inventoryRouter);
+mount("/suppliers", suppliersRouter);
+mount("/purchase-orders", purchaseOrdersRouter);
+mount("/analytics", analyticsRouter);
+mount("/notifications", notificationsRouter);
+mount("/admin", adminRouter);
+mount("/activity", activityRouter);
+mount("/appointments", appointmentsRouter);
+mount("/approvals", approvalsRouter);
+mount("/queues", queuesRouter);
+mount("/insurance-claims", insuranceClaimsRouter);
+mount("/insurance", insuranceRouter);
+mount("/hospitalization", hospitalizationRouter);
+// Keep the large HIE route surface from being re-expanded into the aggregate
+// application schema. Runtime routing is unchanged; each HIE route remains
+// independently typed and tested at its own boundary.
+mount("/hie", hieRouter);
+mount("/performance-reports", performanceReportsRouter);
+mount("/pharmacy", pharmacyRouter);
 export default v1;

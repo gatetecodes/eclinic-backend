@@ -1,59 +1,72 @@
 model Prescription {
-    id        Int                @id @default(autoincrement())
-    clinic    Clinic             @relation(fields: [clinicId], references: [id])
-    clinicId  Int
-    visit     Visit              @relation(fields: [visitId], references: [id])
-    visitId   Int
-    doctor    User               @relation(fields: [doctorId], references: [id])
-    doctorId  Int
-    status    PrescriptionStatus @default(ISSUED)
-    createdAt DateTime           @default(now())
-    updatedAt DateTime           @updatedAt
-    items                  PrescriptionItem[]
-    branch                 Branch?                 @relation(fields: [branchId], references: [id])
-    branchId               Int?
-    pharmacyDispenseOrders PharmacyDispenseOrder[]
+  id                     Int                     @id @default(autoincrement())
+  clinic                 Clinic                  @relation(fields: [clinicId], references: [id])
+  clinicId               Int
+  visit                  Visit                   @relation(fields: [visitId], references: [id])
+  visitId                Int
+  doctor                 User                    @relation(fields: [doctorId], references: [id])
+  doctorId               Int
+  status                 PrescriptionStatus      @default(ISSUED)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  items                  PrescriptionItem[]
+  branch                 Branch?                 @relation(fields: [branchId], references: [id])
+  branchId               Int?
+  pharmacyDispenseOrders PharmacyDispenseOrder[]
 
-    @@unique([clinicId, visitId, doctorId])
-    @@index([clinicId])
-    @@index([visitId])
-    @@index([doctorId])
-    @@index([branchId])
+  @@unique([clinicId, visitId, doctorId])
+  @@index([clinicId])
+  @@index([visitId])
+  @@index([doctorId])
+  @@index([branchId])
 }
 
 model PrescriptionItem {
-    id             Int          @id @default(autoincrement())
-    prescription   Prescription @relation(fields: [prescriptionId], references: [id])
-    prescriptionId Int
-    medicationName String
-    dosage         String
-    frequency      String
-    duration       String
-    instructions        String?
-    // Where the doctor intends this medication to be dispensed: from the
-    // clinic's own pharmacy (INTERNAL, requires an inventory mapping) or filled
-    // by the patient at an outside pharmacy (EXTERNAL, no clinic stock involved).
-    fulfilment          PrescriptionItemFulfilment @default(INTERNAL)
-    // Units to dispense/bill for INTERNAL lines (priced at the inventory item's
-    // unit price). Null for external lines, which the clinic doesn't dispense.
-    quantity            Int?
-    createdAt           DateTime                   @default(now())
-    updatedAt           DateTime                   @updatedAt
-    pharmacyDispenseLines PharmacyDispenseLine[]
-    pharmacyItemMap       PharmacyPrescriptionItemMap?
+  id                    Int                          @id @default(autoincrement())
+  prescription          Prescription                 @relation(fields: [prescriptionId], references: [id])
+  prescriptionId        Int
+  medicationName        String
+  dosage                String
+  frequency             String
+  duration              String
+  doseValue             Decimal?                     @db.Decimal(14, 4)
+  doseUnit              String?
+  frequencyCount        Int?
+  frequencyPeriod       Decimal?                     @db.Decimal(14, 4)
+  frequencyPeriodUnit   String?
+  routeSystem           String?
+  routeCode             String?
+  routeDisplay          String?
+  methodSystem          String?
+  methodCode            String?
+  methodDisplay         String?
+  durationValue         Decimal?                     @db.Decimal(14, 4)
+  durationUnit          String?
+  instructions          String?
+  // Where the doctor intends this medication to be dispensed: from the
+  // clinic's own pharmacy (INTERNAL, requires an inventory mapping) or filled
+  // by the patient at an outside pharmacy (EXTERNAL, no clinic stock involved).
+  fulfilment            PrescriptionItemFulfilment   @default(INTERNAL)
+  // Units to dispense/bill for INTERNAL lines (priced at the inventory item's
+  // unit price). Null for external lines, which the clinic doesn't dispense.
+  quantity              Int?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  pharmacyDispenseLines PharmacyDispenseLine[]
+  pharmacyItemMap       PharmacyPrescriptionItemMap?
 
-    @@unique([prescriptionId, medicationName, dosage])
-    @@index([prescriptionId])
+  @@unique([prescriptionId, medicationName, dosage])
+  @@index([prescriptionId])
 }
 
 enum PrescriptionStatus {
-    ISSUED // Prescription has been issued to the patient
-    PARTIALLY_SERVED // Patient has been given some of the medication
-    FULLY_SERVED // Patient has been given all the medication
-    CANCELLED // Prescription has been cancelled
+  ISSUED // Prescription has been issued to the patient
+  PARTIALLY_SERVED // Patient has been given some of the medication
+  FULLY_SERVED // Patient has been given all the medication
+  CANCELLED // Prescription has been cancelled
 }
 
 enum PrescriptionItemFulfilment {
-    INTERNAL // Dispense from the clinic's own pharmacy inventory
-    EXTERNAL // Patient fills this at an external pharmacy
+  INTERNAL // Dispense from the clinic's own pharmacy inventory
+  EXTERNAL // Patient fills this at an external pharmacy
 }

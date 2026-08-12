@@ -6,6 +6,7 @@ import {
 } from "@/helpers/inventory-helpers";
 import { AppError } from "@/lib/app-error";
 import { httpCodes } from "@/lib/constants";
+import { enqueueCurrentClinicalEventsInTransaction } from "@/services/hie/outbox.service";
 import type { Prisma } from "../../generated/prisma/client";
 import {
   CareStage,
@@ -507,5 +508,12 @@ export async function runPharmacyDispenseInTransaction(
     clinicId,
     key,
   });
+  if (full.visitId && full.patientId) {
+    await enqueueCurrentClinicalEventsInTransaction(tx, {
+      clinicId,
+      visitId: full.visitId,
+      patientId: full.patientId,
+    });
+  }
   return { order: full, replayed: false as const, autoCompletedVisit };
 }

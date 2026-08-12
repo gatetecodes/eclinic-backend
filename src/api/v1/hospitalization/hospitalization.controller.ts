@@ -25,6 +25,10 @@ import { AppError, notFoundError } from "../../../lib/app-error";
 import { searchParamsSchema } from "../../../lib/common-validation";
 import { httpCodes } from "../../../lib/constants";
 import { getScope, type Scope } from "../../../lib/request-scope";
+import {
+  enqueueCurrentClinicalEventsInTransaction,
+  enqueueDischargeInTransaction,
+} from "../../../services/hie/outbox.service";
 import { computeEws } from "./ews";
 import {
   bedLabel,
@@ -137,11 +141,12 @@ const scopeFilter = (scope: Scope) => ({
 const assertAdmissionInScope = async (id: number, scope: Scope) => {
   const admission = await db.hospitalization.findFirst({
     where: { id, ...scopeFilter(scope) },
-    select: { id: true },
+    select: { id: true, clinicId: true, patientId: true, visitId: true },
   });
   if (!admission) {
     throw notFoundError("Admission not found");
   }
+  return admission;
 };
 
 const clinicScope = (user: {
@@ -855,7 +860,7 @@ export const recordObservation = async (c: Context) => {
   const user = c.get("user");
   const scope = requireScope(c);
   const id = Number.parseInt(c.req.param("id"), 10);
-  await assertAdmissionInScope(id, scope);
+  const admission = await assertAdmissionInScope(id, scope);
   const v = c.get("validatedJson");
   const ewsScore = computeEws({
     temperature: v.temperature,
@@ -865,19 +870,23 @@ export const recordObservation = async (c: Context) => {
     spo2: v.spo2,
     avpu: v.avpu,
   });
-  const observation = await db.wardObservation.create({
-    data: {
-      hospitalizationId: id,
-      temperature: v.temperature ?? null,
-      heartRate: v.heartRate ?? null,
-      bloodPressure: v.bloodPressure ?? null,
-      respiratoryRate: v.respiratoryRate ?? null,
-      spo2: v.spo2 ?? null,
-      pain: v.pain ?? null,
-      avpu: v.avpu ?? null,
-      ewsScore,
-      recordedById: user.id,
-    },
+  const observation = await db.$transaction(async (tx) => {
+    const created = await tx.wardObservation.create({
+      data: {
+        hospitalizationId: id,
+        temperature: v.temperature ?? null,
+        heartRate: v.heartRate ?? null,
+        bloodPressure: v.bloodPressure ?? null,
+        respiratoryRate: v.respiratoryRate ?? null,
+        spo2: v.spo2 ?? null,
+        pain: v.pain ?? null,
+        avpu: v.avpu ?? null,
+        ewsScore,
+        recordedById: user.id,
+      },
+    });
+    await enqueueCurrentClinicalEventsInTransaction(tx, admission);
+    return created;
   });
   return jsonSuccess(c, {
     status: httpCodes.CREATED,
@@ -894,7 +903,7 @@ export const addMedication = async (c: Context) => {
   const user = c.get("user");
   const scope = requireScope(c);
   const id = Number.parseInt(c.req.param("id"), 10);
-  await assertAdmissionInScope(id, scope);
+  const admission = await assertAdmissionInScope(id, scope);
   const v = c.get("validatedJson");
   const firstDoseAt = v.firstDoseAt ? new Date(v.firstDoseAt) : new Date();
 
@@ -907,6 +916,19 @@ export const addMedication = async (c: Context) => {
         dose: v.dose,
         route: v.route as MedicationRoute,
         frequency: v.frequency,
+        doseValue: v.doseValue,
+        doseUnit: v.doseUnit,
+        frequencyCount: v.frequencyCount,
+        frequencyPeriod: v.frequencyPeriod,
+        frequencyPeriodUnit: v.frequencyPeriodUnit,
+        routeSystem: v.routeSystem,
+        routeCode: v.routeCode,
+        routeDisplay: v.routeDisplay,
+        methodSystem: v.methodSystem,
+        methodCode: v.methodCode,
+        methodDisplay: v.methodDisplay,
+        durationValue: v.durationValue,
+        durationUnit: v.durationUnit,
         firstDoseAt,
         pricePerDose: v.pricePerDose,
         prescribedById: user.id,
@@ -922,6 +944,7 @@ export const addMedication = async (c: Context) => {
         })),
       });
     }
+    await enqueueCurrentClinicalEventsInTransaction(tx, admission);
     return med;
   });
 
@@ -946,6 +969,9 @@ export const administerMedication = async (c: Context) => {
       route: true,
       pricePerDose: true,
       hospitalizationId: true,
+      hospitalization: {
+        select: { clinicId: true, patientId: true, visitId: true },
+      },
     },
   });
   if (!med) {
@@ -994,6 +1020,7 @@ export const administerMedication = async (c: Context) => {
         sourceId: administrationId ? String(administrationId) : null,
       },
     });
+    await enqueueCurrentClinicalEventsInTransaction(tx, med.hospitalization);
     return true;
   });
 
@@ -1183,6 +1210,8 @@ export const dischargePatient = async (c: Context) => {
     where: { id, ...scopeFilter(scope) },
     select: {
       id: true,
+      clinicId: true,
+      patientId: true,
       bedId: true,
       visitId: true,
       admittedAt: true,
@@ -1285,6 +1314,12 @@ export const dischargePatient = async (c: Context) => {
     await tx.visit.update({
       where: { id: admission.visitId },
       data: { status: VisitStatus.DISCHARGED, endTime: new Date() },
+    });
+    await enqueueDischargeInTransaction(tx, {
+      clinicId: admission.clinicId,
+      hospitalizationId: admission.id,
+      visitId: admission.visitId,
+      patientId: admission.patientId,
     });
   });
 

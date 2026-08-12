@@ -1,55 +1,65 @@
 enum Gender {
-    MALE
-    FEMALE
+  MALE
+  FEMALE
 }
 
 enum ForeignerRegion {
-    EAST_AFRICA
-    AFRICA
-    REST_OF_THE_WORLD
+  EAST_AFRICA
+  AFRICA
+  REST_OF_THE_WORLD
 }
 
 model Patient {
-    id                  Int      @id @default(autoincrement())
-    patientId           String?  @unique //A UNIQUE ID for the patient
-    firstName           String
-    lastName            String
-    dateOfBirth         DateTime @db.Date
-    gender              Gender
-    phoneNumber         String? // Make phone number optional
-    isChild             Boolean? @default(false) // Flag for child patient
-    guardianPhoneNumber String? // Optional guardian phone number
-    email               String?
-    medicalInfo         Json? //Blood type, weight, height, heart rate, blood sugar, etc.
-    address             String?
-    structuredAddress   Json? @db.JsonB
-    nationality         String?
-    isAForeigner        Boolean?          @default(false) // Flag for foreign patient who has a rwandan phone
-    foreignerRegion     ForeignerRegion? // Required when isAForeigner is true
-    createdAt           DateTime         @default(now())
-    updatedAt           DateTime @updatedAt
-    user                User?
-    clinics             Clinic[]
-    branches            Branch[]
+  id                  Int              @id @default(autoincrement())
+  patientId           String?          @unique //A UNIQUE ID for the patient
+  firstName           String
+  lastName            String
+  dateOfBirth         DateTime         @db.Date
+  gender              Gender
+  phoneNumber         String? // Make phone number optional
+  isChild             Boolean?         @default(false) // Flag for child patient
+  guardianPhoneNumber String? // Optional guardian phone number
+  email               String?
+  medicalInfo         Json? //Blood type, weight, height, heart rate, blood sugar, etc.
+  address             String?
+  structuredAddress   Json?            @db.JsonB
+  nationality         String?
+  isAForeigner        Boolean?         @default(false) // Flag for foreign patient who has a rwandan phone
+  foreignerRegion     ForeignerRegion? // Required when isAForeigner is true
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User?
+  clinics             Clinic[]
+  branches            Branch[]
 
-    events               Event[]
-    medicalRecords       MedicalRecord[]
-    visits               Visit[]
-    patientInsurance     PatientInsurance[]
-    hospitalizations     Hospitalization[]
-    portalAccount        PatientPortalAccount?
-    patientAppointments  PatientAppointment[]
-    patientNotifications PatientNotification[]
-    queues               QueueEntry[]
-    outboundSmsLogs      OutboundSmsLog[]
-    pharmacyDispenseOrders PharmacyDispenseOrder[]
-    externalIdentities      PatientExternalIdentity[]
-    hieConsents             HieConsent[]
-    hieAuditEvents          HieAuditEvent[]
-    hieReconciliations      HieReconciliation[]
-    hieExternalTransfers    HieExternalTransfer[]
+  events                      Event[]
+  medicalRecords              MedicalRecord[]
+  visits                      Visit[]
+  patientInsurance            PatientInsurance[]
+  hospitalizations            Hospitalization[]
+  portalAccount               PatientPortalAccount?
+  patientAppointments         PatientAppointment[]
+  patientNotifications        PatientNotification[]
+  queues                      QueueEntry[]
+  outboundSmsLogs             OutboundSmsLog[]
+  pharmacyDispenseOrders      PharmacyDispenseOrder[]
+  externalIdentities          PatientExternalIdentity[]
+  hieConsents                 HieConsent[]
+  hieAuditEvents              HieAuditEvent[]
+  hieReconciliations          HieReconciliation[]
+  hieExternalTransfers        HieExternalTransfer[]
+  hieIdentityCases            HieIdentityReconciliation[]  @relation("HieIdentityCasePatient")
+  hieConflictingCases         HieIdentityReconciliation[]  @relation("HieIdentityCaseConflict")
+  hieInboundTransfers         HieInboundTransfer[]
+  hieConsultationObservations HieConsultationObservation[]
+  hieStructuredAllergies      HieStructuredAllergy[]
+  hieImmunizations            HieImmunization[]
+  hieImagingOrders            HieImagingOrder[]
+  hieImagingStudies           HieImagingStudy[]
+  hieEmergencyAccesses        HieEmergencyAccess[]
+  hieDobDiscrepancies         HieDobDiscrepancy[]
 
-    @@index([phoneNumber, lastName, firstName])
-    @@index([guardianPhoneNumber]) // Add index for guardian phone
-    @@index([phoneNumber]) // Add index for phone number since clinicId is now optional
+  @@index([phoneNumber, lastName, firstName])
+  @@index([guardianPhoneNumber]) // Add index for guardian phone
+  @@index([phoneNumber]) // Add index for phone number since clinicId is now optional
 }

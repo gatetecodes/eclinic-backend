@@ -1,22 +1,22 @@
 model DemoRequest {
-    id           Int               @id @default(autoincrement())
-    clinic_name  String
-    email        String
-    phone_number String
-    address      String
-    demo_date    DateTime
-    createdAt    DateTime          @default(now())
-    updatedAt    DateTime          @updatedAt
-    status       DemoRequestStatus @default(PENDING)
-    // Set when an approved demo is provisioned into a (trial) clinic.
-    clinicId     Int?
-    clinic       Clinic?           @relation(fields: [clinicId], references: [id])
+  id           Int               @id @default(autoincrement())
+  clinic_name  String
+  email        String
+  phone_number String
+  address      String
+  demo_date    DateTime
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  status       DemoRequestStatus @default(PENDING)
+  // Set when an approved demo is provisioned into a (trial) clinic.
+  clinicId     Int?
+  clinic       Clinic?           @relation(fields: [clinicId], references: [id])
 
-    @@index([clinicId])
+  @@index([clinicId])
 }
 
 enum DemoRequestStatus {
-    PENDING
-    APPROVED
-    REJECTED
+  PENDING
+  APPROVED
+  REJECTED
 }

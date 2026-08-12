@@ -7,17 +7,5 @@
         "noMagicNumbers": "off"
       }
     }
-  },
-  "overrides": [
-    {
-      "includes": [
-        "**/__tests__/**",
-        "**/*.test.{js,jsx,ts,tsx}",
-        "**/*.spec.{js,jsx,ts,tsx}"
-      ],
-      "linter": {
-        "enabled": false
-      }
-    }
-  ]
+  }
 }

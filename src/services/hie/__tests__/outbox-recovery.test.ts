@@ -5,12 +5,18 @@ import { decryptHieJson } from "../hie-crypto.service";
 process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test";
 process.env.HIE_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
+let enqueueFinalizedVisit: typeof import("../outbox.service").enqueueFinalizedVisit;
 let recoverMissingFinalizedVisitEvents: typeof import("../outbox.service").recoverMissingFinalizedVisitEvents;
 let resumeBlockedPatientEvents: typeof import("../outbox.service").resumeBlockedPatientEvents;
+let resumeBlockedHieDependencies: typeof import("../outbox.service").resumeBlockedHieDependencies;
 
 beforeAll(async () => {
-  ({ recoverMissingFinalizedVisitEvents, resumeBlockedPatientEvents } =
-    await import("../outbox.service"));
+  ({
+    enqueueFinalizedVisit,
+    recoverMissingFinalizedVisitEvents,
+    resumeBlockedHieDependencies,
+    resumeBlockedPatientEvents,
+  } = await import("../outbox.service"));
 });
 
 describe("finalized visit outbox recovery", () => {
@@ -48,12 +54,40 @@ describe("finalized visit outbox recovery", () => {
       hieConsent: {
         findFirst: async () => ({ id: 1 }),
       },
+      visit: {
+        findFirst: async () => ({
+          id: 4,
+          patientId: 3,
+          doctorId: 9,
+          branchId: 5,
+          startTime: new Date("2026-08-10T08:00:00.000Z"),
+          endTime: null,
+          updatedAt: new Date("2026-08-10T09:00:00.000Z"),
+        }),
+      },
       visitDiagnosis: {
         findMany: async () => [
-          { id: 11, icd11Code: "1A00" },
-          { id: 12, icd11Code: null },
+          {
+            id: 11,
+            icd11Code: "1A00",
+            description: "Cholera",
+            createdAt: new Date("2026-08-10T08:30:00.000Z"),
+          },
+          {
+            id: 12,
+            icd11Code: null,
+            description: "Uncoded diagnosis",
+            createdAt: new Date("2026-08-10T08:45:00.000Z"),
+          },
         ],
       },
+      triage: { findUnique: async () => null },
+      exam: { findMany: async () => [] },
+      examResult: { findMany: async () => [] },
+      prescription: { findMany: async () => [] },
+      pharmacyDispenseOrder: { findMany: async () => [] },
+      treatment: { findMany: async () => [] },
+      hospitalization: { findUnique: async () => null },
     };
     const client = {
       $queryRaw: (query: { strings: readonly string[] }) => {
@@ -84,10 +118,107 @@ describe("finalized visit outbox recovery", () => {
     ]);
     expect(
       conditionEvents.map((event) => decryptHieJson(event.payloadEncrypted))
-    ).toEqual([{ diagnosisId: 11 }, { diagnosisId: 12 }]);
+    ).toEqual([
+      {
+        diagnosisId: 11,
+        visitId: 4,
+        patientId: 3,
+        doctorId: 9,
+        icd11Code: "1A00",
+        description: "Cholera",
+        recordedAt: "2026-08-10T08:30:00.000Z",
+      },
+      {
+        diagnosisId: 12,
+        visitId: 4,
+        patientId: 3,
+        doctorId: 9,
+        icd11Code: null,
+        description: "Uncoded diagnosis",
+        recordedAt: "2026-08-10T08:45:00.000Z",
+      },
+    ]);
     expect(conditionEvents[0]?.correlationId).not.toBe(
       conditionEvents[1]?.correlationId
     );
+  });
+});
+
+describe("concurrent finalized visit enqueues", () => {
+  const duplicateKeyError = () =>
+    Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: { target: ["idempotencyKey"] },
+    });
+
+  function raceClient(error: unknown, winner: unknown) {
+    const lookups: Record<string, unknown>[] = [];
+    const client = {
+      $transaction: () => Promise.reject(error),
+      hieOutboxEvent: {
+        findFirst: (args: { where: Record<string, unknown> }) => {
+          lookups.push(args.where);
+          return Promise.resolve(winner);
+        },
+      },
+    } as unknown as PrismaClient;
+    return { client, lookups };
+  }
+
+  it("returns the event the winning enqueue already created", async () => {
+    const winner = { id: "event-1", resourceType: "Encounter" };
+    const { client, lookups } = raceClient(duplicateKeyError(), winner);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).resolves.toEqual(winner);
+    expect(lookups).toEqual([
+      {
+        clinicId: 2,
+        aggregateType: "Visit",
+        aggregateId: "4",
+        resourceType: "Encounter",
+        operation: "CREATE",
+      },
+    ]);
+  });
+
+  it("counts a lost race as a successful recovery", async () => {
+    const winner = { id: "event-1", resourceType: "Encounter" };
+    const { client } = raceClient(duplicateKeyError(), winner);
+    const recoveryClient = Object.assign(client, {
+      $queryRaw: () =>
+        Promise.resolve([{ clinicId: 2, patientId: 3, visitId: 4 }]),
+    }) as unknown as PrismaClient;
+
+    await expect(
+      recoverMissingFinalizedVisitEvents(recoveryClient)
+    ).resolves.toBe(1);
+  });
+
+  it("propagates a unique violation on another index", async () => {
+    const otherIndexError = Object.assign(
+      new Error("Unique constraint failed"),
+      {
+        code: "P2002",
+        meta: { target: ["correlationId"] },
+      }
+    );
+    const { client, lookups } = raceClient(otherIndexError, null);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).rejects.toMatchObject({ code: "P2002" });
+    expect(lookups).toEqual([]);
+  });
+
+  it("propagates unrelated failures", async () => {
+    const { client, lookups } = raceClient(new Error("connection reset"), null);
+
+    await expect(
+      enqueueFinalizedVisit(client, { clinicId: 2, patientId: 3, visitId: 4 })
+    ).rejects.toThrow("connection reset");
+    expect(lookups).toEqual([]);
   });
 });
 
@@ -107,7 +238,11 @@ describe("blocked patient event recovery", () => {
       visitDiagnosis: {
         findMany: async () => [{ id: 20 }],
       },
+      triage: {
+        findMany: async () => [{ id: 30 }],
+      },
       hieOutboxEvent: {
+        findMany: async () => [],
         updateMany: (args: unknown) => {
           updateArgs = args;
           return { count: 2 };
@@ -134,6 +269,22 @@ describe("blocked patient event recovery", () => {
             aggregateType: "VisitDiagnosis",
             aggregateId: { in: ["20"] },
           },
+          {
+            aggregateType: "Triage",
+            aggregateId: {
+              in: [
+                "30:height",
+                "30:weight",
+                "30:temperature",
+                "30:heartRate",
+                "30:respiratory",
+                "30:spo2",
+                "30:bmi",
+                "30:bloodSugar",
+              ],
+            },
+          },
+          { id: { in: [] } },
         ],
       },
       data: { status: "PENDING", dependencyReason: null, lockedAt: null },
@@ -157,5 +308,36 @@ describe("blocked patient event recovery", () => {
       resumeBlockedPatientEvents(tx, { clinicId: 3, patientId: 4 })
     ).resolves.toBe(0);
     expect(updated).toBe(false);
+  });
+});
+
+describe("scheduled dependency recovery", () => {
+  it("requeues only due blocked dependencies below the attempt limit", async () => {
+    let updateArgs: unknown;
+    const client = {
+      hieOutboxEvent: {
+        updateMany: (args: unknown) => {
+          updateArgs = args;
+          return Promise.resolve({ count: 3 });
+        },
+      },
+    } as unknown as PrismaClient;
+    const now = new Date("2026-08-11T10:00:00.000Z");
+
+    await expect(resumeBlockedHieDependencies(client, now)).resolves.toEqual({
+      count: 3,
+    });
+    expect(updateArgs).toMatchObject({
+      where: {
+        status: "BLOCKED",
+        nextAttemptAt: { lte: now },
+        attemptCount: { lt: 8 },
+      },
+      data: {
+        status: "PENDING",
+        dependencyReason: null,
+        lockedAt: null,
+      },
+    });
   });
 });

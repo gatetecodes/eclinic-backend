@@ -1,105 +1,105 @@
 model Exam {
-    id          Int          @id @default(autoincrement())
-    name        String?
-    description String?
-    visit       Visit        @relation(fields: [visitId], references: [id])
-    visitId     Int
-    products    Product[]
-    status      ExamStatus   @default(PENDING)
-    createdAt   DateTime     @default(now())
-    updatedAt   DateTime     @updatedAt
-    results     ExamResult[]
-    tests       ExamTest[]
-    clinic      Clinic?      @relation(fields: [clinicId], references: [id])
-    clinicId    Int?
-    branch      Branch?      @relation(fields: [branchId], references: [id])
-    branchId    Int?
-    approvals   Approval[]
+  id          Int          @id @default(autoincrement())
+  name        String?
+  description String?
+  visit       Visit        @relation(fields: [visitId], references: [id])
+  visitId     Int
+  products    Product[]
+  status      ExamStatus   @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  results     ExamResult[]
+  tests       ExamTest[]
+  clinic      Clinic?      @relation(fields: [clinicId], references: [id])
+  clinicId    Int?
+  branch      Branch?      @relation(fields: [branchId], references: [id])
+  branchId    Int?
+  approvals   Approval[]
 
-    @@index([clinicId])
-    @@index([branchId])
+  @@index([clinicId])
+  @@index([branchId])
 }
 
 model ExamTest {
-    id          Int      @id @default(autoincrement())
-    name        String
-    description String?
-    normalRange String?
-    unit        String?
-    consumables Json? // Json array of consumable items, each item has a name and quantity
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  normalRange String?
+  unit        String?
+  consumables Json? // Json array of consumable items, each item has a name and quantity
 
-    // Structured result-flagging config. `testType` decides which set is used:
-    // NUMERIC → reference/critical bounds; QUALITATIVE → qualitativeExpected.
-    // These drive Normal/Low/High/Critical flags automatically at result entry.
-    specimen            String?
-    testType            ExamTestType @default(NUMERIC)
-    referenceLow        Decimal?     @db.Decimal(12, 4)
-    referenceHigh       Decimal?     @db.Decimal(12, 4)
-    criticalLow         Decimal?     @db.Decimal(12, 4)
-    criticalHigh        Decimal?     @db.Decimal(12, 4)
-    qualitativeExpected String?
+  // Structured result-flagging config. `testType` decides which set is used:
+  // NUMERIC → reference/critical bounds; QUALITATIVE → qualitativeExpected.
+  // These drive Normal/Low/High/Critical flags automatically at result entry.
+  specimen            String?
+  testType            ExamTestType @default(NUMERIC)
+  referenceLow        Decimal?     @db.Decimal(12, 4)
+  referenceHigh       Decimal?     @db.Decimal(12, 4)
+  criticalLow         Decimal?     @db.Decimal(12, 4)
+  criticalHigh        Decimal?     @db.Decimal(12, 4)
+  qualitativeExpected String?
 
-    exam      Exam?    @relation(fields: [examId], references: [id])
-    product   Product  @relation(fields: [productId], references: [id])
-    productId Int
-    examId    Int?
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  exam      Exam?    @relation(fields: [examId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  examId    Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@unique([name, productId])
+  @@unique([name, productId])
 }
 
 enum ExamTestType {
-    NUMERIC
-    QUALITATIVE
+  NUMERIC
+  QUALITATIVE
 }
 
 model ExamResult {
-    id                 Int               @id @default(autoincrement())
-    clinic             Clinic            @relation(fields: [clinicId], references: [id])
-    clinicId           Int
-    visit              Visit             @relation(fields: [visitId], references: [id])
-    visitId            Int
-    exam               Exam              @relation(fields: [examId], references: [id])
-    examId             Int
-    product            Product?          @relation(fields: [productId], references: [id])
-    productId          Int?
-    status             ExamResultStatus  @default(COMPLETED)
-    examDate           DateTime
-    results            Json
-    notes              String?
-    notPerformedReason String?
-    createdBy          User?             @relation("ExamResultCreatedBy", fields: [createdById], references: [id])
-    createdById        Int?
-    refunds            Refund[]
-    createdAt          DateTime          @default(now())
-    updatedAt          DateTime          @updatedAt
-    branch             Branch?           @relation(fields: [branchId], references: [id])
-    branchId           Int?
+  id                 Int              @id @default(autoincrement())
+  clinic             Clinic           @relation(fields: [clinicId], references: [id])
+  clinicId           Int
+  visit              Visit            @relation(fields: [visitId], references: [id])
+  visitId            Int
+  exam               Exam             @relation(fields: [examId], references: [id])
+  examId             Int
+  product            Product?         @relation(fields: [productId], references: [id])
+  productId          Int?
+  status             ExamResultStatus @default(COMPLETED)
+  examDate           DateTime
+  results            Json
+  notes              String?
+  notPerformedReason String?
+  createdBy          User?            @relation("ExamResultCreatedBy", fields: [createdById], references: [id])
+  createdById        Int?
+  refunds            Refund[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  branch             Branch?          @relation(fields: [branchId], references: [id])
+  branchId           Int?
 
-    @@index([branchId])
-    @@index([productId])
-    @@index([status])
+  @@index([branchId])
+  @@index([productId])
+  @@index([status])
 }
 
 enum ExamResultStatus {
-    COMPLETED
-    NOT_PERFORMED
+  COMPLETED
+  NOT_PERFORMED
 }
 
 model Treatment {
-    id         Int         @id @default(autoincrement())
-    name       String?
-    visit      Visit       @relation(fields: [visitId], references: [id])
-    visitId    Int
-    products   Product[]
-    payments   Payment[]
-    approvals  Approval[]
-    createdAt  DateTime    @default(now())
-    updatedAt  DateTime    @updatedAt
+  id        Int        @id @default(autoincrement())
+  name      String?
+  visit     Visit      @relation(fields: [visitId], references: [id])
+  visitId   Int
+  products  Product[]
+  payments  Payment[]
+  approvals Approval[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 enum ExamStatus {
-    PENDING
-    COMPLETED
+  PENDING
+  COMPLETED
 }

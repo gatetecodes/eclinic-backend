@@ -41,6 +41,11 @@ import {
   updatePlan,
   updateSettings,
 } from "./billing.controller.ts";
+import {
+  createHieClinicalConcept,
+  listHieClinicalConcepts,
+  updateHieClinicalConcept,
+} from "./hie-concepts.controller.ts";
 import { startImpersonation } from "./impersonation.controller.ts";
 import {
   getClinicClinical,
@@ -79,6 +84,35 @@ const terminologyUpdateSchema = z.object({
 
 const terminologyProductParamSchema = z.object({
   productId: z.coerce.number().int().positive(),
+});
+
+const hieConceptDomainSchema = z.enum([
+  "ALLERGY",
+  "VACCINE",
+  "CONSULTATION_OBSERVATION",
+  "IMAGING_PROCEDURE",
+  "IMAGING_REASON",
+  "BODY_SITE",
+  "MEDICATION_ROUTE",
+  "ADMINISTRATION_METHOD",
+]);
+const hieConceptListSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(120).optional(),
+  domain: hieConceptDomainSchema.optional(),
+  status: z.enum(["DRAFT", "VERIFIED"]).optional(),
+});
+const hieConceptInputSchema = z.object({
+  domain: hieConceptDomainSchema,
+  codingSystem: z.string().trim().min(1).max(300),
+  code: z.string().trim().min(1).max(120),
+  display: z.string().trim().min(1).max(300),
+  status: z.enum(["DRAFT", "VERIFIED"]),
+  active: z.boolean(),
+});
+const hieConceptParamSchema = z.object({
+  conceptId: z.coerce.number().int().positive(),
 });
 
 // Platform-operator surface: cross-tenant data. Gate the whole module to the
@@ -156,6 +190,22 @@ router.put(
   "/users/:id/status",
   validate(userStatusSchema, "json"),
   updateUserStatus
+);
+router.get(
+  "/hie-clinical-concepts",
+  validate(hieConceptListSchema, "query"),
+  listHieClinicalConcepts
+);
+router.post(
+  "/hie-clinical-concepts",
+  validate(hieConceptInputSchema, "json"),
+  createHieClinicalConcept
+);
+router.put(
+  "/hie-clinical-concepts/:conceptId",
+  validate(hieConceptParamSchema, "param"),
+  validate(hieConceptInputSchema, "json"),
+  updateHieClinicalConcept
 );
 router.delete("/users/:id", revokeUser);
 router.post("/users/:id/remind-2fa", remindTwoFactor);

@@ -1,46 +1,46 @@
 enum SmsDeliveryStatus {
-    QUEUED
-    SENT
-    DELIVERED
-    FAILED
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
 }
 
 enum SmsEventType {
-    QUEUE_JOINED
-    QUEUE_TURN
-    LAB_RESULTS_READY
-    VISIT_COMPLETED
+  QUEUE_JOINED
+  QUEUE_TURN
+  LAB_RESULTS_READY
+  VISIT_COMPLETED
 }
 
 model OutboundSmsLog {
-    id                Int               @id @default(autoincrement())
-    clinicId          Int
-    clinic            Clinic            @relation(fields: [clinicId], references: [id])
-    patientId         Int?
-    patient           Patient?          @relation(fields: [patientId], references: [id])
-    visitId           Int?
-    visit             Visit?            @relation(fields: [visitId], references: [id])
-    phoneNumber       String
-    message           String
-    eventType         SmsEventType
-    status            SmsDeliveryStatus @default(QUEUED)
-    provider          String            @default("TWILIO")
-    providerMessageId String?
-    attempts          Int               @default(0)
-    maxAttempts       Int               @default(3)
-    nextRetryAt       DateTime?
-    sentAt            DateTime?
-    deliveredAt       DateTime?
-    failedAt          DateTime?
-    lastErrorCode     String?
-    lastErrorMessage  String?
-    metadata          Json?
-    createdAt         DateTime          @default(now())
-    updatedAt         DateTime          @updatedAt
+  id                Int               @id @default(autoincrement())
+  clinicId          Int
+  clinic            Clinic            @relation(fields: [clinicId], references: [id])
+  patientId         Int?
+  patient           Patient?          @relation(fields: [patientId], references: [id])
+  visitId           Int?
+  visit             Visit?            @relation(fields: [visitId], references: [id])
+  phoneNumber       String
+  message           String
+  eventType         SmsEventType
+  status            SmsDeliveryStatus @default(QUEUED)
+  provider          String            @default("TWILIO")
+  providerMessageId String?
+  attempts          Int               @default(0)
+  maxAttempts       Int               @default(3)
+  nextRetryAt       DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  lastErrorCode     String?
+  lastErrorMessage  String?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-    @@index([clinicId, eventType])
-    @@index([status, nextRetryAt])
-    @@index([providerMessageId])
-    @@index([visitId])
-    @@index([patientId])
+  @@index([clinicId, eventType])
+  @@index([status, nextRetryAt])
+  @@index([providerMessageId])
+  @@index([visitId])
+  @@index([patientId])
 }

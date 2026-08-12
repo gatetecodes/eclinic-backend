@@ -42,7 +42,15 @@ export type Action =
   | "addExams"
   | "updatePreConsultation"
   | "updateInitialCheckin"
-  | "dispense";
+  | "dispense"
+  | "manageHieConsent"
+  | "viewHieTransfers"
+  | "manageHieTransfers"
+  | "emergencyHieRead"
+  | "reviewEmergencyHieAccess"
+  | "manageHieAllergies"
+  | "manageHieImmunizations"
+  | "manageHieImaging";
 
 // Feature flags represent product-surface capabilities that can be plan/tier gated
 export type FeatureKey =

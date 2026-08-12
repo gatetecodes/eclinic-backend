@@ -1,168 +1,171 @@
 // Master inventory item record
 model InventoryItem {
-    id               Int             @id @default(autoincrement())
-    clinic           Clinic          @relation(fields: [clinicId], references: [id])
-    clinicId         Int
-    itemName         String
-    sku              String?
-    itemType         ItemType
-    reorderLevel     Int
-    manufacturer     String?
-    unit             Unit?           @default(PIECE) // Unit of measurement
-    minOrderQuantity Int?
-    notes            String?
-    unitPrice        Decimal?        @db.Decimal(10, 2)
-    costPrice        Decimal?        @db.Decimal(10, 2)
-    // Whether insurance covers this item. When false, the patient pays the full
-    // amount even on an insured visit.
-    insuranceCovered Boolean         @default(true)
-    status           InventoryStatus @default(IN_STOCK)
-    createdAt        DateTime        @default(now())
-    updatedAt        DateTime        @updatedAt
+  id               Int             @id @default(autoincrement())
+  clinic           Clinic          @relation(fields: [clinicId], references: [id])
+  clinicId         Int
+  itemName         String
+  sku              String?
+  itemType         ItemType
+  reorderLevel     Int
+  manufacturer     String?
+  unit             Unit?           @default(PIECE) // Unit of measurement
+  minOrderQuantity Int?
+  notes            String?
+  unitPrice        Decimal?        @db.Decimal(10, 2)
+  costPrice        Decimal?        @db.Decimal(10, 2)
+  // Whether insurance covers this item. When false, the patient pays the full
+  // amount even on an insured visit.
+  insuranceCovered Boolean         @default(true)
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId        Int?
+  status           InventoryStatus @default(IN_STOCK)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-    // Relations
-    batches             InventoryBatch[]
-    transactions        Transaction[]
-    currentStock        InventoryStock? // One-to-one relation with current stock
-    branch              Branch?                       @relation(fields: [branchId], references: [id])
-    branchId            Int?
-    purchaseOrderLines  PurchaseOrderLine[]
-    goodsReceiptLines   GoodsReceiptLine[]
-    expiryNotifications     InventoryExpiryNotification[]
-    pharmacyDispenseLines   PharmacyDispenseLine[]
-    pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
+  // Relations
+  batches                      InventoryBatch[]
+  transactions                 Transaction[]
+  currentStock                 InventoryStock? // One-to-one relation with current stock
+  branch                       Branch?                       @relation(fields: [branchId], references: [id])
+  branchId                     Int?
+  purchaseOrderLines           PurchaseOrderLine[]
+  goodsReceiptLines            GoodsReceiptLine[]
+  expiryNotifications          InventoryExpiryNotification[]
+  pharmacyDispenseLines        PharmacyDispenseLine[]
+  pharmacyPrescriptionItemMaps PharmacyPrescriptionItemMap[]
 
-    @@unique([clinicId, itemName])
+  @@unique([clinicId, itemName])
+  @@index([productId])
 }
 
 // Current stock levels
 model InventoryStock {
-    id        Int           @id @default(autoincrement())
-    item      InventoryItem @relation(fields: [itemId], references: [id])
-    itemId    Int           @unique // One-to-one relation
-    branch    Branch?       @relation(fields: [branchId], references: [id])
-    branchId  Int?
-    quantity  Int
-    updatedAt DateTime      @updatedAt
+  id        Int           @id @default(autoincrement())
+  item      InventoryItem @relation(fields: [itemId], references: [id])
+  itemId    Int           @unique // One-to-one relation
+  branch    Branch?       @relation(fields: [branchId], references: [id])
+  branchId  Int?
+  quantity  Int
+  updatedAt DateTime      @updatedAt
 
-    @@unique([itemId, branchId])
+  @@unique([itemId, branchId])
 }
 
 // Batch tracking
 model InventoryBatch {
-    id              Int           @id @default(autoincrement())
-    item            InventoryItem @relation(fields: [itemId], references: [id])
-    itemId          Int
-    batchNumber     String
-    expiryDate      DateTime?
-    initialQuantity Int // Original quantity received
-    currentQuantity Int // Current quantity remaining
-    unitPrice       Decimal?      @db.Decimal(10, 2)
-    location        String?
-    branch          Branch?       @relation(fields: [branchId], references: [id])
-    branchId        Int?
-    createdAt       DateTime      @default(now())
-    updatedAt       DateTime      @updatedAt
+  id              Int           @id @default(autoincrement())
+  item            InventoryItem @relation(fields: [itemId], references: [id])
+  itemId          Int
+  batchNumber     String
+  expiryDate      DateTime?
+  initialQuantity Int // Original quantity received
+  currentQuantity Int // Current quantity remaining
+  unitPrice       Decimal?      @db.Decimal(10, 2)
+  location        String?
+  branch          Branch?       @relation(fields: [branchId], references: [id])
+  branchId        Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-    // Relations
-    transactions       Transaction[]
-    expiryNotification InventoryExpiryNotification?
-    pharmacyDispenseLines PharmacyDispenseLine[]
+  // Relations
+  transactions          Transaction[]
+  expiryNotification    InventoryExpiryNotification?
+  pharmacyDispenseLines PharmacyDispenseLine[]
 
-    @@unique([itemId, batchNumber])
-    @@index([itemId, branchId, expiryDate])
+  @@unique([itemId, batchNumber])
+  @@index([itemId, branchId, expiryDate])
 }
 
 model InventoryExpiryNotification {
-    id                  Int            @id @default(autoincrement())
-    clinic              Clinic         @relation(fields: [clinicId], references: [id])
-    clinicId            Int
-    item                InventoryItem  @relation(fields: [itemId], references: [id])
-    itemId              Int
-    batch               InventoryBatch @relation(fields: [batchId], references: [id])
-    batchId             Int            @unique
-    firstNotificationAt DateTime?
-    lastNotificationAt  DateTime?
-    resolvedAt          DateTime?
-    createdAt           DateTime       @default(now())
-    updatedAt           DateTime       @updatedAt
+  id                  Int            @id @default(autoincrement())
+  clinic              Clinic         @relation(fields: [clinicId], references: [id])
+  clinicId            Int
+  item                InventoryItem  @relation(fields: [itemId], references: [id])
+  itemId              Int
+  batch               InventoryBatch @relation(fields: [batchId], references: [id])
+  batchId             Int            @unique
+  firstNotificationAt DateTime?
+  lastNotificationAt  DateTime?
+  resolvedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
-    @@index([clinicId])
-    @@index([itemId])
+  @@index([clinicId])
+  @@index([itemId])
 }
 
 // Transaction history
 model Transaction {
-    id          Int               @id @default(autoincrement())
-    item        InventoryItem     @relation(fields: [itemId], references: [id])
-    itemId      Int
-    batch       InventoryBatch?   @relation(fields: [batchId], references: [id])
-    batchId     Int?
-    type        TransactionType
-    quantity    Int // Positive for in, negative for out
-    unitPrice   Decimal?          @db.Decimal(10, 2)
-    totalAmount Decimal?          @db.Decimal(10, 2)
-    status      TransactionStatus @default(COMPLETED)
-    sourceType  SourceType
-    visitId         Int? // Reference to external source (e.g., visitId, orderId)
-    visit           Visit?                 @relation(fields: [visitId], references: [id])
-    dispenseOrderId String?
-    pharmacyDispenseOrder PharmacyDispenseOrder? @relation(fields: [dispenseOrderId], references: [id])
-    pharmacyDispenseLine  PharmacyDispenseLine?
-    notes           String?
-    performedBy User              @relation(fields: [userId], references: [id])
-    userId      Int
-    createdAt   DateTime          @default(now())
-    updatedAt   DateTime          @updatedAt
+  id                    Int                    @id @default(autoincrement())
+  item                  InventoryItem          @relation(fields: [itemId], references: [id])
+  itemId                Int
+  batch                 InventoryBatch?        @relation(fields: [batchId], references: [id])
+  batchId               Int?
+  type                  TransactionType
+  quantity              Int // Positive for in, negative for out
+  unitPrice             Decimal?               @db.Decimal(10, 2)
+  totalAmount           Decimal?               @db.Decimal(10, 2)
+  status                TransactionStatus      @default(COMPLETED)
+  sourceType            SourceType
+  visitId               Int? // Reference to external source (e.g., visitId, orderId)
+  visit                 Visit?                 @relation(fields: [visitId], references: [id])
+  dispenseOrderId       String?
+  pharmacyDispenseOrder PharmacyDispenseOrder? @relation(fields: [dispenseOrderId], references: [id])
+  pharmacyDispenseLine  PharmacyDispenseLine?
+  notes                 String?
+  performedBy           User                   @relation(fields: [userId], references: [id])
+  userId                Int
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
-    @@index([dispenseOrderId])
+  @@index([dispenseOrderId])
 }
 
 enum ItemType {
-    MEDICATION
-    SUPPLY
-    LAB_MATERIAL
-    CONSUMABLE
-    EQUIPMENT
-    OTHER
+  MEDICATION
+  SUPPLY
+  LAB_MATERIAL
+  CONSUMABLE
+  EQUIPMENT
+  OTHER
 }
 
 enum InventoryStatus {
-    IN_STOCK
-    LOW_STOCK
-    OUT_OF_STOCK
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
 }
 
 enum TransactionType {
-    PURCHASE // Buying new stock
-    SALE // Regular sale to patients
-    ADJUSTMENT // Manual adjustment
-    TRANSFER // Transfer between locations
-    RETURN // Return from patient/to supplier
-    DISPOSAL // Disposing expired/damaged items
-    CONSUMPTION // Internal usage
+  PURCHASE // Buying new stock
+  SALE // Regular sale to patients
+  ADJUSTMENT // Manual adjustment
+  TRANSFER // Transfer between locations
+  RETURN // Return from patient/to supplier
+  DISPOSAL // Disposing expired/damaged items
+  CONSUMPTION // Internal usage
 }
 
 enum TransactionStatus {
-    PENDING
-    COMPLETED
-    CANCELLED
-    FAILED
+  PENDING
+  COMPLETED
+  CANCELLED
+  FAILED
 }
 
 enum SourceType {
-    VISIT // From patient visit
-    PURCHASE_ORDER // From purchase order
-    MANUAL // Manual adjustment
-    TRANSFER // Internal transfer
-    RETURN // Return processing
-    DISPOSAL // Disposal record
-    STOCKTAKE // Inventory count adjustment
-    PHARMACY_DISPENSE // Pharmacy module dispensing
+  VISIT // From patient visit
+  PURCHASE_ORDER // From purchase order
+  MANUAL // Manual adjustment
+  TRANSFER // Internal transfer
+  RETURN // Return processing
+  DISPOSAL // Disposal record
+  STOCKTAKE // Inventory count adjustment
+  PHARMACY_DISPENSE // Pharmacy module dispensing
 }
 
 enum Unit {
-    ML
-    MG
-    PIECE // For countable items
+  ML
+  MG
+  PIECE // For countable items
 }

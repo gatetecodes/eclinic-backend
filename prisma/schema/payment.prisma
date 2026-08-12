@@ -1,84 +1,84 @@
 model Payment {
-    id               Int              @id @default(autoincrement())
-    clinic           Clinic           @relation(fields: [clinicId], references: [id])
-    clinicId         Int
-    branch           Branch?          @relation(fields: [branchId], references: [id])
-    branchId         Int?
-    visit            Visit?           @relation(fields: [visitId], references: [id])
-    visitId          Int?
-    treatment        Treatment?       @relation(fields: [treatmentId], references: [id])
-    treatmentId      Int?
-    appointment      Event?           @relation(fields: [appointmentId], references: [id])
-    appointmentId    Int?
-    insuranceClaim   InsuranceClaim?  @relation(fields: [insuranceClaimId], references: [id])
-    insuranceClaimId Int?
-    amount           Decimal          @db.Decimal(10, 2)
-    paidAmount       Decimal          @default(0) @db.Decimal(10, 2)
-    insuranceAmount  Decimal?         @db.Decimal(10, 2)
-    patientAmount    Decimal          @db.Decimal(10, 2)
-    allowPartial     Boolean          @default(false)
-    paymentDetails   Json?
-    products         Product[]
-    paymentType      PaymentType
-    paymentMode      PaymentMode
-    paymentMethod    PaymentMethod    @default(CASH)
-    paymentStatus    PaymentStatus    @default(PENDING)
-    discounts        Discount[]
-    partialPayments  PartialPayment[]
-    refunds          Refund[]
-    processedBy      User?            @relation("ProcessedPayments", fields: [processedById], references: [id])
-    processedById    Int?
-    createdAt        DateTime         @default(now())
-    updatedAt        DateTime         @updatedAt
+  id               Int              @id @default(autoincrement())
+  clinic           Clinic           @relation(fields: [clinicId], references: [id])
+  clinicId         Int
+  branch           Branch?          @relation(fields: [branchId], references: [id])
+  branchId         Int?
+  visit            Visit?           @relation(fields: [visitId], references: [id])
+  visitId          Int?
+  treatment        Treatment?       @relation(fields: [treatmentId], references: [id])
+  treatmentId      Int?
+  appointment      Event?           @relation(fields: [appointmentId], references: [id])
+  appointmentId    Int?
+  insuranceClaim   InsuranceClaim?  @relation(fields: [insuranceClaimId], references: [id])
+  insuranceClaimId Int?
+  amount           Decimal          @db.Decimal(10, 2)
+  paidAmount       Decimal          @default(0) @db.Decimal(10, 2)
+  insuranceAmount  Decimal?         @db.Decimal(10, 2)
+  patientAmount    Decimal          @db.Decimal(10, 2)
+  allowPartial     Boolean          @default(false)
+  paymentDetails   Json?
+  products         Product[]
+  paymentType      PaymentType
+  paymentMode      PaymentMode
+  paymentMethod    PaymentMethod    @default(CASH)
+  paymentStatus    PaymentStatus    @default(PENDING)
+  discounts        Discount[]
+  partialPayments  PartialPayment[]
+  refunds          Refund[]
+  processedBy      User?            @relation("ProcessedPayments", fields: [processedById], references: [id])
+  processedById    Int?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
-    @@index([clinicId])
-    @@index([visitId])
-    @@index([treatmentId])
-    @@index([appointmentId])
-    @@index([insuranceClaimId])
+  @@index([clinicId])
+  @@index([visitId])
+  @@index([treatmentId])
+  @@index([appointmentId])
+  @@index([insuranceClaimId])
 }
 
 enum PaymentType {
-    CONSULTATION
-    MEDICATION
-    ADDITIONAL_EXAM
-    HOSPITALIZATION
-    TREATMENT
+  CONSULTATION
+  MEDICATION
+  ADDITIONAL_EXAM
+  HOSPITALIZATION
+  TREATMENT
 }
 
 enum PaymentStatus {
-    PENDING
-    PAID //After patient amount is fully paid
-    FULLY_PAID //After insurance amount is fully paid
-    PARTIALLY_PAID //After partial payment is made
-    CANCELLED
-    DELETED
+  PENDING
+  PAID //After patient amount is fully paid
+  FULLY_PAID //After insurance amount is fully paid
+  PARTIALLY_PAID //After partial payment is made
+  CANCELLED
+  DELETED
 }
 
 enum DiscountStatus {
-    PENDING
-    APPROVED
-    REJECTED
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum PaymentMethod {
-    CASH
-    MOBILE_MONEY
-    CARD
-    BANK_TRANSFER
+  CASH
+  MOBILE_MONEY
+  CARD
+  BANK_TRANSFER
 }
 
 model PartialPayment {
-    id            Int           @id @default(autoincrement())
-    payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-    paymentId     Int
-    amount        Decimal       @db.Decimal(10, 2)
-    paymentMethod PaymentMethod
-    processedBy   User?         @relation("ProcessedPartialPayments", fields: [processedById], references: [id])
-    processedById Int?
-    createdAt     DateTime      @default(now())
-    updatedAt     DateTime      @updatedAt
+  id            Int           @id @default(autoincrement())
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  paymentId     Int
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  processedBy   User?         @relation("ProcessedPartialPayments", fields: [processedById], references: [id])
+  processedById Int?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-    @@index([paymentId])
-    @@index([processedById])
+  @@index([paymentId])
+  @@index([processedById])
 }

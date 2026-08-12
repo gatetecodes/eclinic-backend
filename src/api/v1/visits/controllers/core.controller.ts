@@ -3,7 +3,6 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { httpCodes } from "@/lib/constants";
-import { logger } from "@/lib/logger";
 import { parseDateString } from "@/lib/utils";
 import type {
   Gender,
@@ -67,7 +66,7 @@ import {
 } from "../../../../lib/cache-utils";
 import { searchParamsSchema } from "../../../../lib/common-validation";
 import { getScope } from "../../../../lib/request-scope";
-import { enqueueFinalizedVisit } from "../../../../services/hie/outbox.service";
+import { enqueueFinalizedVisitInTransaction } from "../../../../services/hie/outbox.service";
 import { QueueIntegrationService } from "../../../../services/queue-integration.service";
 import {
   DEFAULT_CACHE_TTL,
@@ -1966,24 +1965,14 @@ export const finalizeVisit = async (c: Context) => {
       // are no internal lines with a price and quantity.
       await createMedicationPaymentForVisit(visitId, { tx });
 
-      return finalizedVisit;
-    });
-
-    // HIE enqueue is best-effort and happens only after local clinical care is
-    // committed. The outbox cron reconciles finalized visits missing an event.
-    try {
-      await enqueueFinalizedVisit(db, {
+      await enqueueFinalizedVisitInTransaction(tx, {
         clinicId: visit.clinicId,
         visitId,
         patientId: visit.patientId,
       });
-    } catch (error) {
-      logger.error("hie.outbox.enqueue_failed", {
-        capability: "SHARED_RECORD_WRITE",
-        visitId,
-        error,
-      });
-    }
+
+      return finalizedVisit;
+    });
 
     await invalidateVisitRelatedCaches({
       clinicId: user.clinicId,

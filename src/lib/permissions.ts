@@ -53,6 +53,13 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       delete: true,
       approve: true,
       process: true,
+      manageHieConsent: true,
+      viewHieTransfers: true,
+      manageHieTransfers: true,
+      reviewEmergencyHieAccess: true,
+      manageHieAllergies: true,
+      manageHieImmunizations: true,
+      manageHieImaging: true,
     },
   },
   BRANCH_ADMIN: {
@@ -81,7 +88,9 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       create: true,
       update: true,
       approve: true,
-      process: true,
+      manageHieConsent: true,
+      viewHieTransfers: true,
+      manageHieTransfers: true,
     },
   },
   DOCTOR: {
@@ -108,7 +117,17 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     users: { read: true, update: true, readMyProfile: true },
     appointments: { read: true, create: true, update: true, delete: true },
     inventory: { read: true },
-    hie: { read: true, create: true },
+    hie: {
+      read: true,
+      create: true,
+      manageHieConsent: true,
+      viewHieTransfers: true,
+      manageHieTransfers: true,
+      emergencyHieRead: true,
+      manageHieAllergies: true,
+      manageHieImmunizations: true,
+      manageHieImaging: true,
+    },
   },
   NURSE: {
     visits: {
@@ -127,7 +146,14 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     analytics: { read: true },
     appointments: { read: true, create: true, update: true, delete: true },
     tariff: { read: true },
-    hie: { read: true, create: true, approve: true },
+    hie: {
+      read: true,
+      create: true,
+      approve: true,
+      manageHieConsent: true,
+      manageHieAllergies: true,
+      manageHieImmunizations: true,
+    },
   },
   LAB_TECHNICIAN: {
     exams: { read: true, create: true, update: true, process: true },
@@ -136,6 +162,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     analytics: { read: true },
     tariff: { read: true },
     users: { read: true, readMyProfile: true },
+    hie: { read: true, manageHieImaging: true },
   },
   RECEPTIONIST: {
     visits: { read: true, create: true, update: true },
@@ -146,7 +173,12 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
     notifications: { read: true, create: true, update: true, delete: true },
     users: { read: true, readMyProfile: true },
     departments: { read: true },
-    hie: { read: true, create: true, approve: true },
+    hie: {
+      read: true,
+      create: true,
+      approve: true,
+      manageHieConsent: true,
+    },
   },
   PHARMACIST: {
     inventory: { read: true, update: true },
@@ -174,7 +206,12 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionConfig> = {
       updateInitialCheckin: true,
     },
     departments: { read: true },
-    hie: { read: true, create: true, approve: true },
+    hie: {
+      read: true,
+      create: true,
+      approve: true,
+      manageHieConsent: true,
+    },
   },
   MARKETING: {
     analytics: { read: true },

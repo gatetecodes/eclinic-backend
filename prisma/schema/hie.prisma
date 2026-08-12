@@ -1,276 +1,722 @@
 enum HieEnvironment {
-    TEST
-    PRODUCTION
+  TEST
+  PRODUCTION
 }
 
 enum HieVerificationStatus {
-    PENDING
-    VERIFIED
-    CONFLICT
-    REVOKED
+  PENDING
+  MANUAL_ATTESTED
+  VERIFIED
+  CONFLICT
+  REVOKED
 }
 
 enum HieConsentStatus {
-    DRAFT
-    ACTIVE
-    REJECTED
-    INACTIVE
+  DRAFT
+  ACTIVE
+  REJECTED
+  INACTIVE
 }
 
 enum HieOutboxStatus {
-    PENDING
-    PROCESSING
-    RETRY
-    BLOCKED
-    SUCCEEDED
-    DEAD_LETTER
+  PENDING
+  PROCESSING
+  RETRY
+  BLOCKED
+  SUCCEEDED
+  DEAD_LETTER
 }
 
 enum HieReconciliationStatus {
-    PENDING
-    ACCEPTED
-    DISMISSED
+  PENDING
+  ACCEPTED
+  DISMISSED
+}
+
+enum HieIdentityCaseStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum HieInboundTransferStatus {
+  RECEIVED
+  REVIEWED
+  ACKNOWLEDGED
+  COMPLETED
+  DISMISSED
 }
 
 enum HieTransferStatus {
-    DRAFT
-    QUEUED
-    SENT
-    ACKNOWLEDGED
-    FAILED
-    CANCELLED
-    COMPLETED
+  DRAFT
+  QUEUED
+  SENT
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+  COMPLETED
+}
+
+enum HieConsentSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+  WITHDRAWAL_PENDING
+  WITHDRAWN
+}
+
+enum HieClinicalConceptDomain {
+  ALLERGY
+  VACCINE
+  CONSULTATION_OBSERVATION
+  IMAGING_PROCEDURE
+  IMAGING_REASON
+  BODY_SITE
+  MEDICATION_ROUTE
+  ADMINISTRATION_METHOD
+}
+
+enum HieStructuredRecordStatus {
+  DRAFT
+  FINAL
+  CORRECTED
+  ENTERED_IN_ERROR
+}
+
+enum HieEmergencyReviewStatus {
+  PENDING
+  APPROVED
+  CONCERN
+}
+
+enum HieImagingOrderStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum HieImagingStudyStatus {
+  REGISTERED
+  AVAILABLE
+  CANCELLED
 }
 
 model HieTenantConfig {
-    id                       Int            @id @default(autoincrement())
-    clinic                   Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId                 Int            @unique
-    environment              HieEnvironment @default(TEST)
-    enabled                  Boolean        @default(false)
-    clientRegistryEnabled    Boolean        @default(false)
-    sharedRecordReadEnabled  Boolean        @default(false)
-    sharedRecordWriteEnabled Boolean        @default(false)
-    transferEnabled          Boolean        @default(false)
-    lastHealthStatus         String?
-    lastHealthCheckedAt      DateTime?
-    createdAt                DateTime       @default(now())
-    updatedAt                DateTime       @updatedAt
+  id                       Int            @id @default(autoincrement())
+  clinic                   Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId                 Int            @unique
+  environment              HieEnvironment @default(TEST)
+  enabled                  Boolean        @default(false)
+  clientRegistryEnabled    Boolean        @default(false)
+  sharedRecordReadEnabled  Boolean        @default(false)
+  sharedRecordWriteEnabled Boolean        @default(false)
+  transferEnabled          Boolean        @default(false)
+  consentSyncEnabled       Boolean        @default(false)
+  consultationWriteEnabled Boolean        @default(false)
+  nationalListReadEnabled  Boolean        @default(false)
+  nationalAuditReadEnabled Boolean        @default(false)
+  emergencyReadEnabled     Boolean        @default(false)
+  allergyWriteEnabled      Boolean        @default(false)
+  immunizationWriteEnabled Boolean        @default(false)
+  imagingWriteEnabled      Boolean        @default(false)
+  lastHealthStatus         String?
+  lastHealthCheckedAt      DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
 }
 
 model HieFacilityLink {
-    id                  Int                   @id @default(autoincrement())
-    clinic              Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId            Int
-    branch              Branch                @relation(fields: [branchId, clinicId], references: [id, clinicId], onDelete: Cascade)
-    branchId            Int
-    fosaCode            String
-    locationReference   String
-    displayName         String?
-    verificationStatus  HieVerificationStatus @default(PENDING)
-    verifiedAt          DateTime?
-    lastRegistryCheckAt DateTime?
-    createdAt           DateTime              @default(now())
-    updatedAt           DateTime              @updatedAt
+  id                    Int                   @id @default(autoincrement())
+  clinic                Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId              Int
+  branch                Branch                @relation(fields: [branchId, clinicId], references: [id, clinicId], onDelete: Cascade)
+  branchId              Int
+  fosaCode              String
+  locationReference     String
+  displayName           String?
+  verificationStatus    HieVerificationStatus @default(PENDING)
+  verifiedAt            DateTime?
+  lastRegistryCheckAt   DateTime?
+  verificationSource    String?
+  verificationReference String?
+  verificationActorId   Int?
+  verificationExpiresAt DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-    @@unique([clinicId, branchId])
-    @@unique([fosaCode])
-    @@index([locationReference])
+  @@unique([clinicId, branchId])
+  @@unique([fosaCode])
+  @@index([locationReference])
+}
+
+model HieDestinationFacility {
+  id                    Int                   @id @default(autoincrement())
+  clinic                Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId              Int
+  fosaCode              String
+  locationReference     String
+  displayName           String
+  verificationStatus    HieVerificationStatus @default(PENDING)
+  verifiedAt            DateTime?
+  verificationSource    String?
+  verificationReference String?
+  verificationActorId   Int?
+  verificationExpiresAt DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  transfers             HieExternalTransfer[]
+
+  @@unique([clinicId, fosaCode])
+  @@unique([clinicId, locationReference])
+  @@index([clinicId, verificationStatus, displayName])
 }
 
 model PatientExternalIdentity {
-    id                            Int                   @id @default(autoincrement())
-    patient                       Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
-    patientId                     Int
-    identifierType                String
-    identifierHash                String
-    identifierEncrypted           String
-    resourceIdHash                String?
-    resourceIdEncrypted           String?
-    source                        String                @default("RHIE_CLIENT_REGISTRY")
-    verificationStatus            HieVerificationStatus @default(PENDING)
-    verifiedAt                    DateTime?
-    deferredReason                String?
-    demographicsSnapshotEncrypted String?
-    createdAt                     DateTime              @default(now())
-    updatedAt                     DateTime              @updatedAt
+  id                            Int                   @id @default(autoincrement())
+  patient                       Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId                     Int
+  identifierType                String
+  identifierHash                String
+  identifierEncrypted           String
+  resourceIdHash                String?
+  resourceIdEncrypted           String?
+  source                        String                @default("RHIE_CLIENT_REGISTRY")
+  verificationStatus            HieVerificationStatus @default(PENDING)
+  verifiedAt                    DateTime?
+  deferredReason                String?
+  retryCount                    Int                   @default(0)
+  nextRetryAt                   DateTime?
+  lastAttemptAt                 DateTime?
+  lastErrorCode                 String?
+  demographicsSnapshotEncrypted String?
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  dobDiscrepancies              HieDobDiscrepancy[]
 
-    @@unique([identifierType, identifierHash])
-    @@index([patientId, verificationStatus])
-    @@index([resourceIdHash])
+  @@unique([identifierType, identifierHash])
+  @@index([patientId, verificationStatus])
+  @@index([resourceIdHash])
+}
+
+model HieIdentityReconciliation {
+  id                   Int                   @id @default(autoincrement())
+  clinic               Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId             Int
+  patient              Patient               @relation("HieIdentityCasePatient", fields: [patientId], references: [id], onDelete: Cascade)
+  patientId            Int
+  conflictingPatient   Patient?              @relation("HieIdentityCaseConflict", fields: [conflictingPatientId], references: [id], onDelete: SetNull)
+  conflictingPatientId Int?
+  identifierType       String
+  identifierHash       String
+  identifierEncrypted  String
+  reasonCode           String
+  status               HieIdentityCaseStatus @default(OPEN)
+  snapshotEncrypted    String?
+  resolvedBy           User?                 @relation(fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedById         Int?
+  resolvedAt           DateTime?
+  resolutionNote       String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([clinicId, status, createdAt])
+  @@index([patientId, status])
+  @@index([identifierHash])
 }
 
 model UserExternalIdentity {
-    id                  Int                   @id @default(autoincrement())
-    user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-    userId              Int
-    identifierType      String                @default("PRACTITIONER")
-    identifierHash      String
-    identifierEncrypted String
-    verificationStatus  HieVerificationStatus @default(PENDING)
-    verifiedAt          DateTime?
-    createdAt           DateTime              @default(now())
-    updatedAt           DateTime              @updatedAt
+  id                    Int                   @id @default(autoincrement())
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                Int
+  identifierType        String                @default("PRACTITIONER")
+  identifierHash        String
+  identifierEncrypted   String
+  verificationStatus    HieVerificationStatus @default(PENDING)
+  verifiedAt            DateTime?
+  verificationSource    String?
+  verificationReference String?
+  verificationActorId   Int?
+  verificationExpiresAt DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-    @@unique([identifierType, identifierHash])
-    @@index([userId, verificationStatus])
+  @@unique([identifierType, identifierHash])
+  @@index([userId, verificationStatus])
 }
 
 model HieConsent {
-    id                     Int              @id @default(autoincrement())
-    clinic                 Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId               Int
-    patient                Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
-    patientId              Int
-    status                 HieConsentStatus @default(DRAFT)
-    scope                  String
-    purpose                String
-    evidence               Json?
-    effectiveFrom          DateTime
-    effectiveTo            DateTime?
-    recordedBy             User             @relation("HieConsentRecordedBy", fields: [recordedById], references: [id])
-    recordedById           Int
-    withdrawnAt            DateTime?
-    withdrawnReason        String?
-    hieResourceIdEncrypted String?
-    createdAt              DateTime         @default(now())
-    updatedAt              DateTime         @updatedAt
+  id                     Int                  @id @default(autoincrement())
+  clinic                 Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId               Int
+  patient                Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId              Int
+  status                 HieConsentStatus     @default(DRAFT)
+  scope                  String
+  purpose                String
+  evidence               Json?
+  effectiveFrom          DateTime
+  effectiveTo            DateTime?
+  recordedBy             User                 @relation("HieConsentRecordedBy", fields: [recordedById], references: [id])
+  recordedById           Int
+  withdrawnAt            DateTime?
+  withdrawnReason        String?
+  hieResourceIdEncrypted String?
+  hieVersionEncrypted    String?
+  syncStatus             HieConsentSyncStatus @default(PENDING)
+  synchronizedAt         DateTime?
+  lastSyncAttemptAt      DateTime?
+  lastSyncFailureCode    String?
+  lastSyncFailureMessage String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
-    @@index([clinicId, patientId, status])
+  @@index([clinicId, patientId, status])
 }
 
 model HieResourceLink {
-    id                     Int       @id @default(autoincrement())
-    clinic                 Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId               Int
-    localResourceType      String
-    localResourceId        String
-    hieResourceType        String
-    hieResourceIdHash      String
-    hieResourceIdEncrypted String
-    versionId              String?
-    lastSyncedAt           DateTime?
-    createdAt              DateTime  @default(now())
-    updatedAt              DateTime  @updatedAt
+  id                     Int       @id @default(autoincrement())
+  clinic                 Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId               Int
+  localResourceType      String
+  localResourceId        String
+  hieResourceType        String
+  hieResourceIdHash      String
+  hieResourceIdEncrypted String
+  versionId              String?
+  lastSyncedAt           DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-    @@unique([clinicId, localResourceType, localResourceId, hieResourceType])
-    @@unique([hieResourceType, hieResourceIdHash])
+  @@unique([clinicId, localResourceType, localResourceId, hieResourceType])
+  @@unique([hieResourceType, hieResourceIdHash])
 }
 
 model HieOutboxEvent {
-    id               String           @id @default(uuid())
-    clinic           Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId         Int
-    aggregateType    String
-    aggregateId      String
-    resourceType     String
-    operation        String
-    payloadEncrypted String
-    status           HieOutboxStatus  @default(PENDING)
-    dependencyReason String?
-    dependencyOrder  Int              @default(0)
-    attemptCount     Int              @default(0)
-    nextAttemptAt    DateTime         @default(now())
-    correlationId    String           @unique
-    lockedAt         DateTime?
-    completedAt      DateTime?
-    lastErrorCode    String?
-    lastErrorMessage String?
-    createdAt        DateTime         @default(now())
-    updatedAt        DateTime         @updatedAt
-    attempts         HieSyncAttempt[]
+  id               String           @id @default(uuid())
+  clinic           Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId         Int
+  aggregateType    String
+  aggregateId      String
+  resourceType     String
+  operation        String
+  payloadEncrypted String
+  status           HieOutboxStatus  @default(PENDING)
+  dependencyReason String?
+  dependencyOrder  Int              @default(0)
+  attemptCount     Int              @default(0)
+  nextAttemptAt    DateTime         @default(now())
+  correlationId    String           @unique
+  idempotencyKey   String?          @unique
+  lockedAt         DateTime?
+  completedAt      DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  attempts         HieSyncAttempt[]
 
-    @@index([status, nextAttemptAt, dependencyOrder])
-    @@index([clinicId, aggregateType, aggregateId])
+  @@index([status, nextAttemptAt, dependencyOrder])
+  @@index([clinicId, aggregateType, aggregateId])
 }
 
 model HieSyncAttempt {
-    id            Int            @id @default(autoincrement())
-    event         HieOutboxEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-    eventId       String
-    attemptNumber Int
-    httpStatus    Int?
-    outcome       String
-    errorCode     String?
-    errorMessage  String?
-    durationMs    Int?
-    createdAt     DateTime       @default(now())
+  id            Int            @id @default(autoincrement())
+  event         HieOutboxEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId       String
+  attemptNumber Int
+  httpStatus    Int?
+  outcome       String
+  errorCode     String?
+  errorMessage  String?
+  durationMs    Int?
+  createdAt     DateTime       @default(now())
 
-    @@index([eventId, attemptNumber])
+  @@index([eventId, attemptNumber])
+}
+
+model PatientInsuranceExternalIdentity {
+  id                         Int                   @id @default(autoincrement())
+  clinic                     Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId                   Int
+  patientInsurance           PatientInsurance      @relation(fields: [patientInsuranceId], references: [id], onDelete: Cascade)
+  patientInsuranceId         Int
+  coverageReferenceHash      String
+  coverageReferenceEncrypted String
+  verificationStatus         HieVerificationStatus @default(PENDING)
+  verificationSource         String
+  verificationReference      String
+  verificationActorId        Int
+  verifiedAt                 DateTime?
+  verificationExpiresAt      DateTime?
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+
+  @@unique([clinicId, patientInsuranceId])
+  @@unique([clinicId, coverageReferenceHash])
+  @@index([clinicId, verificationStatus])
+}
+
+model HieDobDiscrepancy {
+  id                Int                     @id @default(autoincrement())
+  clinic            Clinic                  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId          Int
+  patient           Patient                 @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId         Int
+  identity          PatientExternalIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+  identityId        Int
+  localDate         DateTime                @db.Date
+  nationalDate      DateTime                @db.Date
+  status            String                  @default("OPEN")
+  reviewedById      Int?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  expectedUpdatedAt DateTime
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@unique([clinicId, patientId, identityId])
+  @@index([clinicId, status, createdAt])
+}
+
+model HieClinicalConcept {
+  id                       Int                          @id @default(autoincrement())
+  domain                   HieClinicalConceptDomain
+  codingSystem             String
+  code                     String
+  display                  String
+  status                   ProductTerminologyStatus     @default(DRAFT)
+  active                   Boolean                      @default(true)
+  verifiedBy               User?                        @relation("HieConceptVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedById             Int?
+  verifiedAt               DateTime?
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+  allergies                HieStructuredAllergy[]
+  immunizations            HieImmunization[]
+  consultationObservations HieConsultationObservation[]
+  imagingOrders            HieImagingOrder[]            @relation("HieImagingProcedureConcept")
+  imagingOrderReasons      HieImagingOrder[]            @relation("HieImagingReasonConcept")
+  imagingStudies           HieImagingStudy[]            @relation("HieImagingStudyProcedureConcept")
+  imagingStudyReasons      HieImagingStudy[]            @relation("HieImagingStudyReasonConcept")
+  imagingBodySites         HieImagingSeries[]            @relation("HieImagingBodySiteConcept")
+
+  @@unique([domain, codingSystem, code])
+  @@index([domain, status, active])
+}
+
+model HieConsultationObservation {
+  id             Int                       @id @default(autoincrement())
+  clinic         Clinic                    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId       Int
+  patient        Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId      Int
+  visit          Visit                     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  visitId        Int
+  practitionerId Int
+  branchId       Int
+  concept        HieClinicalConcept        @relation(fields: [conceptId], references: [id])
+  conceptId      Int
+  category       String
+  valueText      String?
+  valueNumber    Decimal?                  @db.Decimal(14, 4)
+  unit           String?
+  clinicalAt     DateTime
+  status         HieStructuredRecordStatus @default(DRAFT)
+  finalizedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([clinicId, id])
+  @@index([clinicId, patientId, clinicalAt])
+  @@index([clinicId, visitId, status])
+}
+
+model HieStructuredAllergy {
+  id                 Int                       @id @default(autoincrement())
+  clinic             Clinic                    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId           Int
+  patient            Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId          Int
+  visitId            Int?
+  asserterId         Int
+  branchId           Int
+  allergen           HieClinicalConcept        @relation(fields: [allergenConceptId], references: [id])
+  allergenConceptId  Int
+  clinicalStatus     String
+  verificationStatus String
+  criticality        String?
+  onsetAt            DateTime
+  recordedDate       DateTime                  @db.Date
+  reactions          Json?
+  status             HieStructuredRecordStatus @default(DRAFT)
+  replacesAllergyId  Int?
+  finalizedAt        DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@unique([clinicId, id])
+  @@index([clinicId, patientId, status])
+}
+
+model HieImmunization {
+  id                     Int                       @id @default(autoincrement())
+  clinic                 Clinic                    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId               Int
+  patient                Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId              Int
+  visitId                Int?
+  performerId            Int
+  branchId               Int
+  vaccine                HieClinicalConcept        @relation(fields: [vaccineConceptId], references: [id])
+  vaccineConceptId       Int
+  immunizationStatus     String
+  occurrenceAt           DateTime
+  lotNumber              String?
+  expiryDate             DateTime?                 @db.Date
+  siteCode               String?
+  routeCode              String?
+  nextDueDate            DateTime?                 @db.Date
+  status                 HieStructuredRecordStatus @default(DRAFT)
+  replacesImmunizationId Int?
+  finalizedAt            DateTime?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+
+  @@unique([clinicId, id])
+  @@index([clinicId, patientId, status])
+}
+
+model HieImagingOrder {
+  id                 Int                   @id @default(autoincrement())
+  clinic             Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId           Int
+  patient            Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId          Int
+  visitId            Int
+  requesterId        Int
+  performerId        Int
+  branchId           Int
+  procedureConcept   HieClinicalConcept    @relation("HieImagingProcedureConcept", fields: [procedureConceptId], references: [id])
+  procedureConceptId Int
+  reasonConcept      HieClinicalConcept    @relation("HieImagingReasonConcept", fields: [reasonConceptId], references: [id])
+  reasonConceptId    Int
+  reasonCode         String
+  reasonDisplay      String
+  status             HieImagingOrderStatus @default(DRAFT)
+  occurrenceAt       DateTime
+  finalizedAt        DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  studies            HieImagingStudy[]
+
+  @@unique([clinicId, id])
+  @@index([clinicId, patientId, status])
+  @@index([clinicId, visitId])
+}
+
+model HieImagingStudy {
+  id                 Int                   @id @default(autoincrement())
+  clinic             Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId           Int
+  patient            Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId          Int
+  visitId            Int
+  practitionerId     Int
+  branchId           Int
+  order              HieImagingOrder?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId            Int?
+  procedureConcept   HieClinicalConcept    @relation("HieImagingStudyProcedureConcept", fields: [procedureConceptId], references: [id])
+  procedureConceptId Int
+  reasonConcept      HieClinicalConcept    @relation("HieImagingStudyReasonConcept", fields: [reasonConceptId], references: [id])
+  reasonConceptId    Int
+  reasonCode         String
+  reasonDisplay      String
+  studyUid           String
+  modality           String
+  description        String
+  conclusion         String
+  conclusionCode     String
+  startedAt          DateTime
+  status             HieImagingStudyStatus @default(REGISTERED)
+  finalizedAt        DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  series             HieImagingSeries[]
+
+  @@unique([clinicId, id])
+  @@unique([clinicId, studyUid])
+  @@index([clinicId, patientId, status])
+  @@index([clinicId, visitId])
+}
+
+model HieImagingSeries {
+  id           Int                  @id @default(autoincrement())
+  clinicId     Int
+  study        HieImagingStudy      @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  studyId      Int
+  seriesUid    String
+  modality     String
+  bodySiteCode String?
+  bodySiteConcept   HieClinicalConcept? @relation("HieImagingBodySiteConcept", fields: [bodySiteConceptId], references: [id])
+  bodySiteConceptId Int?
+  description  String?
+  startedAt    DateTime?
+  instances    HieImagingInstance[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@unique([clinicId, seriesUid])
+  @@unique([clinicId, id])
+  @@index([clinicId, studyId])
+}
+
+model HieImagingInstance {
+  id             Int              @id @default(autoincrement())
+  clinicId       Int
+  series         HieImagingSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  seriesId       Int
+  sopUid         String
+  sopClassUid    String
+  instanceNumber Int?
+  title          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([clinicId, sopUid])
+  @@unique([clinicId, id])
+  @@index([clinicId, seriesId])
+}
+
+model HieEmergencyAccess {
+  id            Int                      @id @default(autoincrement())
+  clinic        Clinic                   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId      Int
+  patient       Patient                  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId     Int
+  clinicianId   Int
+  branchId      Int
+  reasonCode    String
+  justification String
+  effectiveFrom DateTime                 @default(now())
+  effectiveTo   DateTime
+  outcome       String
+  reviewStatus  HieEmergencyReviewStatus @default(PENDING)
+  reviewedById  Int?
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@unique([clinicId, id])
+  @@index([clinicId, reviewStatus, effectiveTo])
+  @@index([clinicId, patientId, effectiveTo])
 }
 
 model HieAuditEvent {
-    id            Int      @id @default(autoincrement())
-    clinic        Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId      Int
-    patient       Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
-    patientId     Int?
-    actor         User     @relation(fields: [actorId], references: [id])
-    actorId       Int
-    action        String
-    capability    String
-    purposeOfUse  String
-    outcome       String
-    correlationId String
-    metadata      Json?
-    createdAt     DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  clinic        Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId      Int
+  patient       Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  patientId     Int?
+  actor         User     @relation(fields: [actorId], references: [id])
+  actorId       Int
+  action        String
+  capability    String
+  purposeOfUse  String
+  outcome       String
+  correlationId String
+  metadata      Json?
+  createdAt     DateTime @default(now())
 
-    @@index([clinicId, createdAt])
-    @@index([patientId, createdAt])
-    @@index([correlationId])
+  @@index([clinicId, createdAt])
+  @@index([patientId, createdAt])
+  @@index([correlationId])
 }
 
 model HieReconciliation {
-    id                          Int                     @id @default(autoincrement())
-    clinic                      Clinic                  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId                    Int
-    patient                     Patient                 @relation(fields: [patientId], references: [id], onDelete: Cascade)
-    patientId                   Int
-    externalResourceType        String
-    externalResourceIdHash      String
-    externalResourceIdEncrypted String
-    status                      HieReconciliationStatus @default(PENDING)
-    reviewedBy                  User?                   @relation(fields: [reviewedById], references: [id])
-    reviewedById                Int?
-    reviewedAt                  DateTime?
-    notes                       String?
-    localResourceType           String?
-    localResourceId             String?
-    createdAt                   DateTime                @default(now())
-    updatedAt                   DateTime                @updatedAt
+  id                          Int                     @id @default(autoincrement())
+  clinic                      Clinic                  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId                    Int
+  patient                     Patient                 @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId                   Int
+  externalResourceType        String
+  externalResourceIdHash      String
+  externalResourceIdEncrypted String
+  status                      HieReconciliationStatus @default(PENDING)
+  reviewedBy                  User?                   @relation(fields: [reviewedById], references: [id])
+  reviewedById                Int?
+  reviewedAt                  DateTime?
+  notes                       String?
+  localResourceType           String?
+  localResourceId             String?
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
 
-    @@unique([clinicId, patientId, externalResourceType, externalResourceIdHash])
-    @@index([patientId, status])
+  @@unique([clinicId, patientId, externalResourceType, externalResourceIdHash])
+  @@index([patientId, status])
 }
 
 model HieExternalTransfer {
-    id                           Int               @id @default(autoincrement())
-    clinic                       Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-    clinicId                     Int
-    sourceBranch                 Branch            @relation(fields: [sourceBranchId, clinicId], references: [id, clinicId])
-    sourceBranchId               Int
-    visit                        Visit             @relation(fields: [visitId], references: [id])
-    visitId                      Int
-    patient                      Patient           @relation(fields: [patientId], references: [id])
-    patientId                    Int
-    referringPractitioner        User              @relation(fields: [referringPractitionerId], references: [id])
-    referringPractitionerId      Int
-    destinationFosaCode          String
-    destinationLocationReference String
-    reason                       String
-    urgency                      Priority          @default(MEDIUM)
-    clinicalSummary              String
-    status                       HieTransferStatus @default(DRAFT)
-    acknowledgement              String?
-    hieEncounterIdEncrypted      String?
-    sentAt                       DateTime?
-    acknowledgedAt               DateTime?
-    cancelledAt                  DateTime?
-    completedAt                  DateTime?
-    createdAt                    DateTime          @default(now())
-    updatedAt                    DateTime          @updatedAt
+  id                           Int                     @id @default(autoincrement())
+  clinic                       Clinic                  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId                     Int
+  sourceBranch                 Branch                  @relation(fields: [sourceBranchId, clinicId], references: [id, clinicId])
+  sourceBranchId               Int
+  visit                        Visit                   @relation(fields: [visitId], references: [id])
+  visitId                      Int
+  patient                      Patient                 @relation(fields: [patientId], references: [id])
+  patientId                    Int
+  referringPractitioner        User                    @relation(fields: [referringPractitionerId], references: [id])
+  referringPractitionerId      Int
+  destinationFacility          HieDestinationFacility? @relation(fields: [destinationFacilityId], references: [id])
+  destinationFacilityId        Int?
+  destinationFosaCode          String
+  destinationLocationReference String
+  reason                       String
+  urgency                      Priority                @default(MEDIUM)
+  clinicalSummary              String
+  status                       HieTransferStatus       @default(DRAFT)
+  acknowledgement              String?
+  hieEncounterIdEncrypted      String?
+  sentAt                       DateTime?
+  acknowledgedAt               DateTime?
+  cancelledAt                  DateTime?
+  completedAt                  DateTime?
+  createdAt                    DateTime                @default(now())
+  updatedAt                    DateTime                @updatedAt
 
-    @@index([clinicId, status])
-    @@index([patientId, createdAt])
-    @@index([visitId])
+  @@index([clinicId, status])
+  @@index([patientId, createdAt])
+  @@index([visitId])
+  @@index([destinationFacilityId])
+}
+
+model HieInboundTransfer {
+  id                           Int                      @id @default(autoincrement())
+  clinic                       Clinic                   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  clinicId                     Int
+  patient                      Patient                  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId                    Int
+  externalEncounterIdHash      String
+  externalEncounterIdEncrypted String
+  sourceFacilityReference      String?
+  sourceFacilityDisplay        String?
+  referringPractitionerDisplay String?
+  reason                       String?
+  clinicalDate                 DateTime?
+  status                       HieInboundTransferStatus @default(RECEIVED)
+  reviewedBy                   User?                    @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedById                 Int?
+  reviewedAt                   DateTime?
+  acknowledgement              String?
+  acknowledgedAt               DateTime?
+  completedAt                  DateTime?
+  payloadEncrypted             String
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+
+  @@unique([clinicId, externalEncounterIdHash])
+  @@index([clinicId, status, createdAt])
+  @@index([patientId, status])
 }

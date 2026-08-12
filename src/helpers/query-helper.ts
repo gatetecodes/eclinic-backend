@@ -10,6 +10,12 @@ type SortableEntity = {
 
 type BuildQueryOptionsConfig = {
   includeHandoffs?: boolean;
+  /**
+   * When provided, only these columns may drive `orderBy`; any other value in
+   * `sort` falls back to the default ordering instead of reaching Prisma. Callers
+   * that omit it keep the previous pass-through behaviour.
+   */
+  sortableFields?: readonly string[];
 };
 
 export function buildQueryOptions<T extends SortableEntity>(
@@ -25,7 +31,7 @@ export function buildQueryOptions<T extends SortableEntity>(
   const { page, per_page, sort, from, to, ...filterParams } = params;
 
   const paginationOptions = getPaginationOptions(page, per_page);
-  const orderByOptions = getSortOptions<T>(sort);
+  const orderByOptions = getSortOptions<T>(sort, config.sortableFields);
   const whereConditions = getWhereConditions(
     filterParams,
     from,
@@ -53,14 +59,24 @@ function getPaginationOptions(
   };
 }
 
-function getSortOptions<T>(sort?: string): Record<string, "asc" | "desc"> {
+function getSortOptions<T>(
+  sort?: string,
+  sortableFields?: readonly string[]
+): Record<string, "asc" | "desc"> {
   const [column, order] = (sort?.split(".").filter(Boolean) ?? [
     "updatedAt",
     "desc",
   ]) as [keyof T | undefined, "asc" | "desc" | undefined];
 
+  if (!column) {
+    return { updatedAt: "desc" };
+  }
+  if (sortableFields && !sortableFields.includes(String(column))) {
+    return { updatedAt: "desc" };
+  }
+
   const direction: "asc" | "desc" = order === "desc" ? "desc" : "asc";
-  return column ? { [String(column)]: direction } : { updatedAt: "desc" };
+  return { [String(column)]: direction };
 }
 
 function getWhereConditions(

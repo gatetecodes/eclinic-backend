@@ -21,6 +21,7 @@ import type {
   AuditQuery,
   EntitlementUsageQuery,
 } from "./admin.validation";
+import { ADMIN_USER_SORT_FIELDS } from "./admin.validation";
 
 export const getStats = async (c: Context) => {
   try {
@@ -533,7 +534,8 @@ export const getAllUsers = async (c: Context) => {
 
     const { where, orderBy, ...rest } = buildQueryOptions<User>(
       paramsWithoutName,
-      additionalWhere as Record<string, unknown>
+      additionalWhere as Record<string, unknown>,
+      { sortableFields: ADMIN_USER_SORT_FIELDS }
     );
 
     const [users, totalCount] = await Promise.all([

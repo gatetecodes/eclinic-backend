@@ -55,7 +55,7 @@ beforeEach(() => {
   getSession.mockResolvedValue(null);
 });
 
-const requestWithCachedSession = async () => {
+const requestWithCachedSession = () => {
   setCachedSession(cookie, { user: cachedUser, impersonatedBy: null });
   const app = new Hono();
   app.use("*", requireAuth);
@@ -63,7 +63,7 @@ const requestWithCachedSession = async () => {
   return app.request("/", { headers: { cookie } });
 };
 
-const requestWithoutCachedSession = async () => {
+const requestWithoutCachedSession = () => {
   const app = new Hono();
   app.use("*", requireAuth);
   app.get("/", (c) => c.text("ok"));

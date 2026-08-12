@@ -1,166 +1,166 @@
 enum QueueStatus {
-    OPEN // The queue is open and patients can be added to it
-    PAUSED // The queue is paused and no new patients can be added to it
-    CLOSED // The queue is closed and no new patients can be added to it
+  OPEN // The queue is open and patients can be added to it
+  PAUSED // The queue is paused and no new patients can be added to it
+  CLOSED // The queue is closed and no new patients can be added to it
 }
 
 enum QueueEntryStatus {
-    WAITING // The patient is waiting in the queue
-    NOTIFIED
-    SKIPPED
-    SERVED
-    CANCELLED
+  WAITING // The patient is waiting in the queue
+  NOTIFIED
+  SKIPPED
+  SERVED
+  CANCELLED
 }
 
 enum QueueSource {
-    WHATSAPP
-    APP
-    KIOSK
-    STAFF
+  WHATSAPP
+  APP
+  KIOSK
+  STAFF
 }
 
 enum QueueEventType {
-    JOINED
-    NOTIFIED
-    SKIPPED
-    SERVED
-    CANCELLED
-    DELAYED
+  JOINED
+  NOTIFIED
+  SKIPPED
+  SERVED
+  CANCELLED
+  DELAYED
 }
 
 enum QueuePurpose {
-    DOCTOR // doctorId required
-    PRE_CONSULTATION // departmentId required (Triage stage)
-    LAB // branch-scoped, optional departmentId for Lab dept
-    PHARMACY // branch-scoped (Pharmacy stage — dispensing queue)
-    CASHIER // branch-scoped (Billing stage)
-    RECEPTION // branch-scoped
+  DOCTOR // doctorId required
+  PRE_CONSULTATION // departmentId required (Triage stage)
+  LAB // branch-scoped, optional departmentId for Lab dept
+  PHARMACY // branch-scoped (Pharmacy stage — dispensing queue)
+  CASHIER // branch-scoped (Billing stage)
+  RECEPTION // branch-scoped
 }
 
 model QueueConfig {
-    id       Int    @id @default(autoincrement())
-    clinicId Int
-    clinic   Clinic @relation(fields: [clinicId], references: [id])
-    branchId Int
-    branch   Branch @relation(fields: [branchId], references: [id])
+  id       Int    @id @default(autoincrement())
+  clinicId Int
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id])
 
-    // Optional links for EMR integration
-    departmentId Int?
-    department   ClinicalDepartment? @relation(fields: [departmentId], references: [id])
-    doctorId     Int?
-    doctor       User?               @relation("DoctorQueueConfigs", fields: [doctorId], references: [id])
+  // Optional links for EMR integration
+  departmentId Int?
+  department   ClinicalDepartment? @relation(fields: [departmentId], references: [id])
+  doctorId     Int?
+  doctor       User?               @relation("DoctorQueueConfigs", fields: [doctorId], references: [id])
 
-    // Configuration Fields
-    name        String // Display name (e.g. "Reception", "Dr. Smith")
-    description String? // Public description
-    slug        String? @unique // For public URLs
-    isPublic    Boolean @default(true) // Visible in public listings
+  // Configuration Fields
+  name        String // Display name (e.g. "Reception", "Dr. Smith")
+  description String? // Public description
+  slug        String? @unique // For public URLs
+  isPublic    Boolean @default(true) // Visible in public listings
 
-    // Automation
-    autoOpenTime      String? // HH:mm format
-    autoCloseTime     String? // HH:mm format
-    isAutoOpenEnabled Boolean @default(false)
+  // Automation
+  autoOpenTime      String? // HH:mm format
+  autoCloseTime     String? // HH:mm format
+  isAutoOpenEnabled Boolean @default(false)
 
-    // Pacing
-    defaultAvgTime   Int  @default(10) // Minutes
-    maxCapacity      Int? // Max patients per session
-    travelTimeBuffer Int  @default(15) // Minutes before travel time to alert
+  // Pacing
+  defaultAvgTime   Int  @default(10) // Minutes
+  maxCapacity      Int? // Max patients per session
+  travelTimeBuffer Int  @default(15) // Minutes before travel time to alert
 
-    purpose QueuePurpose? // null = legacy/custom
+  purpose QueuePurpose? // null = legacy/custom
 
-    queues Queue[]
+  queues Queue[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([clinicId, branchId])
-    @@index([slug])
+  @@index([clinicId, branchId])
+  @@index([slug])
 }
 
 model Queue {
-    id Int @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-    queueConfigId Int? // Link to config
-    queueConfig   QueueConfig? @relation(fields: [queueConfigId], references: [id])
+  queueConfigId Int? // Link to config
+  queueConfig   QueueConfig? @relation(fields: [queueConfigId], references: [id])
 
-    // Snapshot of config / Essential context
-    clinicId Int
-    clinic   Clinic @relation(fields: [clinicId], references: [id])
-    branchId Int
-    branch   Branch @relation(fields: [branchId], references: [id])
+  // Snapshot of config / Essential context
+  clinicId Int
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id])
 
-    // Optional - kept for backward compatibility or direct overrides
-    departmentId Int?
-    department   ClinicalDepartment? @relation(fields: [departmentId], references: [id])
-    doctorId     Int?
-    doctor       User?               @relation("DoctorQueues", fields: [doctorId], references: [id])
+  // Optional - kept for backward compatibility or direct overrides
+  departmentId Int?
+  department   ClinicalDepartment? @relation(fields: [departmentId], references: [id])
+  doctorId     Int?
+  doctor       User?               @relation("DoctorQueues", fields: [doctorId], references: [id])
 
-    name                       String // Snapshot of config name
-    status                     QueueStatus @default(OPEN)
-    avgDepartmentTimeInMinutes Int         @default(10)
+  name                       String // Snapshot of config name
+  status                     QueueStatus @default(OPEN)
+  avgDepartmentTimeInMinutes Int         @default(10)
 
-    startAt DateTime  @default(now())
-    closeAt DateTime?
+  startAt DateTime  @default(now())
+  closeAt DateTime?
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    entries QueueEntry[]
+  entries QueueEntry[]
 
-    @@index([clinicId, branchId])
-    @@index([queueConfigId])
-    @@index([status])
+  @@index([clinicId, branchId])
+  @@index([queueConfigId])
+  @@index([status])
 }
 
 model QueueEntry {
-    id          Int              @id @default(autoincrement())
-    queueId     Int
-    queue       Queue            @relation(fields: [queueId], references: [id])
-    patientId   Int? //Optional - first-time patients
-    patient     Patient?         @relation(fields: [patientId], references: [id])
-    visitId     Int?
-    visit       Visit?           @relation(fields: [visitId], references: [id])
-    phoneNumber String //Required for identity
-    name        String?
-    position    Int //Stored explicitly to avoid re-calculating it
-    status      QueueEntryStatus @default(WAITING)
-    priority    Int              @default(0)
+  id          Int              @id @default(autoincrement())
+  queueId     Int
+  queue       Queue            @relation(fields: [queueId], references: [id])
+  patientId   Int? //Optional - first-time patients
+  patient     Patient?         @relation(fields: [patientId], references: [id])
+  visitId     Int?
+  visit       Visit?           @relation(fields: [visitId], references: [id])
+  phoneNumber String //Required for identity
+  name        String?
+  position    Int //Stored explicitly to avoid re-calculating it
+  status      QueueEntryStatus @default(WAITING)
+  priority    Int              @default(0)
 
-    // Time tracking
-    joinedAt    DateTime?
-    checkInTime DateTime? // When patient physically arrives
-    notifiedAt  DateTime?
-    servedAt    DateTime?
-    cancelledAt DateTime?
+  // Time tracking
+  joinedAt    DateTime?
+  checkInTime DateTime? // When patient physically arrives
+  notifiedAt  DateTime?
+  servedAt    DateTime?
+  cancelledAt DateTime?
 
-    estimatedWaitTime Int? // In minutes, snapshot at join time
+  estimatedWaitTime Int? // In minutes, snapshot at join time
 
-    // Proactive Alerts
-    patientLat         Float?
-    patientLng         Float?
-    travelTimeEstimate Int? // In minutes
-    isTravelAlertSent  Boolean @default(false)
+  // Proactive Alerts
+  patientLat         Float?
+  patientLng         Float?
+  travelTimeEstimate Int? // In minutes
+  isTravelAlertSent  Boolean @default(false)
 
-    source QueueSource
-    events QueueEvent[]
+  source QueueSource
+  events QueueEvent[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([queueId])
-    @@index([phoneNumber])
-    @@index([status])
-    @@index([visitId])
+  @@index([queueId])
+  @@index([phoneNumber])
+  @@index([status])
+  @@index([visitId])
 }
 
 model QueueEvent {
-    id           Int            @id @default(autoincrement())
-    queueEntryId Int
-    queueEntry   QueueEntry     @relation(fields: [queueEntryId], references: [id])
-    type         QueueEventType
-    createdAt    DateTime       @default(now())
-    updatedAt    DateTime       @updatedAt
+  id           Int            @id @default(autoincrement())
+  queueEntryId Int
+  queueEntry   QueueEntry     @relation(fields: [queueEntryId], references: [id])
+  type         QueueEventType
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-    @@index([queueEntryId])
-    @@index([type])
+  @@index([queueEntryId])
+  @@index([type])
 }

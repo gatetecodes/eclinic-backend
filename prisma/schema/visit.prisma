@@ -1,146 +1,147 @@
 model Visit {
-    id                      Int                      @id @default(autoincrement())
-    patient                 Patient                  @relation(fields: [patientId], references: [id])
-    patientId               Int
-    clinic                  Clinic                   @relation(fields: [clinicId], references: [id])
-    clinicId                Int
-    branch                  Branch?                  @relation(fields: [branchId], references: [id])
-    branchId                Int?
-    department              ClinicalDepartment?      @relation(fields: [departmentId], references: [id])
-    departmentId            Int?
-    doctor                  User?                    @relation("DoctorVisits", fields: [doctorId], references: [id])
-    doctorId                Int?
-    transferredTo           User?                    @relation("VisitsTransferredTo", fields: [transferredToId], references: [id])
-    transferredToId         Int?
-    status                  VisitStatus              @default(CHECKED_IN)
-    // Operational "where is the patient right now" station for the visual
-    // patient-flow pipeline. Additive to `status` (which remains the legal /
-    // billing source of truth). Kept in sync on every status transition.
-    careStage               CareStage                @default(RECEPTION)
-    startTime               DateTime                 @default(now())
-    endTime                 DateTime?
-    notes                   String?
-    checkedInBy             User?                    @relation("CheckedInVisits", fields: [checkedInById], references: [id])
-    checkedInById           Int?
-    paymentMode             PaymentMode?
-    patientInsurance        PatientInsurance?        @relation(fields: [patientInsuranceId], references: [id])
-    patientInsuranceId      Int?
-    invoice                 Invoice?
-    payments                Payment[]
-    prescriptions           Prescription[]
-    exams                   Exam[]
-    treatments              Treatment[]
-    examResults             ExamResult[]
-    activityLogs            ActivityLog[]
-    appointment             Event?
-    hospitalization         Hospitalization?
-    hospitalizationProducts HospitalizationProduct[]
-    createdAt               DateTime                 @default(now())
-    updatedAt               DateTime                 @updatedAt
-    userId                  Int?
-    basicTriage             Json?
-    medicConsumables        Json?
-    isNewPatient            Boolean                  @default(false)
-    priority                Priority
-    transactions            Transaction[]
-    consultationNote        String?
-    transferReason          String?
-    chiefComplaint          String?
-    diagnosis               String?
-    examConclusions         String?
-    treatmentComments       String?
-    followUpDate            DateTime?
-    isLabOnly               Boolean                  @default(false)
-    requiresConsultation    Boolean                  @default(true)
-    insuranceClaims         InsuranceClaim[]
-    refunds                 Refund[]
-    consultation            Product?                 @relation(fields: [consultationId], references: [id])
-    consultationId          Int?
-    consultations           Product[]                @relation("ConsultationProducts")
-    spectaclePrescription   SpectaclePrescription?
-    notifications           Notification[]
-    outboundSmsLogs         OutboundSmsLog[]
-    handoffs                Handoff[]
-    queueEntries            QueueEntry[]
-    pharmacyDispenseOrders  PharmacyDispenseOrder[]
-    visitDiagnoses          VisitDiagnosis[]
-    triage                  Triage?
-    hieExternalTransfers    HieExternalTransfer[]
+  id                          Int                          @id @default(autoincrement())
+  patient                     Patient                      @relation(fields: [patientId], references: [id])
+  patientId                   Int
+  clinic                      Clinic                       @relation(fields: [clinicId], references: [id])
+  clinicId                    Int
+  branch                      Branch?                      @relation(fields: [branchId], references: [id])
+  branchId                    Int?
+  department                  ClinicalDepartment?          @relation(fields: [departmentId], references: [id])
+  departmentId                Int?
+  doctor                      User?                        @relation("DoctorVisits", fields: [doctorId], references: [id])
+  doctorId                    Int?
+  transferredTo               User?                        @relation("VisitsTransferredTo", fields: [transferredToId], references: [id])
+  transferredToId             Int?
+  status                      VisitStatus                  @default(CHECKED_IN)
+  // Operational "where is the patient right now" station for the visual
+  // patient-flow pipeline. Additive to `status` (which remains the legal /
+  // billing source of truth). Kept in sync on every status transition.
+  careStage                   CareStage                    @default(RECEPTION)
+  startTime                   DateTime                     @default(now())
+  endTime                     DateTime?
+  notes                       String?
+  checkedInBy                 User?                        @relation("CheckedInVisits", fields: [checkedInById], references: [id])
+  checkedInById               Int?
+  paymentMode                 PaymentMode?
+  patientInsurance            PatientInsurance?            @relation(fields: [patientInsuranceId], references: [id])
+  patientInsuranceId          Int?
+  invoice                     Invoice?
+  payments                    Payment[]
+  prescriptions               Prescription[]
+  exams                       Exam[]
+  treatments                  Treatment[]
+  examResults                 ExamResult[]
+  activityLogs                ActivityLog[]
+  appointment                 Event?
+  hospitalization             Hospitalization?
+  hospitalizationProducts     HospitalizationProduct[]
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  userId                      Int?
+  basicTriage                 Json?
+  medicConsumables            Json?
+  isNewPatient                Boolean                      @default(false)
+  priority                    Priority
+  transactions                Transaction[]
+  consultationNote            String?
+  transferReason              String?
+  chiefComplaint              String?
+  diagnosis                   String?
+  examConclusions             String?
+  treatmentComments           String?
+  followUpDate                DateTime?
+  isLabOnly                   Boolean                      @default(false)
+  requiresConsultation        Boolean                      @default(true)
+  insuranceClaims             InsuranceClaim[]
+  refunds                     Refund[]
+  consultation                Product?                     @relation(fields: [consultationId], references: [id])
+  consultationId              Int?
+  consultations               Product[]                    @relation("ConsultationProducts")
+  spectaclePrescription       SpectaclePrescription?
+  notifications               Notification[]
+  outboundSmsLogs             OutboundSmsLog[]
+  handoffs                    Handoff[]
+  queueEntries                QueueEntry[]
+  pharmacyDispenseOrders      PharmacyDispenseOrder[]
+  visitDiagnoses              VisitDiagnosis[]
+  triage                      Triage?
+  hieExternalTransfers        HieExternalTransfer[]
+  hieConsultationObservations HieConsultationObservation[]
 
-    @@index([patientId])
-    @@index([clinicId])
-    @@index([departmentId])
-    @@index([doctorId])
-    @@index([status])
-    @@index([careStage])
-    @@index([startTime])
-    @@index([createdAt])
-    @@index([updatedAt])
+  @@index([patientId])
+  @@index([clinicId])
+  @@index([departmentId])
+  @@index([doctorId])
+  @@index([status])
+  @@index([careStage])
+  @@index([startTime])
+  @@index([createdAt])
+  @@index([updatedAt])
 }
 
 enum VisitStatus {
-    CHECKED_IN //Recorded by Nurse. Sent to Cachier to pay Consultation Fee.
-    TRIAGE_COMPLETED //Doctor can now see the patient.
-    IN_PRE_CONSULTATION //Nurse is preparing the patient for consultation.
-    IN_CONSULTATION //Doctor is seeing the patient. Can require exams or not.
-    PENDING_TESTS //Patient goes back to cachier to pay for exams.
-    RESULTS_READY //Doctor can now see results and write prescription.
-    FINALIZED //Doctor has finalized the visit.
-    DISCHARGED
-    DISCHARGED_WITH_PRESCRIPTION
-    ADMITTED
-    CANCELLED
+  CHECKED_IN //Recorded by Nurse. Sent to Cachier to pay Consultation Fee.
+  TRIAGE_COMPLETED //Doctor can now see the patient.
+  IN_PRE_CONSULTATION //Nurse is preparing the patient for consultation.
+  IN_CONSULTATION //Doctor is seeing the patient. Can require exams or not.
+  PENDING_TESTS //Patient goes back to cachier to pay for exams.
+  RESULTS_READY //Doctor can now see results and write prescription.
+  FINALIZED //Doctor has finalized the visit.
+  DISCHARGED
+  DISCHARGED_WITH_PRESCRIPTION
+  ADMITTED
+  CANCELLED
 }
 
 // Visual patient-flow pipeline stage. Aligns with the QueuePurpose stations
 // (RECEPTION, TRIAGE/PRE_CONSULTATION, DOCTOR, LAB, CASHIER) plus PHARMACY and
 // a terminal DONE. Derived from VisitStatus + open lab/dispense/invoice state.
 enum CareStage {
-    RECEPTION
-    TRIAGE
-    DOCTOR
-    LAB
-    PHARMACY
-    BILLING
-    DONE
+  RECEPTION
+  TRIAGE
+  DOCTOR
+  LAB
+  PHARMACY
+  BILLING
+  DONE
 }
 
 enum PaymentMode {
-    PRIVATE
-    INSURANCE
+  PRIVATE
+  INSURANCE
 }
 
 enum Priority {
-    LOW
-    MEDIUM
-    HIGH
+  LOW
+  MEDIUM
+  HIGH
 }
 
 enum HandoffStatus {
-    PENDING
-    ACCEPTED
-    REJECTED
-    COMPLETED
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
 }
 
 model Handoff {
-    id            Int           @id @default(autoincrement())
-    visit         Visit         @relation(fields: [visitId], references: [id])
-    visitId       Int
-    fromDoctor    User          @relation("HandoffFrom", fields: [fromDoctorId], references: [id])
-    fromDoctorId  Int
-    toDoctor      User          @relation("HandoffTo", fields: [toDoctorId], references: [id])
-    toDoctorId    Int
-    handoffNotes  String
-    handoffStatus HandoffStatus @default(ACCEPTED)
-    handoffTime   DateTime      @default(now())
-    acceptedAt    DateTime?
-    createdAt     DateTime      @default(now())
-    updatedAt     DateTime      @updatedAt
+  id            Int           @id @default(autoincrement())
+  visit         Visit         @relation(fields: [visitId], references: [id])
+  visitId       Int
+  fromDoctor    User          @relation("HandoffFrom", fields: [fromDoctorId], references: [id])
+  fromDoctorId  Int
+  toDoctor      User          @relation("HandoffTo", fields: [toDoctorId], references: [id])
+  toDoctorId    Int
+  handoffNotes  String
+  handoffStatus HandoffStatus @default(ACCEPTED)
+  handoffTime   DateTime      @default(now())
+  acceptedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-    @@index([visitId])
-    @@index([fromDoctorId])
-    @@index([toDoctorId])
+  @@index([visitId])
+  @@index([fromDoctorId])
+  @@index([toDoctorId])
 }
 
 // Structured, per-visit triage record (Sano flow design). Additive: vitals are
@@ -148,45 +149,45 @@ model Handoff {
 // table gives each visit its own queryable triage snapshot (previously the
 // patient-level JSON was overwritten each visit). One triage per visit.
 model Triage {
-    id             Int       @id @default(autoincrement())
-    visit          Visit     @relation(fields: [visitId], references: [id])
-    visitId        Int       @unique
-    // Vitals — strings to match the existing capture format (free units).
-    height         String?
-    weight         String?
-    temperature    String?
-    bloodType      String?
-    heartRate      String?
-    bloodPressure  String?
-    bloodSugar     String?
-    respiratory    String?
-    hemoglobin     String?
-    spo2           String?
-    bmi            String?
-    chiefComplaint String?
-    acuity         Priority?
-    notes          String?
-    recordedBy     User?     @relation("TriageRecordedBy", fields: [recordedById], references: [id])
-    recordedById   Int?
-    createdAt      DateTime  @default(now())
-    updatedAt      DateTime  @updatedAt
+  id             Int       @id @default(autoincrement())
+  visit          Visit     @relation(fields: [visitId], references: [id])
+  visitId        Int       @unique
+  // Vitals — strings to match the existing capture format (free units).
+  height         String?
+  weight         String?
+  temperature    String?
+  bloodType      String?
+  heartRate      String?
+  bloodPressure  String?
+  bloodSugar     String?
+  respiratory    String?
+  hemoglobin     String?
+  spo2           String?
+  bmi            String?
+  chiefComplaint String?
+  acuity         Priority?
+  notes          String?
+  recordedBy     User?     @relation("TriageRecordedBy", fields: [recordedById], references: [id])
+  recordedById   Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-    @@index([visitId])
-    @@index([recordedById])
+  @@index([visitId])
+  @@index([recordedById])
 }
 
 // Structured, ICD-11-coded diagnoses for a visit. Additive: the free-text
 // Visit.diagnosis field is retained for backward compatibility.
 model VisitDiagnosis {
-    id          Int      @id @default(autoincrement())
-    visit       Visit    @relation(fields: [visitId], references: [id])
-    visitId     Int
-    icd11Code   String?
-    description String
-    isPrimary   Boolean  @default(false)
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  visit       Visit    @relation(fields: [visitId], references: [id])
+  visitId     Int
+  icd11Code   String?
+  description String
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-    @@index([visitId])
-    @@index([icd11Code])
+  @@index([visitId])
+  @@index([icd11Code])
 }

@@ -3,6 +3,7 @@ import { Decimal } from "generated/prisma/internal/prismaNamespace";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { buildQueryOptions } from "@/helpers/query-helper";
+import { jsonSuccess } from "@/lib/api-response";
 import { AppError } from "@/lib/app-error";
 import { invalidateInventoryRelatedCaches } from "@/lib/cache-utils";
 import { searchParamsSchema } from "@/lib/common-validation";
@@ -43,6 +44,62 @@ import {
   transferSchema,
 } from "./inventory.validation";
 
+async function requireVerifiedInventoryProduct(
+  productId: number | null | undefined,
+  clinicId: number | null | undefined
+) {
+  if (productId == null) {
+    return;
+  }
+  if (!clinicId) {
+    throw new AppError({
+      status: httpCodes.FORBIDDEN,
+      code: "CLINIC_CONTEXT_REQUIRED",
+      message: "A clinic context is required",
+    });
+  }
+  const product = await db.product.findFirst({
+    where: {
+      id: productId,
+      terminologyStatus: "VERIFIED",
+      snomedCode: { not: null },
+      clinics: { some: { id: clinicId } },
+    },
+    select: { id: true },
+  });
+  if (!product) {
+    throw new AppError({
+      status: httpCodes.BAD_REQUEST,
+      code: "HIE_MEDICATION_TERMINOLOGY_INVALID",
+      message: "Select a verified medication terminology mapping",
+      exposeMessage: true,
+    });
+  }
+}
+
+export const getInventoryTerminologyOptions = async (
+  c: Context
+): Promise<Response> => {
+  const user = c.get("user");
+  if (!user.clinicId) {
+    throw new AppError({
+      status: httpCodes.FORBIDDEN,
+      code: "CLINIC_CONTEXT_REQUIRED",
+      message: "A clinic context is required",
+    });
+  }
+  const products = await db.product.findMany({
+    where: {
+      terminologyStatus: "VERIFIED",
+      snomedCode: { not: null },
+      clinics: { some: { id: user.clinicId } },
+    },
+    select: { id: true, name: true, snomedCode: true },
+    orderBy: { name: "asc" },
+  });
+  return jsonSuccess(c, { data: products });
+};
+
 export const createInventoryItem = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -58,12 +115,14 @@ export const createInventoryItem = async (c: Context) => {
       costPrice,
       quantity,
       insuranceCovered,
+      productId,
       notes,
-    } = await c.req.json();
+    } = c.get("validatedJson");
 
     const openingQty =
       typeof quantity === "number" && quantity > 0 ? Math.trunc(quantity) : 0;
     const batchUnitPrice = costPrice ?? unitPrice ?? null;
+    await requireVerifiedInventoryProduct(productId, user.clinicId);
 
     const inventoryItem = await db.$transaction(async (tx) => {
       const created = await tx.inventoryItem.create({
@@ -71,6 +130,7 @@ export const createInventoryItem = async (c: Context) => {
           clinicId: user.clinicId,
           branchId: user.branchId,
           itemName,
+          productId,
           sku: sku || generateSku(itemName),
           itemType,
           unit,
@@ -124,6 +184,9 @@ export const createInventoryItem = async (c: Context) => {
 
     return c.json(inventoryItem, httpCodes.CREATED as ContentfulStatusCode);
   } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal Server Error",
@@ -199,8 +262,10 @@ export const updateInventoryItem = async (c: Context) => {
       manufacturer,
       minOrderQuantity,
       insuranceCovered,
+      productId,
       notes,
-    } = await c.req.json();
+    } = c.get("validatedJson");
+    await requireVerifiedInventoryProduct(productId, user.clinicId);
 
     const updatedInventoryItem = await db.$transaction(async (tx) => {
       const updated = await tx.inventoryItem.update({
@@ -219,6 +284,7 @@ export const updateInventoryItem = async (c: Context) => {
           reorderLevel,
           manufacturer,
           minOrderQuantity,
+          productId,
           ...(typeof insuranceCovered === "boolean"
             ? { insuranceCovered }
             : {}),
@@ -250,6 +316,9 @@ export const updateInventoryItem = async (c: Context) => {
       httpCodes.OK as ContentfulStatusCode
     );
   } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
     return c.json(
       {
         error: error instanceof Error ? error.message : "Internal Server Error",
