@@ -20,10 +20,12 @@ const CIRCUIT_OPEN_MS = 30_000;
 const LEADING_SLASH_PATTERN = /^\//;
 const SAFE_OUTCOME_CODE_PATTERN = /^[A-Za-z-]{1,40}$/;
 const CONTENT_LENGTH_PATTERN = /^\d+$/;
+export type HieRequestEnvironment = "TEST" | "PRODUCTION";
 type RhieRequestParams = {
   service: RhieService;
   method: RhieMethod;
   path: string;
+  tenantEnvironment: HieRequestEnvironment;
   query?: Record<string, string>;
   body?: unknown;
   correlationId?: string;
@@ -58,7 +60,47 @@ export class RhieRequestError extends Error {
   }
 }
 
-function configuredBaseUrl(service: RhieService): URL {
+function configuredEnvironment(
+  key:
+    | "HIE_DEPLOYMENT_ENVIRONMENT"
+    | "HIE_ENDPOINT_ENVIRONMENT"
+    | "HIE_CREDENTIAL_ENVIRONMENT"
+): HieRequestEnvironment {
+  const value = process.env[key]?.trim();
+  if (value !== "TEST" && value !== "PRODUCTION") {
+    throw new AppError({
+      status: 503,
+      code: "HIE_ENVIRONMENT_NOT_CONFIGURED",
+      message: `${key} must be TEST or PRODUCTION`,
+      exposeMessage: true,
+    });
+  }
+  return value;
+}
+
+function assertEnvironmentConsistency(
+  tenantEnvironment: HieRequestEnvironment
+): void {
+  const environments = [
+    configuredEnvironment("HIE_DEPLOYMENT_ENVIRONMENT"),
+    configuredEnvironment("HIE_ENDPOINT_ENVIRONMENT"),
+    configuredEnvironment("HIE_CREDENTIAL_ENVIRONMENT"),
+  ];
+  if (environments.some((environment) => environment !== tenantEnvironment)) {
+    throw new AppError({
+      status: 503,
+      code: "HIE_ENVIRONMENT_MISMATCH",
+      message:
+        "Tenant, deployment, endpoint, and credential HIE environments must match",
+      exposeMessage: true,
+    });
+  }
+}
+
+function configuredBaseUrl(
+  service: RhieService,
+  tenantEnvironment: HieRequestEnvironment
+): URL {
   const key =
     service === "CLIENT_REGISTRY"
       ? "HIE_CLIENT_REGISTRY_BASE_URL"
@@ -74,9 +116,13 @@ function configuredBaseUrl(service: RhieService): URL {
   }
   const url = new URL(raw.endsWith("/") ? raw : `${raw}/`);
   const allowInsecureTest =
+    tenantEnvironment === "TEST" &&
     process.env.NODE_ENV !== "production" &&
     process.env.HIE_ALLOW_INSECURE_TEST === "true";
-  if (url.protocol !== "https:" && !allowInsecureTest) {
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && allowInsecureTest)
+  ) {
     throw new AppError({
       status: 503,
       code: "HIE_SECURE_TRANSPORT_REQUIRED",
@@ -248,7 +294,10 @@ function waitForRetry(attempt: number): Promise<void> {
 }
 
 function requestUrl(params: RhieRequestParams): URL {
-  const url = new URL(safePath(params), configuredBaseUrl(params.service));
+  const url = new URL(
+    safePath(params),
+    configuredBaseUrl(params.service, params.tenantEnvironment)
+  );
   for (const [key, value] of Object.entries(params.query ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -343,6 +392,7 @@ async function executeRequest(params: {
 export async function rhieRequest(
   params: RhieRequestParams
 ): Promise<{ data: unknown; correlationId: string; status: number }> {
+  assertEnvironmentConsistency(params.tenantEnvironment);
   const circuit = circuits[params.service];
   const endpoint = resolveRhieEndpoint({
     service: params.service,

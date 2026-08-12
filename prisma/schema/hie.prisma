@@ -438,8 +438,11 @@ model HieStructuredAllergy {
   clinicId           Int
   patient            Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientId          Int
+  visit              Visit?                    @relation(fields: [visitId], references: [id], onDelete: SetNull)
   visitId            Int?
+  asserter           User                      @relation("HieAllergyAsserter", fields: [asserterId], references: [id])
   asserterId         Int
+  branch             Branch                    @relation(fields: [branchId], references: [id])
   branchId           Int
   allergen           HieClinicalConcept        @relation(fields: [allergenConceptId], references: [id])
   allergenConceptId  Int
@@ -465,8 +468,11 @@ model HieImmunization {
   clinicId               Int
   patient                Patient                   @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientId              Int
+  visit                  Visit?                    @relation(fields: [visitId], references: [id], onDelete: SetNull)
   visitId                Int?
+  performer              User                      @relation("HieImmunizationPerformer", fields: [performerId], references: [id])
   performerId            Int
+  branch                 Branch                    @relation(fields: [branchId], references: [id])
   branchId               Int
   vaccine                HieClinicalConcept        @relation(fields: [vaccineConceptId], references: [id])
   vaccineConceptId       Int
@@ -493,9 +499,13 @@ model HieImagingOrder {
   clinicId           Int
   patient            Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientId          Int
+  visit              Visit                 @relation(fields: [visitId], references: [id])
   visitId            Int
+  requester          User                  @relation("HieImagingOrderRequester", fields: [requesterId], references: [id])
   requesterId        Int
+  performer          User                  @relation("HieImagingOrderPerformer", fields: [performerId], references: [id])
   performerId        Int
+  branch             Branch                @relation(fields: [branchId], references: [id])
   branchId           Int
   procedureConcept   HieClinicalConcept    @relation("HieImagingProcedureConcept", fields: [procedureConceptId], references: [id])
   procedureConceptId Int
@@ -521,8 +531,11 @@ model HieImagingStudy {
   clinicId           Int
   patient            Patient               @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientId          Int
+  visit              Visit                 @relation(fields: [visitId], references: [id])
   visitId            Int
+  practitioner       User                  @relation("HieImagingStudyPractitioner", fields: [practitionerId], references: [id])
   practitionerId     Int
+  branch             Branch                @relation(fields: [branchId], references: [id])
   branchId           Int
   order              HieImagingOrder?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
   orderId            Int?
@@ -552,8 +565,9 @@ model HieImagingStudy {
 
 model HieImagingSeries {
   id           Int                  @id @default(autoincrement())
+  clinic       Clinic               @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   clinicId     Int
-  study        HieImagingStudy      @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  study        HieImagingStudy      @relation(fields: [clinicId, studyId], references: [clinicId, id], onDelete: Cascade)
   studyId      Int
   seriesUid    String
   modality     String
@@ -573,8 +587,9 @@ model HieImagingSeries {
 
 model HieImagingInstance {
   id             Int              @id @default(autoincrement())
+  clinic         Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   clinicId       Int
-  series         HieImagingSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  series         HieImagingSeries @relation(fields: [clinicId, seriesId], references: [clinicId, id], onDelete: Cascade)
   seriesId       Int
   sopUid         String
   sopClassUid    String
@@ -594,7 +609,9 @@ model HieEmergencyAccess {
   clinicId      Int
   patient       Patient                  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientId     Int
+  clinician     User                     @relation("HieEmergencyClinician", fields: [clinicianId], references: [id])
   clinicianId   Int
+  branch        Branch                   @relation(fields: [branchId], references: [id])
   branchId      Int
   reasonCode    String
   justification String
@@ -602,6 +619,7 @@ model HieEmergencyAccess {
   effectiveTo   DateTime
   outcome       String
   reviewStatus  HieEmergencyReviewStatus @default(PENDING)
+  reviewedBy    User?                    @relation("HieEmergencyReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedById  Int?
   reviewedAt    DateTime?
   reviewNote    String?

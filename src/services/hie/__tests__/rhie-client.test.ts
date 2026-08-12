@@ -15,6 +15,10 @@ const originalRegistryUrl = process.env.HIE_CLIENT_REGISTRY_BASE_URL;
 const originalShrUrl = process.env.HIE_SHR_BASE_URL;
 const originalUsername = process.env.HIE_BASIC_AUTH_USERNAME;
 const originalPassword = process.env.HIE_BASIC_AUTH_PASSWORD;
+const originalDeploymentEnvironment = process.env.HIE_DEPLOYMENT_ENVIRONMENT;
+const originalEndpointEnvironment = process.env.HIE_ENDPOINT_ENVIRONMENT;
+const originalCredentialEnvironment = process.env.HIE_CREDENTIAL_ENVIRONMENT;
+const originalAllowInsecureTest = process.env.HIE_ALLOW_INSECURE_TEST;
 const originalFetch = globalThis.fetch;
 
 function configureRequestTest() {
@@ -22,6 +26,9 @@ function configureRequestTest() {
   process.env.HIE_SHR_BASE_URL = "https://rhie.test/";
   process.env.HIE_BASIC_AUTH_USERNAME = "test-user";
   process.env.HIE_BASIC_AUTH_PASSWORD = "test-password";
+  process.env.HIE_DEPLOYMENT_ENVIRONMENT = "TEST";
+  process.env.HIE_ENDPOINT_ENVIRONMENT = "TEST";
+  process.env.HIE_CREDENTIAL_ENVIRONMENT = "TEST";
   process.env.HIE_GET_RETRY_BASE_MS = "0";
 }
 
@@ -33,6 +40,10 @@ afterEach(() => {
   process.env.HIE_SHR_BASE_URL = originalShrUrl;
   process.env.HIE_BASIC_AUTH_USERNAME = originalUsername;
   process.env.HIE_BASIC_AUTH_PASSWORD = originalPassword;
+  process.env.HIE_DEPLOYMENT_ENVIRONMENT = originalDeploymentEnvironment;
+  process.env.HIE_ENDPOINT_ENVIRONMENT = originalEndpointEnvironment;
+  process.env.HIE_CREDENTIAL_ENVIRONMENT = originalCredentialEnvironment;
+  process.env.HIE_ALLOW_INSECURE_TEST = originalAllowInsecureTest;
   globalThis.fetch = originalFetch;
 });
 
@@ -66,6 +77,7 @@ describe("GET retry policy", () => {
         service: "CLIENT_REGISTRY",
         method: "GET",
         path: "Patient",
+        tenantEnvironment: "TEST",
       })
     ).resolves.toMatchObject({ status: 200 });
     expect(calls).toBe(2);
@@ -82,6 +94,7 @@ describe("GET retry policy", () => {
         service: "SHR",
         method: "POST",
         path: "Consent",
+        tenantEnvironment: "TEST",
         body: {
           resourceType: "Consent",
           status: "active",
@@ -106,6 +119,7 @@ describe("GET retry policy", () => {
         service: "CLIENT_REGISTRY",
         method: "GET",
         path: "Patient",
+        tenantEnvironment: "TEST",
       })
     ).rejects.toMatchObject({ status: 429, retryable: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -137,6 +151,7 @@ describe("GET retry policy", () => {
         service: "CLIENT_REGISTRY",
         method: "GET",
         path: "Patient",
+        tenantEnvironment: "TEST",
         query: { identifier: "patient-secret" },
       });
     } catch (error) {
@@ -165,8 +180,75 @@ describe("GET retry policy", () => {
         service: "CLIENT_REGISTRY",
         method: "GET",
         path: "Patient",
+        tenantEnvironment: "TEST",
       })
     ).rejects.toMatchObject({ code: "RHIE_TIMEOUT", retryable: true });
+  });
+});
+
+describe("environment safety boundary", () => {
+  it.each([
+    "HIE_DEPLOYMENT_ENVIRONMENT",
+    "HIE_ENDPOINT_ENVIRONMENT",
+    "HIE_CREDENTIAL_ENVIRONMENT",
+  ] as const)("rejects a mismatched %s before network I/O", async (key) => {
+    configureRequestTest();
+    process.env[key] = "PRODUCTION";
+    const fetchMock = mock(
+      async () => new Response('{"resourceType":"Bundle","type":"searchset"}')
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "TEST",
+      })
+    ).rejects.toMatchObject({ code: "HIE_ENVIRONMENT_MISMATCH" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("permits approved plain HTTP only for matching test environments", async () => {
+    configureRequestTest();
+    process.env.HIE_CLIENT_REGISTRY_BASE_URL = "http://rhie.test/";
+    process.env.HIE_ALLOW_INSECURE_TEST = "true";
+    globalThis.fetch = mock(
+      async () => new Response('{"resourceType":"Bundle","type":"searchset"}')
+    ) as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "TEST",
+      })
+    ).resolves.toMatchObject({ status: 200 });
+  });
+
+  it("requires HTTPS for production tenants even with the test override", async () => {
+    configureRequestTest();
+    process.env.HIE_DEPLOYMENT_ENVIRONMENT = "PRODUCTION";
+    process.env.HIE_ENDPOINT_ENVIRONMENT = "PRODUCTION";
+    process.env.HIE_CREDENTIAL_ENVIRONMENT = "PRODUCTION";
+    process.env.HIE_CLIENT_REGISTRY_BASE_URL = "http://rhie.test/";
+    process.env.HIE_ALLOW_INSECURE_TEST = "true";
+    const fetchMock = mock(
+      async () => new Response('{"resourceType":"Bundle","type":"searchset"}')
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "PRODUCTION",
+      })
+    ).rejects.toMatchObject({ code: "HIE_SECURE_TRANSPORT_REQUIRED" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

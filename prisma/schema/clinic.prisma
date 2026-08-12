@@ -115,6 +115,8 @@ model Clinic {
   hieImmunizations             HieImmunization[]
   hieImagingOrders             HieImagingOrder[]
   hieImagingStudies            HieImagingStudy[]
+  hieImagingSeries             HieImagingSeries[]
+  hieImagingInstances          HieImagingInstance[]
   hieEmergencyAccesses         HieEmergencyAccess[]
   hieDobDiscrepancies           HieDobDiscrepancy[]
 
@@ -164,6 +166,11 @@ model Branch {
   flowConfigs            ClinicFlowConfig[]
   hieFacilityLinks       HieFacilityLink[]
   hieExternalTransfers   HieExternalTransfer[]
+  hieStructuredAllergies HieStructuredAllergy[]
+  hieImmunizations       HieImmunization[]
+  hieImagingOrders       HieImagingOrder[]
+  hieImagingStudies      HieImagingStudy[]
+  hieEmergencyAccesses   HieEmergencyAccess[]
 
   @@unique([id, clinicId])
   @@index([clinicId])

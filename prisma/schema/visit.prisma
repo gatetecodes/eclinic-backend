@@ -67,6 +67,10 @@ model Visit {
   triage                      Triage?
   hieExternalTransfers        HieExternalTransfer[]
   hieConsultationObservations HieConsultationObservation[]
+  hieStructuredAllergies      HieStructuredAllergy[]
+  hieImmunizations            HieImmunization[]
+  hieImagingOrders            HieImagingOrder[]
+  hieImagingStudies           HieImagingStudy[]
 
   @@index([patientId])
   @@index([clinicId])

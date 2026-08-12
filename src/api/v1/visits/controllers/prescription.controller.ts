@@ -53,6 +53,7 @@ export const createPrescription = async (c: Context) => {
     const visit = await db.visit.findUnique({
       where: {
         id: visitIdNum,
+        clinicId: user.clinicId,
       },
       select: {
         id: true,
@@ -389,6 +390,7 @@ export const createSpectaclePrescription = async (c: Context) => {
     const visit = await db.visit.findUnique({
       where: {
         id: visitIdNum,
+        clinicId: user.clinicId,
       },
       select: {
         id: true,

@@ -2409,12 +2409,14 @@ async function resourceAlreadyExists(params: {
   resourceType: string;
   resourceId: string;
   correlationId: string;
+  tenantEnvironment: HieEnvironment;
 }) {
   try {
     await rhieRequest({
       service: "SHR",
       method: "GET",
       path: `${params.resourceType}/${params.resourceId}`,
+      tenantEnvironment: params.tenantEnvironment,
       correlationId: params.correlationId,
     });
     return true;
@@ -2433,6 +2435,7 @@ async function postWithRetryVerification(params: {
   resourceId: string;
   body: unknown;
   correlationId: string;
+  tenantEnvironment: HieEnvironment;
   verifyOnRetry?: boolean;
 }) {
   if (
@@ -2448,6 +2451,7 @@ async function postWithRetryVerification(params: {
     path: params.postPath,
     body: params.body,
     correlationId: params.correlationId,
+    tenantEnvironment: params.tenantEnvironment,
   });
 }
 
@@ -3662,6 +3666,7 @@ const PUBLICATION_CAPABILITY_BY_RESOURCE: Record<
   Exclude<keyof PublicationCapabilityConfig, "enabled">
 > = {
   TransferEncounter: "transferEnabled",
+  TransferIPS: "transferEnabled",
   Consent: "consentSyncEnabled",
   ConsultationEncounter: "consultationWriteEnabled",
   ConsultationObservation: "consultationWriteEnabled",
@@ -3671,7 +3676,7 @@ const PUBLICATION_CAPABILITY_BY_RESOURCE: Record<
   ImagingStudy: "imagingWriteEnabled",
 };
 
-function publicationCapabilityEnabled(
+export function publicationCapabilityEnabled(
   config: PublicationCapabilityConfig,
   resourceType: string
 ) {
@@ -3717,7 +3722,8 @@ function remoteHieResourceType(resourceType: string) {
 
 async function publishConsultationEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const mapped = await buildConsultationResource(mappingEvent);
   const startedAt = Date.now();
@@ -3728,6 +3734,7 @@ async function publishConsultationEvent(
     resourceId: mapped.resource.id,
     body: mapped.resource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await completeClinicalEvent({
     event,
@@ -3743,7 +3750,8 @@ async function publishConsultationEvent(
 async function publishDeferredClinicalEvent(
   event: OutboxEventRecord,
   mappingEvent: OutboxEventRecord,
-  remoteResourceType: string
+  remoteResourceType: string,
+  tenantEnvironment: HieEnvironment
 ) {
   const payload = deferredClinicalPayloadSchema.parse(
     decryptHieJson(event.payloadEncrypted)
@@ -3762,6 +3770,7 @@ async function publishDeferredClinicalEvent(
         method: "DELETE",
         path: `${remoteResourceType}/${decryptHieValue(payload.hieResourceIdEncrypted)}`,
         correlationId: event.correlationId,
+        tenantEnvironment,
       });
       status = response.status;
     } catch (error) {
@@ -3800,6 +3809,7 @@ async function publishDeferredClinicalEvent(
     resourceId: mapped.resource.id,
     body: mapped.resource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await completeClinicalEvent({
     event,
@@ -3814,7 +3824,8 @@ async function publishDeferredClinicalEvent(
 
 async function publishConsentEvent(
   event: OutboxEventRecord,
-  resourceId: string
+  resourceId: string,
+  tenantEnvironment: HieEnvironment
 ) {
   const payload = consentPayloadSchema.parse(
     decryptHieJson(event.payloadEncrypted)
@@ -3845,6 +3856,7 @@ async function publishConsentEvent(
         method: "DELETE",
         path: `Consent/${decryptHieValue(encryptedId)}`,
         correlationId: event.correlationId,
+        tenantEnvironment,
       });
       status = response.status;
     } catch (error) {
@@ -3911,6 +3923,7 @@ async function publishConsentEvent(
     resourceId,
     body: resource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await db.$transaction([
     db.hieConsent.update({
@@ -3953,7 +3966,8 @@ async function publishConsentEvent(
 
 async function publishDischargeIpsEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const { payload: dischargePayload, resource: dischargeResource } =
     await buildDischargeIps(mappingEvent);
@@ -3965,6 +3979,7 @@ async function publishDischargeIpsEvent(
     resourceId: dischargeResource.id,
     body: dischargeResource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await completeClinicalEvent({
     event,
@@ -3979,7 +3994,8 @@ async function publishDischargeIpsEvent(
 
 async function publishClinicalSnapshotEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const mapped = await buildClinicalResource(mappingEvent);
   const startedAt = Date.now();
@@ -3990,6 +4006,7 @@ async function publishClinicalSnapshotEvent(
     resourceId: mapped.resource.id,
     body: mapped.resource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await completeClinicalEvent({
     event,
@@ -4004,7 +4021,8 @@ async function publishClinicalSnapshotEvent(
 
 async function publishTransferEncounterEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const { transfer, resource: transferResource } =
     await buildTransferEncounter(mappingEvent);
@@ -4016,6 +4034,7 @@ async function publishTransferEncounterEvent(
     resourceId: transferResource.id,
     body: transferResource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await completeClinicalEvent({
     event,
@@ -4080,6 +4099,7 @@ async function publishTransferIpsEvent(
     resourceId: summary.id,
     body: summary,
     correlationId: event.correlationId,
+    tenantEnvironment: environment,
   });
   await db.$transaction(async (tx) => {
     await tx.hieResourceLink.upsert({
@@ -4133,7 +4153,8 @@ async function publishTransferIpsEvent(
 
 async function publishTriageObservationEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const { localResourceId, resource: observationResource } =
     await buildVitalObservation(mappingEvent);
@@ -4145,6 +4166,7 @@ async function publishTriageObservationEvent(
     resourceId: observationResource.id,
     body: observationResource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await db.$transaction(async (tx) => {
     await tx.hieResourceLink.upsert({
@@ -4192,7 +4214,8 @@ async function publishTriageObservationEvent(
 
 async function publishVisitConditionEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const { diagnosisId, resource: conditionResource } =
     await buildVisitCondition(mappingEvent);
@@ -4204,6 +4227,7 @@ async function publishVisitConditionEvent(
     resourceId: conditionResource.id,
     body: conditionResource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   await db.$transaction(async (tx) => {
     await tx.hieResourceLink.upsert({
@@ -4251,7 +4275,8 @@ async function publishVisitConditionEvent(
 
 async function publishVisitEncounterEvent(
   event: OutboxEventRecord,
-  mappingEvent: OutboxEventRecord
+  mappingEvent: OutboxEventRecord,
+  tenantEnvironment: HieEnvironment
 ) {
   const resource = await buildVisitEncounter(mappingEvent);
   const startedAt = Date.now();
@@ -4262,6 +4287,7 @@ async function publishVisitEncounterEvent(
     resourceId: resource.id,
     body: resource,
     correlationId: event.correlationId,
+    tenantEnvironment,
   });
   const payload = visitPayloadSchema.parse(
     decryptHieJson(event.payloadEncrypted)
@@ -4357,26 +4383,43 @@ async function processEvent(event: OutboxEventRecord) {
   const mappingEvent = { ...event, id: resourceId };
 
   if (CONSULTATION_RESOURCE_TYPES.includes(event.resourceType)) {
-    return await publishConsultationEvent(event, mappingEvent);
+    return await publishConsultationEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (DEFERRED_CLINICAL_RESOURCE_TYPES.includes(event.resourceType)) {
     return await publishDeferredClinicalEvent(
       event,
       mappingEvent,
-      remoteResourceType
+      remoteResourceType,
+      config.environment
     );
   }
   if (event.resourceType === "Consent") {
-    return await publishConsentEvent(event, resourceId);
+    return await publishConsentEvent(event, resourceId, config.environment);
   }
   if (event.resourceType === "DischargeIPS") {
-    return await publishDischargeIpsEvent(event, mappingEvent);
+    return await publishDischargeIpsEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (CLINICAL_SNAPSHOT_RESOURCE_TYPES.has(event.resourceType)) {
-    return await publishClinicalSnapshotEvent(event, mappingEvent);
+    return await publishClinicalSnapshotEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (event.resourceType === "TransferEncounter") {
-    return await publishTransferEncounterEvent(event, mappingEvent);
+    return await publishTransferEncounterEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (event.resourceType === "TransferIPS") {
     return await publishTransferIpsEvent(
@@ -4386,10 +4429,18 @@ async function processEvent(event: OutboxEventRecord) {
     );
   }
   if (event.resourceType === "Observation") {
-    return await publishTriageObservationEvent(event, mappingEvent);
+    return await publishTriageObservationEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (event.resourceType === "Condition") {
-    return await publishVisitConditionEvent(event, mappingEvent);
+    return await publishVisitConditionEvent(
+      event,
+      mappingEvent,
+      config.environment
+    );
   }
   if (event.resourceType !== "Encounter") {
     throw new HieDependencyError(
@@ -4397,7 +4448,11 @@ async function processEvent(event: OutboxEventRecord) {
       `Unsupported outbox resource ${event.resourceType}`
     );
   }
-  return await publishVisitEncounterEvent(event, mappingEvent);
+  return await publishVisitEncounterEvent(
+    event,
+    mappingEvent,
+    config.environment
+  );
 }
 
 type PublicationFailureStatus = "BLOCKED" | "RETRY" | "DEAD_LETTER";

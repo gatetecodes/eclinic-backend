@@ -39,13 +39,15 @@ key rotations, because it enforces NID/UPID uniqueness without storing plaintext
 For the supplied MoH test environment, configure
 `HIE_CLIENT_REGISTRY_BASE_URL=http://197.243.24.138:5001/clientregistry/` and
 `HIE_SHR_BASE_URL=http://197.243.24.138:5001/shr/`, set
-`HIE_DEPLOYMENT_ENVIRONMENT=TEST`, and set `HIE_ALLOW_INSECURE_TEST=true`. Use
+`HIE_DEPLOYMENT_ENVIRONMENT=TEST`, `HIE_ENDPOINT_ENVIRONMENT=TEST`, and
+`HIE_CREDENTIAL_ENVIRONMENT=TEST`, and set `HIE_ALLOW_INSECURE_TEST=true`. Use
 only synthetic identities over that plain-HTTP connection. The Swagger's
 embedded server value is deliberately not used by the code.
 
-The tenant environment must match `HIE_DEPLOYMENT_ENVIRONMENT`. A test-labelled
-tenant cannot use a production deployment and a production-labelled tenant
-cannot use test endpoints or credentials. Production always rejects plain HTTP.
+Every request requires the tenant, deployment, endpoint, and credential
+environments to match. A test-labelled tenant cannot use production endpoints
+or credentials, and a production-labelled tenant cannot use test endpoints or
+credentials. Production always rejects plain HTTP.
 
 The HIE entitlement defaults to disabled for all plans. An administrator must:
 

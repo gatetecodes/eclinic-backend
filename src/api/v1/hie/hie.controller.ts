@@ -209,6 +209,42 @@ function sharedRecordCapabilityEnabled(config: EffectiveHieConfig): boolean {
   );
 }
 
+function enabledPublicationResourceFilters(config: EffectiveHieConfig) {
+  const filters: Array<{ resourceType: string | { in: string[] } }> = [];
+  if (config.sharedRecordWriteEnabled) {
+    filters.push({
+      resourceType: { in: ["Encounter", "Condition", "Observation"] },
+    });
+  }
+  if (config.transferEnabled) {
+    filters.push({
+      resourceType: { in: ["TransferEncounter", "TransferIPS"] },
+    });
+  }
+  if (config.consentSyncEnabled) {
+    filters.push({ resourceType: "Consent" });
+  }
+  if (config.consultationWriteEnabled) {
+    filters.push({
+      resourceType: {
+        in: ["ConsultationEncounter", "ConsultationObservation"],
+      },
+    });
+  }
+  if (config.allergyWriteEnabled) {
+    filters.push({ resourceType: "AllergyIntolerance" });
+  }
+  if (config.immunizationWriteEnabled) {
+    filters.push({ resourceType: "Immunization" });
+  }
+  if (config.imagingWriteEnabled) {
+    filters.push({
+      resourceType: { in: ["ImagingOrder", "ImagingStudy"] },
+    });
+  }
+  return filters;
+}
+
 function assertHieDeploymentReady(config: EffectiveHieConfig) {
   const deploymentEnvironment = process.env.HIE_DEPLOYMENT_ENVIRONMENT;
   if (
@@ -319,7 +355,7 @@ async function refreshHieHealth(config: {
   }
   const probes: Promise<unknown>[] = [];
   if (config.clientRegistryEnabled) {
-    probes.push(probeClientRegistry());
+    probes.push(probeClientRegistry(config.environment));
   }
   if (
     config.sharedRecordReadEnabled ||
@@ -327,9 +363,12 @@ async function refreshHieHealth(config: {
     config.transferEnabled
   ) {
     probes.push(
-      rhieRequest({ service: "SHR", method: "GET", path: "metadata" }).then(
-        (response) => capabilityStatementSchema.parse(response.data)
-      )
+      rhieRequest({
+        service: "SHR",
+        method: "GET",
+        path: "metadata",
+        tenantEnvironment: config.environment,
+      }).then((response) => capabilityStatementSchema.parse(response.data))
     );
   }
   const results = await Promise.allSettled(probes);
@@ -344,12 +383,15 @@ async function refreshHieHealth(config: {
   });
 }
 
-async function probeClientRegistry(): Promise<void> {
+async function probeClientRegistry(
+  tenantEnvironment: "TEST" | "PRODUCTION"
+): Promise<void> {
   try {
     const response = await rhieRequest({
       service: "CLIENT_REGISTRY",
       method: "GET",
       path: "metadata",
+      tenantEnvironment,
     });
     capabilityStatementSchema.parse(response.data);
   } catch (error) {
@@ -363,6 +405,7 @@ async function probeClientRegistry(): Promise<void> {
       service: "CLIENT_REGISTRY",
       method: "GET",
       path: "Patient",
+      tenantEnvironment,
       query: { identifier: "urn:carelogic:health-check" },
     });
     fhirBundleSchema.parse(response.data);
@@ -706,17 +749,7 @@ export async function updateConfig(c: Context<AppEnv>): Promise<Response> {
       create: { clinicId, ...input },
       update: input,
     });
-    const enabledResourceFilters: Array<{
-      resourceType: string | { in: string[] };
-    }> = [];
-    if (effective.sharedRecordWriteEnabled) {
-      enabledResourceFilters.push({
-        resourceType: { in: ["Encounter", "Condition", "Observation"] },
-      });
-    }
-    if (effective.transferEnabled) {
-      enabledResourceFilters.push({ resourceType: "TransferEncounter" });
-    }
+    const enabledResourceFilters = enabledPublicationResourceFilters(effective);
     if (effective.enabled && enabledResourceFilters.length > 0) {
       await tx.hieOutboxEvent.updateMany({
         where: {
@@ -1084,9 +1117,12 @@ export async function upsertDestinationFacility(
 
 export async function lookupPatient(c: Context<AppEnv>): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "clientRegistryEnabled");
+  const config = await requireCapability(clinicId, "clientRegistryEnabled");
   const input = c.get("validatedJson") as LookupInput;
-  const result = await lookupNationalPatient(input);
+  const result = await lookupNationalPatient({
+    ...input,
+    tenantEnvironment: config.environment,
+  });
   const candidateSelect = {
     id: true,
     firstName: true,
@@ -1209,7 +1245,7 @@ async function linkVerifiedUpid(
 
 export async function linkPatient(c: Context<AppEnv>): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "clientRegistryEnabled");
+  const config = await requireCapability(clinicId, "clientRegistryEnabled");
   const input = c.get("validatedJson") as LinkInput;
   const patient = await scopedPatient(clinicId, input.patientId);
   if (patient.updatedAt.toISOString() !== input.expectedPatientUpdatedAt) {
@@ -1224,6 +1260,7 @@ export async function linkPatient(c: Context<AppEnv>): Promise<Response> {
   const lookup = await lookupNationalPatient({
     nid: input.nid,
     birthDate: input.birthDate,
+    tenantEnvironment: config.environment,
   });
   const nationalPatient = lookup.matches.find(
     (match) => match.externalPatientId === input.externalPatientId
@@ -1424,7 +1461,7 @@ export async function deferVerification(c: Context<AppEnv>): Promise<Response> {
 
 export async function getPatientIps(c: Context<AppEnv>): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "sharedRecordReadEnabled");
+  const config = await requireCapability(clinicId, "sharedRecordReadEnabled");
   const patientId = Number(c.req.param("patientId"));
   await scopedPatient(clinicId, patientId);
   await requireActiveConsent(clinicId, patientId);
@@ -1443,7 +1480,8 @@ export async function getPatientIps(c: Context<AppEnv>): Promise<Response> {
   }
   const summary = await getInternationalPatientSummaryView(
     decryptHieValue(identity.resourceIdEncrypted),
-    patientId
+    patientId,
+    config.environment
   );
   const resourceHashes = summary.items.flatMap((item) =>
     item.resourceId
@@ -1509,7 +1547,7 @@ export async function getPatientNationalRecord(
   c: Context<AppEnv>
 ): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "nationalListReadEnabled");
+  const config = await requireCapability(clinicId, "nationalListReadEnabled");
   const patientId = Number(c.req.param("patientId"));
   const query = c.get("validatedQuery") as NationalRecordQuery;
   await scopedPatient(clinicId, patientId);
@@ -1534,6 +1572,7 @@ export async function getPatientNationalRecord(
     sections: query.sections,
     patientReference: decryptHieValue(identity.resourceIdEncrypted),
     patientId,
+    tenantEnvironment: config.environment,
   });
   const returnedItems = result.sections.flatMap((section) => section.items);
   const hashes = returnedItems.flatMap((item) =>
@@ -1604,7 +1643,7 @@ export async function createEmergencyAccess(
   c: Context<AppEnv>
 ): Promise<Response> {
   const { clinicId, actorId, user } = tenant(c);
-  await requireCapability(clinicId, "emergencyReadEnabled");
+  const config = await requireCapability(clinicId, "emergencyReadEnabled");
   if (user.role !== "DOCTOR") {
     throw new AppError({
       status: 403,
@@ -1657,6 +1696,7 @@ export async function createEmergencyAccess(
     sections: nationalRecordSectionSchema.options,
     patientReference: decryptHieValue(identity.resourceIdEncrypted),
     patientId,
+    tenantEnvironment: config.environment,
   });
   await audit({
     clinicId,
@@ -2102,6 +2142,7 @@ export async function reconcilePatientConsent(
     service: "SHR",
     method: "GET",
     path: "Consent/$list-consents",
+    tenantEnvironment: config.environment,
     query: { patient: decryptHieValue(identity.resourceIdEncrypted) },
   });
   const bundle = fhirBundleSchema.parse(response.data);
@@ -2377,7 +2418,7 @@ export async function retryPendingIdentity(
   c: Context<AppEnv>
 ): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "clientRegistryEnabled");
+  const config = await requireCapability(clinicId, "clientRegistryEnabled");
   const identityId = Number(c.req.param("identityId"));
   const identity = await db.patientExternalIdentity.findFirst({
     where: {
@@ -2397,6 +2438,7 @@ export async function retryPendingIdentity(
     const lookup = await lookupNationalPatient({
       nid,
       birthDate: snapshot.birthDate,
+      tenantEnvironment: config.environment,
     });
     const match = lookup.matches[0];
     if (!match) {
@@ -2716,7 +2758,7 @@ export async function refreshInboundTransfers(
   c: Context<AppEnv>
 ): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
-  await requireCapability(clinicId, "transferEnabled");
+  const config = await requireCapability(clinicId, "transferEnabled");
   const patientId = Number(c.req.param("patientId"));
   await scopedPatient(clinicId, patientId);
   await requireActiveConsent(clinicId, patientId);
@@ -2740,11 +2782,12 @@ export async function refreshInboundTransfers(
     service: "SHR",
     method: "GET",
     path: "Encounter/$list-transfers",
+    tenantEnvironment: config.environment,
     query: { patient: decryptHieValue(identity.resourceIdEncrypted) },
   });
   const bundle = fhirBundleSchema.parse(response.data);
   let imported = 0;
-  for (const entry of bundle.entry) {
+  for (const entry of bundle.entry ?? []) {
     const parsed = fhirEncounterSummarySchema.safeParse(entry.resource);
     if (!parsed.success) {
       continue;
@@ -2753,7 +2796,7 @@ export async function refreshInboundTransfers(
     const isTransfer = encounter.type?.some(
       (type) =>
         type.coding?.some((coding) => coding.code === "TRANSFER_ENCOUNTER") ||
-        Boolean(type.text)
+        type.text === "TRANSFER_ENCOUNTER"
     );
     if (!isTransfer) {
       continue;

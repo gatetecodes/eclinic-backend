@@ -113,6 +113,13 @@ model User {
   hieInboundTransfersReviewed HieInboundTransfer[]
   terminologyVerifications    Product[]                      @relation("ProductTerminologyVerifier")
   hieConceptVerifications     HieClinicalConcept[]           @relation("HieConceptVerifier")
+  hieAllergiesAsserted        HieStructuredAllergy[]         @relation("HieAllergyAsserter")
+  hieImmunizationsPerformed   HieImmunization[]              @relation("HieImmunizationPerformer")
+  hieImagingOrdersRequested   HieImagingOrder[]              @relation("HieImagingOrderRequester")
+  hieImagingOrdersPerformed   HieImagingOrder[]              @relation("HieImagingOrderPerformer")
+  hieImagingStudies           HieImagingStudy[]              @relation("HieImagingStudyPractitioner")
+  hieEmergencyAccesses        HieEmergencyAccess[]           @relation("HieEmergencyClinician")
+  hieEmergencyReviews         HieEmergencyAccess[]           @relation("HieEmergencyReviewer")
 
   @@unique([clinicId, email])
   @@index([email])

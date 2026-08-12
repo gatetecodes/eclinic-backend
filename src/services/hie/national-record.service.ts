@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { fhirBundleSchema } from "./fhir.schemas";
-import { RhieRequestError, rhieRequest } from "./rhie-client";
+import {
+  type HieRequestEnvironment,
+  RhieRequestError,
+  rhieRequest,
+} from "./rhie-client";
 import { summarizeInternationalPatientSummary } from "./shared-record.service";
 
 export const nationalRecordSectionSchema = z.enum([
@@ -67,6 +71,7 @@ async function retrieveSection(params: {
   section: NationalRecordSection;
   patientReference: string;
   patientId: number;
+  tenantEnvironment: HieRequestEnvironment;
 }) {
   try {
     const results = await Promise.all(
@@ -75,6 +80,7 @@ async function retrieveSection(params: {
           service: "SHR",
           method: "GET",
           path: endpoint.path,
+          tenantEnvironment: params.tenantEnvironment,
           query: { [endpoint.patientQuery]: params.patientReference },
         });
         return {
@@ -116,6 +122,7 @@ export async function retrieveNationalRecord(params: {
   sections: NationalRecordSection[];
   patientReference: string;
   patientId: number;
+  tenantEnvironment: HieRequestEnvironment;
 }) {
   const results: Awaited<ReturnType<typeof retrieveSection>>[] = [];
   let cursor = 0;
