@@ -54,6 +54,7 @@ async function requireCapability(
       exposeMessage: true,
     });
   }
+  return config;
 }
 
 function dateOnly(value: string | Date) {
@@ -196,7 +197,7 @@ export async function upsertCoverageMapping(c: Context<AppEnv>) {
 export async function listNationalAudit(c: Context<AppEnv>) {
   const { clinicId } = tenant(c);
   const query = c.get("validatedQuery") as NationalAuditQuery;
-  await requireCapability(clinicId, "nationalAuditReadEnabled");
+  const config = await requireCapability(clinicId, "nationalAuditReadEnabled");
   let patientReference: string | undefined;
   if (query.patientId) {
     const patient = await db.patient.findFirst({
@@ -231,6 +232,7 @@ export async function listNationalAudit(c: Context<AppEnv>) {
     service: "SHR",
     method: "GET",
     path: "AuditEvent",
+    tenantEnvironment: config.environment,
     query: {
       ...(patientReference ? { patient: patientReference } : {}),
       page: String(query.page),

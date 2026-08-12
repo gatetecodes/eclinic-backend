@@ -13,7 +13,7 @@ const request = (data: unknown) => async () => ({
 describe("Client Registry contract handling", () => {
   it("accepts an exact NID and birth-date match", async () => {
     const result = await lookupNationalPatient(
-      { nid, birthDate },
+      { nid, birthDate, tenantEnvironment: "TEST" },
       request({
         resourceType: "Bundle",
         type: "searchset",
@@ -51,7 +51,7 @@ describe("Client Registry contract handling", () => {
   it("returns no match for an empty search result", async () => {
     await expect(
       lookupNationalPatient(
-        { nid, birthDate },
+        { nid, birthDate, tenantEnvironment: "TEST" },
         request({ resourceType: "Bundle", type: "searchset" })
       )
     ).resolves.toMatchObject({ matches: [] });
@@ -67,7 +67,7 @@ describe("Client Registry contract handling", () => {
     };
     await expect(
       lookupNationalPatient(
-        { nid, birthDate },
+        { nid, birthDate, tenantEnvironment: "TEST" },
         request({
           resourceType: "Bundle",
           type: "searchset",
@@ -80,7 +80,7 @@ describe("Client Registry contract handling", () => {
   it("rejects a malformed successful response", async () => {
     await expect(
       lookupNationalPatient(
-        { nid, birthDate },
+        { nid, birthDate, tenantEnvironment: "TEST" },
         request({ resourceType: "Patient" })
       )
     ).rejects.toMatchObject({ name: "ZodError" });

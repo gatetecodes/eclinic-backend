@@ -85,6 +85,14 @@ type MaybePrismaError = {
   name?: string;
 };
 
+const UNIQUE_CONSTRAINT_FIELDS: Record<string, readonly string[]> = {
+  PatientExternalIdentity_identifierType_identifierHash_key: [
+    "identifierType",
+    "identifierHash",
+  ],
+  HieOutboxEvent_idempotencyKey_key: ["idempotencyKey"],
+};
+
 /**
  * True when `error` is a Prisma unique-constraint violation (P2002) reported
  * against an index covering every one of `fields`.
@@ -92,7 +100,8 @@ type MaybePrismaError = {
  * Callers use this to recognise a specific race — a check-then-write that lost —
  * and recover from it, rather than letting the global handler turn it into a
  * generic 409. `meta.target` is the field list on some driver adapters and the
- * constraint name on others, so both are matched by substring.
+ * constraint name on others. Field-list members are matched exactly, while
+ * string targets are accepted only when they name a known constraint.
  */
 export function isUniqueViolationOn(
   error: unknown,
@@ -103,10 +112,17 @@ export function isUniqueViolationOn(
     return false;
   }
   const target = e.meta?.target;
-  const described = (Array.isArray(target) ? target : [target])
-    .filter((entry): entry is string => typeof entry === "string")
-    .join(",");
-  return fields.every((field) => described.includes(field));
+  let described: readonly string[] | undefined;
+  if (Array.isArray(target)) {
+    described = target.filter(
+      (entry): entry is string => typeof entry === "string"
+    );
+  } else if (typeof target === "string") {
+    described = UNIQUE_CONSTRAINT_FIELDS[target];
+  }
+  return Boolean(
+    described && fields.every((field) => described.includes(field))
+  );
 }
 
 export function tryMapPrismaError(error: unknown): AppError | null {

@@ -1,6 +1,6 @@
 import { type FhirBundle, fhirBundleSchema } from "./fhir.schemas";
 import { encryptHieJson } from "./hie-crypto.service";
-import { rhieRequest } from "./rhie-client";
+import { type HieRequestEnvironment, rhieRequest } from "./rhie-client";
 
 const DISPLAYABLE_RESOURCE_TYPES = new Set([
   "AllergyIntolerance",
@@ -149,11 +149,15 @@ export function summarizeInternationalPatientSummary(
   });
 }
 
-export async function getInternationalPatientSummary(patientReference: string) {
+export async function getInternationalPatientSummary(
+  patientReference: string,
+  tenantEnvironment: HieRequestEnvironment
+) {
   const response = await rhieRequest({
     service: "SHR",
     method: "GET",
     path: "Bundle/$ips",
+    tenantEnvironment,
     query: { patient: patientReference },
   });
   return {
@@ -165,9 +169,13 @@ export async function getInternationalPatientSummary(patientReference: string) {
 
 export async function getInternationalPatientSummaryView(
   patientReference: string,
-  patientId: number
+  patientId: number,
+  tenantEnvironment: HieRequestEnvironment
 ) {
-  const summary = await getInternationalPatientSummary(patientReference);
+  const summary = await getInternationalPatientSummary(
+    patientReference,
+    tenantEnvironment
+  );
   return {
     items: summarizeInternationalPatientSummary(summary.bundle, patientId),
     correlationId: summary.correlationId,

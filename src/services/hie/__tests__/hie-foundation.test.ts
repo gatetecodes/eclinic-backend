@@ -3,6 +3,7 @@ import {
   deferVerificationSchema,
   outboxQuerySchema,
   transferQuerySchema,
+  updateConfigSchema,
 } from "../../../api/v1/hie/hie.validation";
 import {
   formatRwandaAdministrativeAddress,
@@ -191,6 +192,25 @@ describe("FHIR boundary validation", () => {
 });
 
 describe("HIE API boundary validation", () => {
+  it("accepts every tenant capability flag", () => {
+    const capabilities = {
+      clientRegistryEnabled: true,
+      sharedRecordReadEnabled: true,
+      sharedRecordWriteEnabled: true,
+      transferEnabled: true,
+      consentSyncEnabled: true,
+      consultationWriteEnabled: true,
+      nationalListReadEnabled: true,
+      nationalAuditReadEnabled: true,
+      emergencyReadEnabled: true,
+      allergyWriteEnabled: true,
+      immunizationWriteEnabled: true,
+      imagingWriteEnabled: true,
+    };
+
+    expect(updateConfigSchema.parse(capabilities)).toEqual(capabilities);
+  });
+
   it("rejects invalid outbox and transfer filters", () => {
     expect(() => outboxQuerySchema.parse({ status: "UNKNOWN" })).toThrow();
     expect(() => transferQuerySchema.parse({ per_page: 101 })).toThrow();

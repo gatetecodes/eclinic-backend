@@ -39,7 +39,10 @@ function findPendingIdentities(limit: number) {
             where: {
               hieTenantConfig: { enabled: true, clientRegistryEnabled: true },
             },
-            select: { id: true },
+            select: {
+              id: true,
+              hieTenantConfig: { select: { environment: true } },
+            },
           },
         },
       },
@@ -189,6 +192,12 @@ async function markIdentityVerified(
 }
 
 async function retryPendingIdentity(identity: PendingIdentity) {
+  const tenantEnvironment =
+    identity.patient.clinics[0]?.hieTenantConfig?.environment;
+  if (!tenantEnvironment) {
+    await markRetryFailure(identity, "HIE_TENANT_CONFIG_REQUIRED");
+    return false;
+  }
   const snapshot = snapshotSchema.safeParse(
     identity.demographicsSnapshotEncrypted
       ? decryptHieJson(identity.demographicsSnapshotEncrypted)
@@ -208,6 +217,7 @@ async function retryPendingIdentity(identity: PendingIdentity) {
   const result = await lookupNationalPatient({
     nid: decryptHieValue(identity.identifierEncrypted),
     birthDate: snapshot.data.birthDate,
+    tenantEnvironment,
   });
   const match = result.matches[0];
   if (!match) {

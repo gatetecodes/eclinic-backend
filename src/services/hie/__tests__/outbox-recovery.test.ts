@@ -7,16 +7,41 @@ process.env.HIE_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
 let enqueueFinalizedVisit: typeof import("../outbox.service").enqueueFinalizedVisit;
 let recoverMissingFinalizedVisitEvents: typeof import("../outbox.service").recoverMissingFinalizedVisitEvents;
+let publicationCapabilityEnabled: typeof import("../outbox.service").publicationCapabilityEnabled;
 let resumeBlockedPatientEvents: typeof import("../outbox.service").resumeBlockedPatientEvents;
 let resumeBlockedHieDependencies: typeof import("../outbox.service").resumeBlockedHieDependencies;
 
 beforeAll(async () => {
   ({
     enqueueFinalizedVisit,
+    publicationCapabilityEnabled,
     recoverMissingFinalizedVisitEvents,
     resumeBlockedHieDependencies,
     resumeBlockedPatientEvents,
   } = await import("../outbox.service"));
+});
+
+describe("publication capability enforcement", () => {
+  const config = {
+    enabled: true,
+    sharedRecordWriteEnabled: true,
+    transferEnabled: false,
+    consentSyncEnabled: false,
+    consultationWriteEnabled: false,
+    allergyWriteEnabled: false,
+    immunizationWriteEnabled: false,
+    imagingWriteEnabled: false,
+  };
+
+  it("requires the transfer capability for transfer IPS events", () => {
+    expect(publicationCapabilityEnabled(config, "TransferIPS")).toBe(false);
+    expect(
+      publicationCapabilityEnabled(
+        { ...config, transferEnabled: true },
+        "TransferIPS"
+      )
+    ).toBe(true);
+  });
 });
 
 describe("finalized visit outbox recovery", () => {

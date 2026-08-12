@@ -3,7 +3,7 @@ import {
   fhirBundleSchema,
   fhirPatientSchema,
 } from "./fhir.schemas";
-import { rhieRequest } from "./rhie-client";
+import { type HieRequestEnvironment, rhieRequest } from "./rhie-client";
 
 export type NationalPatientMatch = {
   externalPatientId: string;
@@ -137,6 +137,7 @@ export async function lookupNationalPatient(
   params: {
     nid: string;
     birthDate: string;
+    tenantEnvironment: HieRequestEnvironment;
   },
   request: typeof rhieRequest = rhieRequest
 ): Promise<{
@@ -147,6 +148,7 @@ export async function lookupNationalPatient(
     service: "CLIENT_REGISTRY",
     method: "GET",
     path: "Patient",
+    tenantEnvironment: params.tenantEnvironment,
     query: { identifier: params.nid, birthdate: params.birthDate },
   });
   const bundle = fhirBundleSchema.parse(response.data);

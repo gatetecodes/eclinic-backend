@@ -482,6 +482,7 @@ export async function correctStructuredAllergy(c: Context<AppEnv>) {
   const { clinicId, actorId } = tenant(c);
   const id = Number(c.req.param("id"));
   const input = c.get("validatedJson") as AllergyCorrectionInput;
+  const { note, ...allergyInput } = input;
   const existing = await db.hieStructuredAllergy.findFirst({
     where: { id, clinicId, status: "FINAL" },
   });
@@ -491,7 +492,7 @@ export async function correctStructuredAllergy(c: Context<AppEnv>) {
   const data = await allergyCreateData({
     clinicId,
     patientId: existing.patientId,
-    input,
+    input: allergyInput,
     replacesAllergyId: id,
   });
   const replacement = await db.$transaction(async (tx) => {
@@ -531,7 +532,7 @@ export async function correctStructuredAllergy(c: Context<AppEnv>) {
     actorId,
     patientId: existing.patientId,
     action: "allergy.corrected",
-    metadata: { allergyId: id, replacementId: replacement.id },
+    metadata: { allergyId: id, replacementId: replacement.id, note },
   });
   return jsonSuccess(c, { status: 201, data: replacement });
 }
@@ -701,6 +702,7 @@ export async function correctStructuredImmunization(c: Context<AppEnv>) {
   const { clinicId, actorId } = tenant(c);
   const id = Number(c.req.param("id"));
   const input = c.get("validatedJson") as ImmunizationCorrectionInput;
+  const { note, ...immunizationInput } = input;
   const existing = await db.hieImmunization.findFirst({
     where: { id, clinicId, status: "FINAL" },
   });
@@ -710,7 +712,7 @@ export async function correctStructuredImmunization(c: Context<AppEnv>) {
   const data = await immunizationCreateData({
     clinicId,
     patientId: existing.patientId,
-    input,
+    input: immunizationInput,
     replacesImmunizationId: id,
   });
   const replacement = await db.$transaction(async (tx) => {
@@ -753,6 +755,7 @@ export async function correctStructuredImmunization(c: Context<AppEnv>) {
     metadata: {
       immunizationId: id,
       replacementId: replacement.id,
+      note,
     },
   });
   return jsonSuccess(c, { status: 201, data: replacement });
