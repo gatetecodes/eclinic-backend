@@ -206,7 +206,7 @@ Flow:
 6. The backend stores encrypted NID/UPID/resource IDs, HMAC lookup hashes, a protected demographic snapshot, verification state, and an audit event.
 7. National demographics are **not** copied over the local patient record. Differences remain visible for human handling; DOB differences enter a dedicated remediation queue.
 
-If Client Registry is unavailable, the user can follow an alternate path and record a stable defer reason (`SERVICE_UNAVAILABLE`, `PATIENT_UNABLE_TO_CONFIRM`, or `OTHER`). Pending identities are retried by the minute worker with a stored encrypted DOB snapshot. A unique NID/UPID already linked to another local patient produces an `HieIdentityReconciliation` case rather than a silent merge.
+If Client Registry is unavailable, the user can follow an alternate path and record a stable defer reason. The implemented enum (`src/api/v1/hie/hie.validation.ts`) is `REGISTRY_UNAVAILABLE`, `LINK_REQUIRES_RECONCILIATION`, and `MISSING_CONCURRENCY_TOKEN` — all system-derived. Note there is no code for "the patient could not confirm their identity"; that reception scenario is served by the frontend's alternate-identity path (adult phone / child guardian / foreigner) rather than a deferred national identity. Pending identities are retried by the minute worker with a stored encrypted DOB snapshot. A unique NID/UPID already linked to another local patient produces an `HieIdentityReconciliation` case rather than a silent merge.
 
 No-match, deceased-patient, malformed-response, conflict, and stale-local-record states are explicitly handled. CareLogic patient registration/check-in remains usable when HIE is unavailable.
 
