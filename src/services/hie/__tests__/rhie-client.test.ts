@@ -4,6 +4,7 @@ import {
   RhieRequestError,
   readBoundedJson,
   requestTimeoutMs,
+  resetCircuitBreakers,
   rhieRequest,
 } from "../rhie-client";
 import { resolveRhieEndpoint } from "../rhie-endpoints";
@@ -33,6 +34,7 @@ function configureRequestTest() {
 }
 
 afterEach(() => {
+  resetCircuitBreakers();
   process.env.HIE_REQUEST_TIMEOUT_MS = originalRequestTimeout;
   process.env.HIE_GET_MAX_ATTEMPTS = originalGetMaxAttempts;
   process.env.HIE_GET_RETRY_BASE_MS = originalRetryBase;
@@ -441,5 +443,68 @@ describe("typed RHIE endpoint registry", () => {
         path: "Patient",
       })
     ).toBeUndefined();
+  });
+});
+
+describe("per-call request budget", () => {
+  it("caps retries below the configured default", async () => {
+    configureRequestTest();
+    process.env.HIE_GET_MAX_ATTEMPTS = "3";
+    const fetchMock = mock(async () => new Response("{}", { status: 503 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "TEST",
+        maxAttempts: 1,
+      })
+    ).rejects.toMatchObject({ status: 503 });
+    // Health probes rely on this: one attempt, not the full retry budget.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an out-of-range attempt override", async () => {
+    configureRequestTest();
+    process.env.HIE_GET_MAX_ATTEMPTS = "2";
+    const fetchMock = mock(async () => new Response("{}", { status: 503 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "TEST",
+        maxAttempts: 99,
+      })
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("aborts on the per-call timeout instead of the global default", async () => {
+    configureRequestTest();
+    process.env.HIE_REQUEST_TIMEOUT_MS = "30000";
+    globalThis.fetch = mock(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          );
+        })
+    ) as typeof fetch;
+
+    await expect(
+      rhieRequest({
+        service: "CLIENT_REGISTRY",
+        method: "GET",
+        path: "Patient",
+        tenantEnvironment: "TEST",
+        maxAttempts: 1,
+        timeoutMs: 20,
+      })
+    ).rejects.toMatchObject({ code: "RHIE_TIMEOUT" });
   });
 });

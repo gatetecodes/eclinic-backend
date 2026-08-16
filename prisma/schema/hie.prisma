@@ -122,6 +122,9 @@ model HieTenantConfig {
   imagingWriteEnabled      Boolean        @default(false)
   lastHealthStatus         String?
   lastHealthCheckedAt      DateTime?
+  /// Per-capability liveness: { clientRegistry, sharedRecord, checkedAt }.
+  /// lastHealthStatus is the roll-up and cannot say which service is down.
+  capabilityHealth         Json?
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
 }
@@ -694,6 +697,18 @@ model HieExternalTransfer {
   reason                       String
   urgency                      Priority                @default(MEDIUM)
   clinicalSummary              String
+  // Transfer context the MoH reference Encounter payload carries as extensions.
+  // All optional: an emergency transfer must still publish when the referring
+  // clinician has no time to complete them.
+  transferTypeCode             String?
+  transferTypeDisplay          String?
+  transportTypeCode            String?
+  transportTypeDisplay         String?
+  ambulanceCallTime            DateTime?
+  departureTime                DateTime?
+  receivingClinicianContact    String?
+  caregiverName                String?
+  caregiverPhone               String?
   status                       HieTransferStatus       @default(DRAFT)
   acknowledgement              String?
   hieEncounterIdEncrypted      String?

@@ -17,6 +17,28 @@ export const lookupPatientSchema = z.object({
   birthDate: birthDateSchema,
 });
 
+/**
+ * UPID resolution at reception, for a patient the Client Registry has no FHIR
+ * `Patient` for yet. `RESOLVE_UPI` is excluded: it is an administrative
+ * reconciliation mode, not a reception lookup.
+ */
+export const requestPatientUpidSchema = z.object({
+  documentType: z
+    .enum([
+      "NID",
+      "NIDA",
+      "NID_APPLICATION_NUMBER",
+      "APPLICATION_NUMBER",
+      "NIN",
+      "PASSPORT",
+      "TEMPID",
+      "FOREIGNER_ID",
+    ])
+    .default("NID"),
+  documentNumber: z.string().trim().min(1).max(64),
+  patientId: z.number().int().positive().optional(),
+});
+
 export const linkPatientSchema = z.object({
   patientId: z.number().int().positive(),
   nid: nidSchema,
@@ -259,12 +281,29 @@ export const transferQuerySchema = paginationSchema.extend({
   patientId: z.coerce.number().int().positive().optional(),
 });
 
+/**
+ * Optional transfer context published as FHIR Encounter extensions. Kept
+ * optional so an emergency transfer is never blocked on paperwork.
+ */
+const transferContextFields = {
+  transferTypeCode: z.string().trim().min(1).max(64).optional(),
+  transferTypeDisplay: z.string().trim().min(1).max(200).optional(),
+  transportTypeCode: z.string().trim().min(1).max(64).optional(),
+  transportTypeDisplay: z.string().trim().min(1).max(200).optional(),
+  ambulanceCallTime: z.iso.datetime().optional(),
+  departureTime: z.iso.datetime().optional(),
+  receivingClinicianContact: z.string().trim().min(1).max(300).optional(),
+  caregiverName: z.string().trim().min(1).max(200).optional(),
+  caregiverPhone: z.string().trim().min(1).max(50).optional(),
+};
+
 export const createTransferSchema = z.object({
   visitId: z.number().int().positive(),
   destinationFacilityId: z.number().int().positive(),
   reason: z.string().trim().min(3).max(2000),
   urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   clinicalSummary: z.string().trim().min(10).max(20_000),
+  ...transferContextFields,
 });
 
 export const transferParamSchema = z.object({

@@ -77,6 +77,7 @@ const terminologyUpdateSchema = z.object({
   icd11Code: nullableCode,
   loincCode: nullableCode,
   snomedCode: nullableCode,
+  rxNormCode: nullableCode,
   ichiCode: nullableCode,
   nationalTariffCode: nullableCode,
   status: z.enum(["DRAFT", "VERIFIED"]),

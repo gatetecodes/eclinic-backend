@@ -46,6 +46,7 @@ const TERMINOLOGY_FIELDS = [
   "icd11Code",
   "loincCode",
   "snomedCode",
+  "rxNormCode",
   "ichiCode",
   "nationalTariffCode",
 ] as const;
@@ -247,6 +248,7 @@ export const getTariff = async (c: Context<AppEnv>): Promise<Response> => {
         icd11Code: true,
         loincCode: true,
         snomedCode: true,
+        rxNormCode: true,
         ichiCode: true,
         nationalTariffCode: true,
         isActive: true,
@@ -389,6 +391,7 @@ export const getProductsList = async (
         icd11Code: true,
         loincCode: true,
         snomedCode: true,
+        rxNormCode: true,
         ichiCode: true,
         nationalTariffCode: true,
         departments: {
@@ -476,6 +479,7 @@ export const getProductsListWithPricing = async (
         icd11Code: true,
         loincCode: true,
         snomedCode: true,
+        rxNormCode: true,
         ichiCode: true,
         nationalTariffCode: true,
         clinicProductPrices: scopedClinicId
@@ -601,6 +605,7 @@ export const getProductById = async (c: Context<AppEnv>): Promise<Response> => {
         icd11Code: true,
         loincCode: true,
         snomedCode: true,
+        rxNormCode: true,
         ichiCode: true,
         nationalTariffCode: true,
         consumables: true,

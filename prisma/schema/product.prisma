@@ -27,6 +27,7 @@ model Product {
   icd11Code               String? // ICD-11 diagnosis/procedure code (RHIP/insurer standard)
   loincCode               String? // LOINC code for lab & exam tests (RHIP/insurer standard)
   snomedCode              String? // SNOMED CT code for RHIE medication and service-request mapping
+  rxNormCode              String? // RxNorm code published alongside SNOMED on RHIE medication resources
   ichiCode                String? // ICHI code for RHIE procedure mapping
   nationalTariffCode      String? // RSSB/MoH national nomenclature code
   terminologyStatus       ProductTerminologyStatus @default(DRAFT)
@@ -56,6 +57,7 @@ model Product {
 
   @@index([nationalTariffCode])
   @@index([snomedCode])
+  @@index([rxNormCode])
   @@index([ichiCode])
   @@index([terminologyStatus])
   @@index([terminologyVerifiedById])

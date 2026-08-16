@@ -4,13 +4,16 @@ import { z } from "zod";
 import { db } from "@/database/db";
 import { jsonSuccess } from "@/lib/api-response";
 import { AppError, isUniqueViolationOn, notFoundError } from "@/lib/app-error";
+import { logger } from "@/lib/logger";
 import type { AppEnv } from "@/middlewares/auth.middleware";
+import { requestCitizenUpid } from "@/services/hie/citizen-registry.service";
 import { lookupNationalPatient } from "@/services/hie/client-registry.service";
 import {
-  capabilityStatementSchema,
   fhirBundleSchema,
   fhirConsentSchema,
 } from "@/services/hie/fhir.schemas";
+import { readCapabilityHealth } from "@/services/hie/health.schemas";
+import { refreshTenantHealthOnDemand } from "@/services/hie/health.service";
 import {
   assertHieEncryptionConfigured,
   decryptHieJson,
@@ -55,6 +58,7 @@ import type {
   operationsSummaryQuerySchema,
   outboxQuerySchema,
   reconciliationSchema,
+  requestPatientUpidSchema,
   transferQuerySchema,
   updateConfigSchema,
   upsertDestinationFacilitySchema,
@@ -64,6 +68,7 @@ import type {
 } from "./hie.validation";
 
 type LookupInput = z.infer<typeof lookupPatientSchema>;
+type RequestUpidInput = z.infer<typeof requestPatientUpidSchema>;
 type LinkInput = z.infer<typeof linkPatientSchema>;
 type DeferInput = z.infer<typeof deferVerificationSchema>;
 type ConfigInput = z.infer<typeof updateConfigSchema>;
@@ -326,90 +331,6 @@ function assertHieActivationReady(config: EffectiveHieConfig) {
   assertHieEncryptionConfigured();
   assertHieDeploymentReady(config);
   assertHieEndpointsReady(config);
-}
-
-async function refreshHieHealth(config: {
-  clinicId: number;
-  environment: "TEST" | "PRODUCTION";
-  enabled: boolean;
-  clientRegistryEnabled: boolean;
-  sharedRecordReadEnabled: boolean;
-  sharedRecordWriteEnabled: boolean;
-  transferEnabled: boolean;
-  consentSyncEnabled: boolean;
-  consultationWriteEnabled: boolean;
-  nationalListReadEnabled: boolean;
-  nationalAuditReadEnabled: boolean;
-  emergencyReadEnabled: boolean;
-  allergyWriteEnabled: boolean;
-  immunizationWriteEnabled: boolean;
-  imagingWriteEnabled: boolean;
-  lastHealthStatus: string | null;
-  lastHealthCheckedAt: Date | null;
-}) {
-  const stillFresh =
-    config.lastHealthCheckedAt &&
-    config.lastHealthCheckedAt > new Date(Date.now() - 5 * 60_000);
-  if (!config.enabled || stillFresh) {
-    return config;
-  }
-  const probes: Promise<unknown>[] = [];
-  if (config.clientRegistryEnabled) {
-    probes.push(probeClientRegistry(config.environment));
-  }
-  if (
-    config.sharedRecordReadEnabled ||
-    config.sharedRecordWriteEnabled ||
-    config.transferEnabled
-  ) {
-    probes.push(
-      rhieRequest({
-        service: "SHR",
-        method: "GET",
-        path: "metadata",
-        tenantEnvironment: config.environment,
-      }).then((response) => capabilityStatementSchema.parse(response.data))
-    );
-  }
-  const results = await Promise.allSettled(probes);
-  const lastHealthStatus =
-    results.length > 0 &&
-    results.every((result) => result.status === "fulfilled")
-      ? "UP"
-      : "DEGRADED";
-  return db.hieTenantConfig.update({
-    where: { clinicId: config.clinicId },
-    data: { lastHealthStatus, lastHealthCheckedAt: new Date() },
-  });
-}
-
-async function probeClientRegistry(
-  tenantEnvironment: "TEST" | "PRODUCTION"
-): Promise<void> {
-  try {
-    const response = await rhieRequest({
-      service: "CLIENT_REGISTRY",
-      method: "GET",
-      path: "metadata",
-      tenantEnvironment,
-    });
-    capabilityStatementSchema.parse(response.data);
-  } catch (error) {
-    const metadataUnavailable =
-      error instanceof RhieRequestError &&
-      (error.status === 401 || error.status === 404);
-    if (!metadataUnavailable) {
-      throw error;
-    }
-    const response = await rhieRequest({
-      service: "CLIENT_REGISTRY",
-      method: "GET",
-      path: "Patient",
-      tenantEnvironment,
-      query: { identifier: "urn:carelogic:health-check" },
-    });
-    fhirBundleSchema.parse(response.data);
-  }
 }
 
 function tenant(c: Context<AppEnv>) {
@@ -678,16 +599,18 @@ async function runPatientIdentityWrite<T>(
   }
 }
 
-export async function getStatus(c: Context<AppEnv>): Promise<Response> {
+/**
+ * Shared by GET /status and GET /status/live so the two responses cannot drift.
+ * Health is read from the row, never probed here — probing on the request path
+ * made an unreachable registry cost every caller a 25s response.
+ */
+async function buildStatusPayload(c: Context<AppEnv>) {
   const { clinicId, user } = tenant(c);
   const branchId = branchAdminScope(user);
-  const configWithClinic = await db.hieTenantConfig.findUnique({
+  const config = await db.hieTenantConfig.findUnique({
     where: { clinicId },
     include: { clinic: { select: { branches: { select: { id: true } } } } },
   });
-  const config = configWithClinic
-    ? await refreshHieHealth(configWithClinic)
-    : null;
   const facilities = await db.hieFacilityLink.count({
     where: {
       clinicId,
@@ -695,38 +618,73 @@ export async function getStatus(c: Context<AppEnv>): Promise<Response> {
       ...(branchId ? { branchId } : {}),
     },
   });
-  const visibleBranches = configWithClinic?.clinic.branches ?? [];
+  const visibleBranches = config?.clinic.branches ?? [];
   const totalBranches = branchId
     ? Number(visibleBranches.some((branch) => branch.id === branchId))
     : visibleBranches.length;
-  return jsonSuccess(c, {
-    data: {
-      configured: Boolean(config),
-      enabled: config?.enabled ?? false,
-      environment: config?.environment ?? null,
-      capabilities: config
-        ? {
-            clientRegistry: config.clientRegistryEnabled,
-            sharedRecordRead: config.sharedRecordReadEnabled,
-            sharedRecordWrite: config.sharedRecordWriteEnabled,
-            transfer: config.transferEnabled,
-            consentSync: config.consentSyncEnabled,
-            consultationWrite: config.consultationWriteEnabled,
-            nationalListRead: config.nationalListReadEnabled,
-            nationalAuditRead: config.nationalAuditReadEnabled,
-            emergencyRead: config.emergencyReadEnabled,
-            allergyWrite: config.allergyWriteEnabled,
-            immunizationWrite: config.immunizationWriteEnabled,
-            imagingWrite: config.imagingWriteEnabled,
-          }
-        : null,
-      verifiedFacilities: facilities,
-      totalBranches,
-      canManageConfig: user.role === "CLINIC_ADMIN",
-      lastHealthStatus: config?.lastHealthStatus ?? null,
-      lastHealthCheckedAt: config?.lastHealthCheckedAt ?? null,
+  return {
+    configured: Boolean(config),
+    enabled: config?.enabled ?? false,
+    environment: config?.environment ?? null,
+    capabilities: config
+      ? {
+          clientRegistry: config.clientRegistryEnabled,
+          sharedRecordRead: config.sharedRecordReadEnabled,
+          sharedRecordWrite: config.sharedRecordWriteEnabled,
+          transfer: config.transferEnabled,
+          consentSync: config.consentSyncEnabled,
+          consultationWrite: config.consultationWriteEnabled,
+          nationalListRead: config.nationalListReadEnabled,
+          nationalAuditRead: config.nationalAuditReadEnabled,
+          emergencyRead: config.emergencyReadEnabled,
+          allergyWrite: config.allergyWriteEnabled,
+          immunizationWrite: config.immunizationWriteEnabled,
+          imagingWrite: config.imagingWriteEnabled,
+        }
+      : null,
+    verifiedFacilities: facilities,
+    totalBranches,
+    canManageConfig: user.role === "CLINIC_ADMIN",
+    lastHealthStatus: config?.lastHealthStatus ?? null,
+    lastHealthCheckedAt: config?.lastHealthCheckedAt ?? null,
+    health: config ? readCapabilityHealth(config) : null,
+  };
+}
+
+export async function getStatus(c: Context<AppEnv>): Promise<Response> {
+  return jsonSuccess(c, { data: await buildStatusPayload(c) });
+}
+
+/**
+ * Re-probes the national services, then returns the same payload as
+ * GET /status. Reception calls this when opening check-in against a registry
+ * that is already known-DOWN, so a recovered service is picked up without a
+ * page reload rather than waiting for the next cron tick.
+ * The probe is bounded (1 attempt, 3s per service, run in parallel)
+ */
+export async function getLiveStatus(c: Context<AppEnv>): Promise<Response> {
+  const { clinicId } = tenant(c);
+  const config = await db.hieTenantConfig.findUnique({
+    where: { clinicId },
+    select: {
+      clinicId: true,
+      environment: true,
+      enabled: true,
+      clientRegistryEnabled: true,
+      sharedRecordReadEnabled: true,
+      sharedRecordWriteEnabled: true,
+      transferEnabled: true,
+      lastHealthCheckedAt: true,
     },
   });
+  if (config) {
+    // A failed probe is a result, not an error: it is recorded as DOWN and the
+    // caller still needs the status payload back.
+    await refreshTenantHealthOnDemand(config).catch((error) => {
+      logger.warn("hie.health.on_demand_refresh_failed", { clinicId, error });
+    });
+  }
+  return jsonSuccess(c, { data: await buildStatusPayload(c) });
 }
 
 export async function updateConfig(c: Context<AppEnv>): Promise<Response> {
@@ -1183,6 +1141,84 @@ export async function lookupPatient(c: Context<AppEnv>): Promise<Response> {
     data: {
       matches: result.matches,
       localCandidates,
+      correlationId: result.correlationId,
+    },
+  });
+}
+
+/**
+ * Resolves the 4-digit FOSA code for the branch making a national request.
+ *
+ * The HIE attributes every citizen lookup to a facility, so an unmapped or
+ * unverified branch must not be able to query the national registry.
+ */
+async function requireVerifiedFosaCode(params: {
+  clinicId: number;
+  branchId: number | null;
+}) {
+  const facility = await db.hieFacilityLink.findFirst({
+    where: {
+      clinicId: params.clinicId,
+      ...(params.branchId ? { branchId: params.branchId } : {}),
+      verificationStatus: "VERIFIED",
+    },
+    select: { fosaCode: true },
+  });
+  if (!facility) {
+    throw new AppError({
+      status: 409,
+      code: "HIE_FACILITY_NOT_VERIFIED",
+      message: "Verify the branch HIE facility mapping first",
+      exposeMessage: true,
+    });
+  }
+  return facility.fosaCode;
+}
+
+/**
+ * Requests a national UPID for a patient the Client Registry has no FHIR
+ * `Patient` for yet — the reception dead-end that otherwise blocks every
+ * downstream clinical publication for that patient.
+ *
+ * This deliberately stops at resolution. It does not create, link, or mutate
+ * any local identity: the receptionist takes the returned UPID back through the
+ * existing reviewed lookup-and-link flow, so national demographics still never
+ * silently overwrite or merge a local patient.
+ */
+export async function requestPatientUpid(
+  c: Context<AppEnv>
+): Promise<Response> {
+  const { clinicId, actorId } = tenant(c);
+  const config = await requireCapability(clinicId, "clientRegistryEnabled");
+  const input = c.get("validatedJson") as RequestUpidInput;
+  const fosaid = await requireVerifiedFosaCode({
+    clinicId,
+    branchId: c.get("branchId") ?? null,
+  });
+  const result = await requestCitizenUpid({
+    documentType: input.documentType,
+    documentNumber: input.documentNumber,
+    fosaid,
+    tenantEnvironment: config.environment,
+  });
+  await audit({
+    clinicId,
+    actorId,
+    patientId: input.patientId,
+    action: "patient.upid.request",
+    capability: "CLIENT_REGISTRY",
+    outcome: result.match ? "SUCCESS" : "NOT_FOUND",
+    correlationId: result.correlationId,
+    // The document number and the resolved UPID are national identifiers and
+    // are deliberately excluded from the audit metadata.
+    metadata: {
+      documentType: input.documentType,
+      resolved: Boolean(result.match),
+    },
+  });
+  return jsonSuccess(c, {
+    data: {
+      match: result.match,
       correlationId: result.correlationId,
     },
   });
@@ -3019,6 +3055,17 @@ export async function createExternalTransfer(
       reason: input.reason,
       urgency: input.urgency,
       clinicalSummary: input.clinicalSummary,
+      transferTypeCode: input.transferTypeCode,
+      transferTypeDisplay: input.transferTypeDisplay,
+      transportTypeCode: input.transportTypeCode,
+      transportTypeDisplay: input.transportTypeDisplay,
+      ambulanceCallTime: input.ambulanceCallTime
+        ? new Date(input.ambulanceCallTime)
+        : null,
+      departureTime: input.departureTime ? new Date(input.departureTime) : null,
+      receivingClinicianContact: input.receivingClinicianContact,
+      caregiverName: input.caregiverName,
+      caregiverPhone: input.caregiverPhone,
     },
   });
   await audit({

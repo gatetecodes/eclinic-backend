@@ -187,6 +187,9 @@ model VisitDiagnosis {
   visit       Visit    @relation(fields: [visitId], references: [id])
   visitId     Int
   icd11Code   String?
+  // Optional SNOMED CT coding published alongside ICD-11 to the HIE. ICD-11
+  // remains the gating code, so an unmapped diagnosis still publishes.
+  snomedCode  String?
   description String
   isPrimary   Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -194,4 +197,5 @@ model VisitDiagnosis {
 
   @@index([visitId])
   @@index([icd11Code])
+  @@index([snomedCode])
 }

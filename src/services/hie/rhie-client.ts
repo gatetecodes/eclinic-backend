@@ -17,6 +17,12 @@ const MAX_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const FAILURE_THRESHOLD = 5;
 const CIRCUIT_OPEN_MS = 30_000;
+/**
+ * How long a failure stays relevant. Without this the counter only ever reset
+ * on success, so isolated failures hours apart accumulated until the breaker
+ * tripped on a service that was mostly healthy.
+ */
+const FAILURE_WINDOW_MS = 60_000;
 const LEADING_SLASH_PATTERN = /^\//;
 const SAFE_OUTCOME_CODE_PATTERN = /^[A-Za-z-]{1,40}$/;
 const CONTENT_LENGTH_PATTERN = /^\d+$/;
@@ -29,16 +35,44 @@ type RhieRequestParams = {
   query?: Record<string, string>;
   body?: unknown;
   correlationId?: string;
+  /**
+   * Caps GET retries for this call. Health probes use 1 so a dead endpoint
+   * costs one timeout rather than the full retry budget.
+   */
+  maxAttempts?: number;
+  /** Per-attempt timeout for this call, overriding the global default. */
+  timeoutMs?: number;
 };
 
 type CircuitState = {
   failures: number;
   openUntil: number;
+  lastFailureAt: number;
 };
 
 const circuits: Record<RhieService, CircuitState> = {
-  CLIENT_REGISTRY: { failures: 0, openUntil: 0 },
-  SHR: { failures: 0, openUntil: 0 },
+  CLIENT_REGISTRY: { failures: 0, openUntil: 0, lastFailureAt: 0 },
+  SHR: { failures: 0, openUntil: 0, lastFailureAt: 0 },
+  CITIZEN: { failures: 0, openUntil: 0, lastFailureAt: 0 },
+};
+
+/**
+ * Clears breaker state. Circuit state is module-global and only decays on
+ * success or after FAILURE_WINDOW_MS, so tests that exercise failure paths
+ * would otherwise leak trips into whichever test ran next.
+ */
+export function resetCircuitBreakers(): void {
+  for (const circuit of Object.values(circuits)) {
+    circuit.failures = 0;
+    circuit.openUntil = 0;
+    circuit.lastFailureAt = 0;
+  }
+}
+
+const BASE_URL_ENV_KEY: Record<RhieService, string> = {
+  CLIENT_REGISTRY: "HIE_CLIENT_REGISTRY_BASE_URL",
+  SHR: "HIE_SHR_BASE_URL",
+  CITIZEN: "HIE_CITIZEN_BASE_URL",
 };
 
 export class RhieRequestError extends Error {
@@ -101,10 +135,7 @@ function configuredBaseUrl(
   service: RhieService,
   tenantEnvironment: HieRequestEnvironment
 ): URL {
-  const key =
-    service === "CLIENT_REGISTRY"
-      ? "HIE_CLIENT_REGISTRY_BASE_URL"
-      : "HIE_SHR_BASE_URL";
+  const key = BASE_URL_ENV_KEY[service];
   const raw = process.env[key]?.trim();
   if (!raw) {
     throw new AppError({
@@ -275,6 +306,38 @@ export function getMaxAttempts(): number {
   return configured;
 }
 
+/**
+ * Per-call overrides are clamped to the same bounds as the env-configured
+ * defaults, so a caller cannot widen the budget beyond what an operator could.
+ */
+function resolveTimeoutMs(override: number | undefined): number {
+  if (
+    override === undefined ||
+    !Number.isFinite(override) ||
+    override <= 0 ||
+    override > MAX_TIMEOUT_MS
+  ) {
+    return requestTimeoutMs();
+  }
+  return override;
+}
+
+function resolveMaxAttempts(params: RhieRequestParams): number {
+  if (params.method !== "GET") {
+    return 1;
+  }
+  const override = params.maxAttempts;
+  if (
+    override === undefined ||
+    !Number.isInteger(override) ||
+    override < 1 ||
+    override > MAX_GET_MAX_ATTEMPTS
+  ) {
+    return getMaxAttempts();
+  }
+  return override;
+}
+
 function getRetryBaseMs(): number {
   const configured = Number(process.env.HIE_GET_RETRY_BASE_MS);
   if (
@@ -316,17 +379,87 @@ function normalizeRequestError(error: unknown): RhieRequestError {
   });
 }
 
+/**
+ * Counts *consecutive* failures. `attempts` is the number of attempts the
+ * request actually consumed, so one GET that timed out three times weighs three
+ * — a black-holing endpoint trips the breaker in roughly two requests instead
+ * of five, which is the difference between ~50s and ~2min of hanging callers.
+ */
 function recordCircuitFailure(
   circuit: CircuitState,
-  requestError: RhieRequestError
+  requestError: RhieRequestError,
+  attempts: number
 ) {
   if (!requestError.retryable) {
     return;
   }
-  circuit.failures += 1;
-  if (circuit.failures >= FAILURE_THRESHOLD) {
-    circuit.openUntil = Date.now() + CIRCUIT_OPEN_MS;
+  const now = Date.now();
+  if (now - circuit.lastFailureAt > FAILURE_WINDOW_MS) {
+    circuit.failures = 0;
   }
+  circuit.lastFailureAt = now;
+  circuit.failures += Math.max(attempts, 1);
+  if (circuit.failures >= FAILURE_THRESHOLD) {
+    circuit.openUntil = now + CIRCUIT_OPEN_MS;
+  }
+}
+
+/**
+ * Media type for a request. Every FHIR operation negotiates
+ * `application/fhir+json`; the non-FHIR national operations (currently only
+ * `getCitizen`) reject it and need plain JSON.
+ */
+function requestMediaType(request: RhieRequestParams): string {
+  return resolveRhieEndpoint(request)?.mediaType === "json"
+    ? "application/json"
+    : "application/fhir+json";
+}
+
+/** Validates a 2xx body against the pinned contract for its endpoint. */
+function validateSuccessBody(params: {
+  request: RhieRequestParams;
+  data: unknown;
+  status: number;
+}): { data: unknown; status: number } {
+  const endpoint = resolveRhieEndpoint(params.request);
+  if (!endpoint) {
+    throw new RhieRequestError({
+      message: "RHIE endpoint contract could not be resolved",
+      code: "HIE_PATH_NOT_ALLOWED",
+      status: params.status,
+      retryable: false,
+    });
+  }
+  const emptySuccess = params.data === null && endpoint.allowEmptySuccess;
+  if (emptySuccess || !endpoint.responseSchema) {
+    return { data: params.data, status: params.status };
+  }
+  const parsed = endpoint.responseSchema.safeParse(params.data);
+  if (!parsed.success) {
+    throw new RhieRequestError({
+      message: "RHIE returned a malformed successful response",
+      code: "INVALID_RESPONSE",
+      status: params.status,
+      retryable: false,
+    });
+  }
+  return { data: parsed.data, status: params.status };
+}
+
+/** Maps a non-2xx response onto a redacted, code-bearing request error. */
+function failureError(response: Response, data: unknown): RhieRequestError {
+  const outcome = operationOutcomeSchema.safeParse(data);
+  const issueCode = outcome.success ? outcome.data.issue?.[0]?.code : undefined;
+  const safeIssueCode =
+    issueCode && SAFE_OUTCOME_CODE_PATTERN.test(issueCode)
+      ? `_${issueCode.toUpperCase()}`
+      : "";
+  return new RhieRequestError({
+    message: `RHIE request failed with status ${response.status}`,
+    code: `RHIE_HTTP_${response.status}${safeIssueCode}`,
+    status: response.status,
+    retryable: response.status === 429 || response.status >= 500,
+  });
 }
 
 async function executeRequest(params: {
@@ -335,12 +468,13 @@ async function executeRequest(params: {
   correlationId: string;
   signal: AbortSignal;
 }): Promise<{ data: unknown; status: number }> {
+  const mediaType = requestMediaType(params.request);
   const response = await fetch(params.url, {
     method: params.request.method,
     headers: {
-      accept: "application/fhir+json",
+      accept: mediaType,
       authorization: authHeader(),
-      "content-type": "application/fhir+json",
+      "content-type": mediaType,
       "x-correlation-id": params.correlationId,
     },
     body:
@@ -350,42 +484,13 @@ async function executeRequest(params: {
     signal: params.signal,
   });
   const data = await readBoundedJson(response);
-  if (response.ok) {
-    const endpoint = resolveRhieEndpoint(params.request);
-    if (!endpoint) {
-      throw new RhieRequestError({
-        message: "RHIE endpoint contract could not be resolved",
-        code: "HIE_PATH_NOT_ALLOWED",
-        status: response.status,
-        retryable: false,
-      });
-    }
-    const emptySuccess = data === null && endpoint.allowEmptySuccess;
-    if (!emptySuccess && endpoint.responseSchema) {
-      const parsed = endpoint.responseSchema.safeParse(data);
-      if (!parsed.success) {
-        throw new RhieRequestError({
-          message: "RHIE returned a malformed successful response",
-          code: "INVALID_RESPONSE",
-          status: response.status,
-          retryable: false,
-        });
-      }
-      return { data: parsed.data, status: response.status };
-    }
-    return { data, status: response.status };
+  if (!response.ok) {
+    throw failureError(response, data);
   }
-  const outcome = operationOutcomeSchema.safeParse(data);
-  const issueCode = outcome.success ? outcome.data.issue?.[0]?.code : undefined;
-  const safeIssueCode =
-    issueCode && SAFE_OUTCOME_CODE_PATTERN.test(issueCode)
-      ? `_${issueCode.toUpperCase()}`
-      : "";
-  throw new RhieRequestError({
-    message: `RHIE request failed with status ${response.status}`,
-    code: `RHIE_HTTP_${response.status}${safeIssueCode}`,
+  return validateSuccessBody({
+    request: params.request,
+    data,
     status: response.status,
-    retryable: response.status === 429 || response.status >= 500,
   });
 }
 
@@ -427,14 +532,15 @@ export async function rhieRequest(
   const url = requestUrl(params);
   const correlationId = params.correlationId ?? randomUUID();
   const startedAt = Date.now();
-  const maxAttempts = params.method === "GET" ? getMaxAttempts() : 1;
+  const maxAttempts = resolveMaxAttempts(params);
+  const timeoutMs = resolveTimeoutMs(params.timeoutMs);
   let attempt = 0;
 
   try {
     while (attempt < maxAttempts) {
       attempt += 1;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), requestTimeoutMs());
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await executeRequest({
           request: params,
@@ -471,7 +577,7 @@ export async function rhieRequest(
     });
   } catch (error) {
     const requestError = normalizeRequestError(error);
-    recordCircuitFailure(circuit, requestError);
+    recordCircuitFailure(circuit, requestError, attempt);
     logger.warn("hie.request.failed", {
       service: params.service,
       method: params.method,

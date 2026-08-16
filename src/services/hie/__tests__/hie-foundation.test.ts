@@ -351,9 +351,29 @@ describe("Condition mapping", () => {
       description: "Cholera",
       recordedAt: new Date("2026-08-07T09:00:00.000Z"),
     });
-    expect(condition.code.coding[0]?.system).toBe("https://icd.who.int");
+    expect(condition.code.coding[0]?.system).toBe(
+      "http://id.who.int/icd/release/11/mms"
+    );
     expect(condition.code.coding[0]?.code).toBe("1A00");
     expect(condition.encounter.reference).toBe("Encounter/encounter-1");
+    // Without a mapped SNOMED code the diagnosis still publishes, ICD-11 only.
+    expect(condition.code.coding).toHaveLength(1);
+  });
+
+  it("appends a SNOMED coding when the diagnosis is dual coded", () => {
+    const condition = mapVisitCondition({
+      id: "37d79901-863c-4289-a9c9-a251dbb7fa23",
+      patientReference: "patient-1",
+      practitionerReference: "practitioner-1",
+      encounterReference: "encounter-1",
+      icd11Code: "5A11",
+      snomedCode: "44054006",
+      description: "Type 2 diabetes mellitus",
+      recordedAt: new Date("2026-08-07T09:00:00.000Z"),
+    });
+    expect(condition.code.coding).toHaveLength(2);
+    expect(condition.code.coding[1]?.system).toBe("http://snomed.info/sct");
+    expect(condition.code.coding[1]?.code).toBe("44054006");
   });
 
   it("rejects an uncoded diagnosis", () => {

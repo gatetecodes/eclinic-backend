@@ -22,7 +22,9 @@ is tenant controlled and disabled by default.
   prescriptions, or billing events. Raw FHIR and national resource identifiers
   are not sent to the browser; reconciliation uses a short-lived opaque token.
 - No `Patient` creation call is implemented until MoH documents UPID allocation
-  and duplicate-resolution behavior.
+  and duplicate-resolution behavior. UPID *resolution* through `getCitizen` is
+  implemented and is read-only: it returns an identifier for human review and
+  never creates, links, or mutates a local identity on its own.
 
 ## Configuration
 
@@ -37,8 +39,9 @@ Keep the identifier HMAC key separate and stable across application encryption
 key rotations, because it enforces NID/UPID uniqueness without storing plaintext.
 
 For the supplied MoH test environment, configure
-`HIE_CLIENT_REGISTRY_BASE_URL=http://197.243.24.138:5001/clientregistry/` and
-`HIE_SHR_BASE_URL=http://197.243.24.138:5001/shr/`, set
+`HIE_CLIENT_REGISTRY_BASE_URL=http://197.243.24.138:5001/clientregistry/`,
+`HIE_SHR_BASE_URL=http://197.243.24.138:5001/shr/`, and
+`HIE_CITIZEN_BASE_URL=http://197.243.24.138:5001/api/v1/citizens/`, set
 `HIE_DEPLOYMENT_ENVIRONMENT=TEST`, `HIE_ENDPOINT_ENVIRONMENT=TEST`, and
 `HIE_CREDENTIAL_ENVIRONMENT=TEST`, and set `HIE_ALLOW_INSECURE_TEST=true`. Use
 only synthetic identities over that plain-HTTP connection. The Swagger's
@@ -70,6 +73,11 @@ All routes are under `/api/v1/hie` and are tenant scoped.
 - `PUT /facilities`: verified branch/FOSA mapping.
 - `PUT /practitioners`: verified user/Practitioner mapping.
 - `POST /patients/lookup`: NID and birth-date Client Registry lookup.
+- `POST /patients/request-upid`: NIDA-backed UPID resolution for a patient the
+  Client Registry has no `Patient` for. Attributed to the branch's verified FOSA
+  code, audited, and minimized to the fields needed to confirm identity. The
+  receptionist takes the resolved UPID back through lookup and link, so national
+  demographics never silently overwrite or merge a local patient.
 - `POST /patients/link`: reviewed NID/UPID link with optimistic concurrency.
 - `POST /patients/defer-verification`: record an offline/deferred outcome.
 - `GET /patients/:patientId/ips`: on-demand national record retrieval.
@@ -91,7 +99,10 @@ All routes are under `/api/v1/hie` and are tenant scoped.
   latency, retry age, facility readiness, and operational alerts.
 - `GET|POST /transfers`, `POST /transfers/:id/queue`, and
   `POST /transfers/:id/cancel`: external transfers, separate from bed moves and
-  clinician handoffs.
+  clinician handoffs. Transfers optionally capture transfer/transport type,
+  ambulance call and departure times, receiving clinician contact, and caregiver
+  details, published as the MoH transfer Encounter extensions. All are optional
+  so an emergency transfer is never blocked on paperwork.
 
 The worker processes the durable outbox every minute. Retry delays are one
 minute, five minutes, thirty minutes, two hours, twelve hours, and then daily.
@@ -106,6 +117,23 @@ age with `HIE_ALERT_STALE_MINUTES`.
 Finalized visits publish in dependency order. The Encounter is first, followed
 by ICD-11-coded visit diagnoses. Uncoded diagnoses remain `BLOCKED` with an
 actionable terminology reason; free text is never substituted for ICD-11.
+
+## Terminology
+
+Every published `system` URI is defined once, in
+`src/services/hie/terminology.ts`. Mappers must not inline a system as a string
+literal — that is how `Condition.code` previously drifted onto a non-canonical
+ICD-11 URI. `src/services/hie/__tests__/conformance-payloads.test.ts` pins the
+priority flows against the MoH reference payloads, so a coding change fails in
+CI rather than at the MoH.
+
+Diagnoses and medications are dual coded. `Condition.code` carries ICD-11
+(`http://id.who.int/icd/release/11/mms`) plus SNOMED CT when
+`VisitDiagnosis.snomedCode` is mapped; the medication resources carry SNOMED CT
+plus RxNorm when `Product.rxNormCode` is mapped. Dual coding is additive: the
+first coding is the one that gates publication, so an unmapped second code
+reduces payload richness without ever blocking a publication that would
+otherwise succeed.
 
 ## Deployment order
 

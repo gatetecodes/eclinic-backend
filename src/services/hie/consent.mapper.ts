@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLINICAL_SYSTEM, HL7_SYSTEM } from "./terminology";
 
 const consentInputSchema = z.object({
   id: z.string().uuid(),
@@ -17,7 +18,7 @@ export function mapHieConsent(input: z.infer<typeof consentInputSchema>) {
     scope: {
       coding: [
         {
-          system: "http://terminology.hl7.org/CodeSystem/consentscope",
+          system: HL7_SYSTEM.consentScope,
           code: value.scope,
           display: value.scope,
         },
@@ -27,7 +28,7 @@ export function mapHieConsent(input: z.infer<typeof consentInputSchema>) {
       {
         coding: [
           {
-            system: "http://loinc.org",
+            system: CLINICAL_SYSTEM.loinc,
             code: "59284-0",
             display: value.purpose,
           },

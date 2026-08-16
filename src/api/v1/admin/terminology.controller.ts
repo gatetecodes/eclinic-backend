@@ -17,6 +17,7 @@ type TerminologyUpdate = {
   icd11Code: string | null;
   loincCode: string | null;
   snomedCode: string | null;
+  rxNormCode: string | null;
   ichiCode: string | null;
   nationalTariffCode: string | null;
   status: "DRAFT" | "VERIFIED";
@@ -30,6 +31,7 @@ const terminologySelect = {
   icd11Code: true,
   loincCode: true,
   snomedCode: true,
+  rxNormCode: true,
   ichiCode: true,
   nationalTariffCode: true,
   terminologyStatus: true,
@@ -51,6 +53,7 @@ export async function listProductTerminology(c: Context<AppEnv>) {
             { icd11Code: { contains: search, mode: "insensitive" as const } },
             { loincCode: { contains: search, mode: "insensitive" as const } },
             { snomedCode: { contains: search, mode: "insensitive" as const } },
+            { rxNormCode: { contains: search, mode: "insensitive" as const } },
             { ichiCode: { contains: search, mode: "insensitive" as const } },
             {
               nationalTariffCode: {
@@ -103,6 +106,7 @@ export async function updateProductTerminology(c: Context<AppEnv>) {
       icd11Code: input.icd11Code,
       loincCode: input.loincCode,
       snomedCode: input.snomedCode,
+      rxNormCode: input.rxNormCode,
       ichiCode: input.ichiCode,
       nationalTariffCode: input.nationalTariffCode,
       ...terminologyVerificationFields(input.status, actorId),

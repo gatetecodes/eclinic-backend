@@ -5,6 +5,7 @@ export type ProductTerminology = {
   icd11Code: string | null;
   loincCode: string | null;
   snomedCode: string | null;
+  rxNormCode: string | null;
   ichiCode: string | null;
   nationalTariffCode: string | null;
 };

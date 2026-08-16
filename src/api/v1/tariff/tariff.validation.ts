@@ -54,6 +54,7 @@ export const createProductSchema = z.object({
   icd11Code: managedTerminologyField,
   loincCode: managedTerminologyField,
   snomedCode: managedTerminologyField,
+  rxNormCode: managedTerminologyField,
   ichiCode: managedTerminologyField,
   nationalTariffCode: managedTerminologyField,
   consumables: z
@@ -103,6 +104,7 @@ export const updateProductSchema = z.object({
   icd11Code: managedTerminologyField,
   loincCode: managedTerminologyField,
   snomedCode: managedTerminologyField,
+  rxNormCode: managedTerminologyField,
   ichiCode: managedTerminologyField,
   nationalTariffCode: managedTerminologyField,
   consumables: z
@@ -134,6 +136,7 @@ export const updateProductPricingSchema = z.object({
   icd11Code: z.string().optional(),
   loincCode: z.string().optional(),
   snomedCode: z.string().optional(),
+  rxNormCode: z.string().optional(),
   ichiCode: z.string().optional(),
   nationalTariffCode: z.string().optional(),
   eastAfricaPrice: z.coerce
