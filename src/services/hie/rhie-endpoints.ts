@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { citizenDataSchema, citizenRequestSchema } from "./citizen.schemas";
 import {
   capabilityStatementSchema,
   fhirAllergySchema,
@@ -18,8 +19,15 @@ import {
   fhirServiceRequestSchema,
 } from "./fhir.schemas";
 
-export type RhieService = "CLIENT_REGISTRY" | "SHR";
+export type RhieService = "CLIENT_REGISTRY" | "SHR" | "CITIZEN";
 export type RhieMethod = "GET" | "POST" | "DELETE";
+
+/**
+ * `fhir` sends and accepts `application/fhir+json`. `json` is for the handful
+ * of non-FHIR national operations (currently only `getCitizen`) that reject the
+ * FHIR media type.
+ */
+export type RhieMediaType = "fhir" | "json";
 
 type EndpointDescriptor = {
   service: RhieService;
@@ -28,6 +36,7 @@ type EndpointDescriptor = {
   requestSchema?: z.ZodType;
   responseSchema?: z.ZodType;
   allowEmptySuccess?: boolean;
+  mediaType?: RhieMediaType;
 };
 
 const resourceId = (resource: string) =>
@@ -58,6 +67,17 @@ const RESERVED_OPERATION_PATHS = new Set([
 ]);
 
 const ENDPOINTS: readonly EndpointDescriptor[] = [
+  {
+    // Non-FHIR NIDA operation. Resolves a UPID for a patient the Client
+    // Registry has no FHIR Patient for yet — the reception dead-end that
+    // otherwise blocks every downstream clinical publication.
+    service: "CITIZEN",
+    method: "POST",
+    path: "getCitizen",
+    requestSchema: citizenRequestSchema,
+    responseSchema: citizenDataSchema,
+    mediaType: "json",
+  },
   {
     service: "CLIENT_REGISTRY",
     method: "GET",

@@ -112,6 +112,9 @@ const conditionSnapshotPayloadSchema = legacyConditionPayloadSchema.extend({
   patientId: z.number().int().positive(),
   doctorId: z.number().int().positive().nullable(),
   icd11Code: z.string().trim().nullable(),
+  // Optional: events enqueued before dual coding shipped carry no SNOMED code
+  // and must still parse rather than dead-lettering on a schema change.
+  snomedCode: z.string().trim().nullish(),
   description: z.string().trim().min(1),
   recordedAt: z.iso.datetime(),
 });
@@ -171,6 +174,9 @@ const clinicalSnapshotPayloadSchema = z.object({
   practitionerId: z.number().int().positive().nullable(),
   branchId: z.number().int().positive().nullable(),
   code: z.string().trim().nullable(),
+  // Optional RxNorm coding published alongside the gating SNOMED code.
+  // Nullish so events queued before dual coding shipped still parse.
+  rxNormCode: z.string().trim().nullish(),
   terminologyStatus: z.enum(["DRAFT", "VERIFIED"]).nullable(),
   display: z.string().trim().min(1),
   clinicalAt: z.iso.datetime(),
@@ -290,6 +296,7 @@ function optionalStructuredMedicationSnapshot(
 type SnomedProductRef = {
   name: string;
   snomedCode: string | null;
+  rxNormCode: string | null;
   terminologyStatus: "DRAFT" | "VERIFIED";
 };
 
@@ -299,6 +306,7 @@ function snomedProductCoding(
 ) {
   return {
     code: product?.snomedCode ?? null,
+    rxNormCode: product?.rxNormCode ?? null,
     terminologyStatus: product?.terminologyStatus ?? null,
     display: product?.name ?? fallbackDisplay,
   };
@@ -516,6 +524,7 @@ async function buildExtendedClinicalEvents(
                       select: {
                         name: true,
                         snomedCode: true,
+                        rxNormCode: true,
                         terminologyStatus: true,
                       },
                     },
@@ -566,6 +575,7 @@ async function buildExtendedClinicalEvents(
                   select: {
                     name: true,
                     snomedCode: true,
+                    rxNormCode: true,
                     terminologyStatus: true,
                   },
                 },
@@ -632,6 +642,7 @@ async function buildExtendedClinicalEvents(
               select: {
                 name: true,
                 snomedCode: true,
+                rxNormCode: true,
                 terminologyStatus: true,
               },
             },
@@ -749,6 +760,7 @@ async function buildExtendedClinicalEvents(
           practitionerId: prescription.doctorId,
           branchId: params.branchId,
           code: product?.snomedCode ?? null,
+          rxNormCode: product?.rxNormCode ?? null,
           terminologyStatus: product?.terminologyStatus ?? null,
           display: product?.name ?? item.medicationName,
           clinicalAt: prescription.createdAt.toISOString(),
@@ -865,6 +877,7 @@ async function buildExtendedClinicalEvents(
           params.doctorId,
         branchId: hospitalization?.branchId ?? params.branchId,
         code: product?.snomedCode ?? null,
+        rxNormCode: product?.rxNormCode ?? null,
         terminologyStatus: product?.terminologyStatus ?? null,
         display: product?.name ?? medication.drugName,
         clinicalAt: medication.createdAt.toISOString(),
@@ -904,6 +917,7 @@ async function buildExtendedClinicalEvents(
             administration.administeredById ?? medication.prescribedById,
           branchId: hospitalization?.branchId ?? params.branchId,
           code: product?.snomedCode ?? null,
+          rxNormCode: product?.rxNormCode ?? null,
           terminologyStatus: product?.terminologyStatus ?? null,
           display: product?.name ?? medication.drugName,
           clinicalAt: administration.administeredAt.toISOString(),
@@ -1022,6 +1036,7 @@ async function buildConditionEvents(
     select: {
       id: true,
       icd11Code: true,
+      snomedCode: true,
       description: true,
       createdAt: true,
     },
@@ -1043,6 +1058,7 @@ async function buildConditionEvents(
         patientId: params.patientId,
         doctorId: params.doctorId,
         icd11Code: diagnosis.icd11Code,
+        snomedCode: diagnosis.snomedCode,
         description: diagnosis.description,
         recordedAt: diagnosis.createdAt.toISOString(),
       }),
@@ -1959,6 +1975,63 @@ async function buildVisitEncounter(event: {
   });
 }
 
+/** Pairs a stored code with its display, or nothing when either is missing. */
+function codedContext(code: string | null, display: string | null) {
+  return code && display ? { code, display } : null;
+}
+
+/**
+ * Optional transfer context published as FHIR Encounter extensions.
+ *
+ * Everything here degrades to `undefined` when unrecorded. A transfer must
+ * never fail to publish because the referring clinician skipped an optional
+ * field during an emergency.
+ */
+function transferContext(transfer: {
+  urgency: string;
+  transferTypeCode: string | null;
+  transferTypeDisplay: string | null;
+  transportTypeCode: string | null;
+  transportTypeDisplay: string | null;
+  ambulanceCallTime: Date | null;
+  departureTime: Date | null;
+  receivingClinicianContact: string | null;
+  caregiverName: string | null;
+  caregiverPhone: string | null;
+  visit: {
+    patientInsurance: { insuranceCompany: { companyName: string } } | null;
+    visitDiagnoses: { id: number; description: string }[];
+  };
+}) {
+  const insurer = transfer.visit.patientInsurance?.insuranceCompany.companyName;
+  const diagnosis = transfer.visit.visitDiagnoses[0];
+  return {
+    emergency: transfer.urgency === "HIGH",
+    transferType: codedContext(
+      transfer.transferTypeCode,
+      transfer.transferTypeDisplay
+    ),
+    transportType: codedContext(
+      transfer.transportTypeCode,
+      transfer.transportTypeDisplay
+    ),
+    // Self-pay patients have no coverage to declare, so the extension is omitted
+    // rather than published as an empty or guessed code.
+    insuranceType: insurer ? { code: insurer, display: insurer } : null,
+    ambulanceCallTime: transfer.ambulanceCallTime,
+    departureTime: transfer.departureTime,
+    receivingClinicianContact: transfer.receivingClinicianContact,
+    caregiverName: transfer.caregiverName,
+    caregiverPhone: transfer.caregiverPhone,
+    primaryDiagnosis: diagnosis
+      ? {
+          conditionReference: String(diagnosis.id),
+          display: diagnosis.description,
+        }
+      : null,
+  };
+}
+
 async function buildTransferEncounter(event: {
   id: string;
   clinicId: number;
@@ -2008,7 +2081,21 @@ async function buildTransferEncounter(event: {
       destinationFacility: {
         select: { verificationStatus: true },
       },
-      visit: { select: { id: true, startTime: true, endTime: true } },
+      visit: {
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          patientInsurance: {
+            select: { insuranceCompany: { select: { companyName: true } } },
+          },
+          visitDiagnoses: {
+            where: { isPrimary: true },
+            take: 1,
+            select: { id: true, description: true },
+          },
+        },
+      },
     },
   });
   if (!transfer) {
@@ -2118,6 +2205,7 @@ async function buildTransferEncounter(event: {
       reason: snapshot.reason,
       startedAt: snapshot.startedAt,
       endedAt: snapshot.endedAt,
+      ...transferContext(transfer),
     }),
   };
 }
@@ -2138,6 +2226,7 @@ async function buildVisitCondition(event: {
           patientId: payload.patientId,
           doctorId: payload.doctorId,
           icd11Code: payload.icd11Code,
+          snomedCode: payload.snomedCode ?? null,
           description: payload.description,
           createdAt: new Date(payload.recordedAt),
         }
@@ -2150,6 +2239,7 @@ async function buildVisitCondition(event: {
             select: {
               id: true,
               icd11Code: true,
+              snomedCode: true,
               description: true,
               createdAt: true,
               visitId: true,
@@ -2164,6 +2254,7 @@ async function buildVisitCondition(event: {
                   patientId: result.visit.patientId,
                   doctorId: result.visit.doctorId,
                   icd11Code: result.icd11Code,
+                  snomedCode: result.snomedCode,
                   description: result.description,
                   createdAt: result.createdAt,
                 }
@@ -2251,6 +2342,7 @@ async function buildVisitCondition(event: {
       practitionerReference: decryptHieValue(practitioner.identifierEncrypted),
       encounterReference: decryptHieValue(encounter.hieResourceIdEncrypted),
       icd11Code: diagnosis.icd11Code,
+      snomedCode: diagnosis.snomedCode,
       description: diagnosis.description,
       recordedAt: diagnosis.createdAt,
     }),
@@ -2627,6 +2719,7 @@ function mapResolvedMedicationResource(params: {
         postPath: "MedicationRequest",
         resource: mapMedicationRequest({
           ...base,
+          rxNormCode: payload.rxNormCode ?? null,
           authoredAt: new Date(payload.clinicalAt),
           groupIdentifier: payload.groupIdentifier,
           coverageReference: base.coverageReference,
@@ -2646,6 +2739,7 @@ function mapResolvedMedicationResource(params: {
         postPath: "MedicationDispense",
         resource: mapMedicationDispense({
           ...base,
+          rxNormCode: payload.rxNormCode ?? null,
           handedOverAt: new Date(payload.clinicalAt),
           quantity: payload.quantity ?? 1,
           unit: payload.unit ?? "unit",
@@ -2666,6 +2760,7 @@ function mapResolvedMedicationResource(params: {
         postPath: "MedicationAdministration",
         resource: mapMedicationAdministration({
           ...base,
+          rxNormCode: payload.rxNormCode ?? null,
           effectiveAt: new Date(payload.clinicalAt),
           reason: payload.reason ?? "Medication administered as prescribed",
           dosage: resolvedAdministrationDosage(payload),

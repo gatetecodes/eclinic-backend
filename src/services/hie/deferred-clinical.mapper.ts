@@ -1,3 +1,11 @@
+import {
+  CLINICAL_SYSTEM,
+  EXTENSION_URL,
+  HL7_SYSTEM,
+  RWANDA_SYSTEM,
+  URN_SYSTEM,
+} from "./terminology";
+
 type ClinicalReferences = {
   id: string;
   patientReference: string;
@@ -49,8 +57,7 @@ export function mapStructuredAllergy(
     clinicalStatus: {
       coding: [
         {
-          system:
-            "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+          system: HL7_SYSTEM.allergyClinical,
           code: input.clinicalStatus,
         },
       ],
@@ -58,8 +65,7 @@ export function mapStructuredAllergy(
     verificationStatus: {
       coding: [
         {
-          system:
-            "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+          system: HL7_SYSTEM.allergyVerificationStatus,
           code: input.verificationStatus,
         },
       ],
@@ -88,7 +94,7 @@ export function mapStructuredAllergy(
     })),
     extension: [
       {
-        url: "http://fhir.rw/StructureDefinition/recorded-location",
+        url: EXTENSION_URL.recordedLocation,
         valueReference: { reference: input.locationReference },
       },
     ],
@@ -111,7 +117,7 @@ export function mapStructuredImmunization(
     id: input.id,
     status: input.status,
     vaccineCode: {
-      coding: [coding({ ...input.vaccine, system: "http://npc.rw" })],
+      coding: [coding({ ...input.vaccine, system: RWANDA_SYSTEM.npc })],
       text: input.vaccine.display,
     },
     patient: { reference: `Patient/${input.patientReference}` },
@@ -150,7 +156,7 @@ export function mapImagingServiceRequest(
       {
         coding: [
           {
-            system: "http://snomed.info/sct",
+            system: CLINICAL_SYSTEM.snomed,
             code: "363679005",
             display: "Imaging",
           },
@@ -205,10 +211,10 @@ export function mapImagingStudy(
   return {
     resourceType: "ImagingStudy" as const,
     id: input.id,
-    identifier: [{ system: "urn:dicom:uid", value: input.studyUid }],
+    identifier: [{ system: URN_SYSTEM.dicomUid, value: input.studyUid }],
     status: "available" as const,
     modality: {
-      system: "https://dicom.nema.org/",
+      system: CLINICAL_SYSTEM.dicom,
       code: input.modality,
       display: input.modality,
     },
@@ -230,14 +236,14 @@ export function mapImagingStudy(
       uid: series.uid,
       number: index + 1,
       modality: {
-        system: "https://dicom.nema.org/",
+        system: CLINICAL_SYSTEM.dicom,
         code: series.modality,
       },
       ...seriesBodySite(series),
       ...(series.description ? { description: series.description } : {}),
       instance: series.instances.map((instance) => ({
         uid: instance.uid,
-        sopClass: { system: "urn:ietf:rfc:3986", code: instance.sopClassUid },
+        sopClass: { system: URN_SYSTEM.rfc3986, code: instance.sopClassUid },
         ...(instance.number ? { number: instance.number } : {}),
         ...(instance.title ? { title: instance.title } : {}),
       })),

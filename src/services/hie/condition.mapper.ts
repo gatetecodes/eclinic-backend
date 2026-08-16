@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLINICAL_SYSTEM, dualCoding, HL7_SYSTEM } from "./terminology";
 
 const conditionPublicationInputSchema = z.object({
   id: z.string().uuid(),
@@ -6,6 +7,11 @@ const conditionPublicationInputSchema = z.object({
   practitionerReference: z.string().min(1),
   encounterReference: z.string().min(1),
   icd11Code: z.string().trim().min(1),
+  /**
+   * Optional SNOMED CT diagnosis code. ICD-11 remains the gating code, so an
+   * unmapped diagnosis still publishes rather than being blocked.
+   */
+  snomedCode: z.string().trim().min(1).nullish(),
   description: z.string().trim().min(1),
   recordedAt: z.date(),
 });
@@ -20,7 +26,7 @@ export function mapVisitCondition(
     clinicalStatus: {
       coding: [
         {
-          system: "http://terminology.hl7.org/CodeSystem/condition-clinical",
+          system: HL7_SYSTEM.conditionClinical,
           code: "active",
         },
       ],
@@ -28,7 +34,7 @@ export function mapVisitCondition(
     verificationStatus: {
       coding: [
         {
-          system: "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+          system: HL7_SYSTEM.conditionVerificationStatus,
           code: "confirmed",
         },
       ],
@@ -37,20 +43,27 @@ export function mapVisitCondition(
       {
         coding: [
           {
-            system: "http://terminology.hl7.org/CodeSystem/condition-category",
+            system: HL7_SYSTEM.conditionCategory,
             code: "encounter-diagnosis",
           },
         ],
       },
     ],
     code: {
-      coding: [
+      coding: dualCoding(
         {
-          system: "https://icd.who.int",
+          system: CLINICAL_SYSTEM.icd11,
           code: value.icd11Code,
           display: value.description,
         },
-      ],
+        value.snomedCode
+          ? {
+              system: CLINICAL_SYSTEM.snomed,
+              code: value.snomedCode,
+              display: value.description,
+            }
+          : null
+      ),
       text: value.description,
     },
     subject: { reference: `Patient/${value.patientReference}` },

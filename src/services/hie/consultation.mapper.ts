@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLINICAL_SYSTEM, HL7_SYSTEM } from "./terminology";
 
 const consultationEncounterInputSchema = z.object({
   id: z.string().uuid(),
@@ -19,7 +20,7 @@ export function mapConsultationEncounter(
     id: value.id,
     status: "finished",
     class: {
-      system: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+      system: HL7_SYSTEM.actCode,
       code: "AMB",
       display: "ambulatory",
     },
@@ -27,7 +28,7 @@ export function mapConsultationEncounter(
       {
         coding: [
           {
-            system: "http://snomed.info/sct",
+            system: CLINICAL_SYSTEM.snomed,
             code: "11429006",
             display: "Consultation",
           },
@@ -85,8 +86,7 @@ export function mapConsultationObservation(
       {
         coding: [
           {
-            system:
-              "http://terminology.hl7.org/CodeSystem/observation-category",
+            system: HL7_SYSTEM.observationCategory,
             code: value.category,
           },
         ],
@@ -110,7 +110,7 @@ export function mapConsultationObservation(
           valueQuantity: {
             value: value.valueNumber,
             unit: value.unit,
-            system: value.unit ? "http://unitsofmeasure.org" : undefined,
+            system: value.unit ? CLINICAL_SYSTEM.ucum : undefined,
             code: value.unit,
           },
         }

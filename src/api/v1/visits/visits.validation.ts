@@ -635,6 +635,7 @@ export const consultationNoteSchema = z.object({
           .trim()
           .min(1, "Diagnosis description is required"),
         icd11Code: z.string().optional(),
+        snomedCode: z.string().optional(),
         isPrimary: z.boolean().optional(),
       })
     )
@@ -653,6 +654,7 @@ export const visitDiagnosesSchema = z.object({
           .trim()
           .min(1, "Diagnosis description is required"),
         icd11Code: z.string().optional(),
+        snomedCode: z.string().optional(),
         isPrimary: z.boolean().optional(),
       })
     )

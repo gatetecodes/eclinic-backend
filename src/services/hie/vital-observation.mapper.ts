@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLINICAL_SYSTEM, HL7_SYSTEM } from "./terminology";
 
 export const vitalMetricSchema = z.enum([
   "height",
@@ -106,8 +107,7 @@ export function mapVitalObservation(
       {
         coding: [
           {
-            system:
-              "http://terminology.hl7.org/CodeSystem/observation-category",
+            system: HL7_SYSTEM.observationCategory,
             code: "vital-signs",
             display: "Vital Signs",
           },
@@ -117,7 +117,7 @@ export function mapVitalObservation(
     code: {
       coding: [
         {
-          system: "http://loinc.org",
+          system: CLINICAL_SYSTEM.loinc,
           code: definition.code,
           display: definition.display,
         },
@@ -130,7 +130,7 @@ export function mapVitalObservation(
     valueQuantity: {
       value: value.value,
       unit: definition.unit,
-      system: "http://unitsofmeasure.org",
+      system: CLINICAL_SYSTEM.ucum,
       code: definition.unitCode,
     },
   };

@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  CARELOGIC_SYSTEM,
+  CLINICAL_SYSTEM,
+  dualCoding,
+  EXTENSION_URL,
+  HL7_SYSTEM,
+} from "./terminology";
 
 const baseInputSchema = z.object({
   id: z.string().uuid(),
@@ -13,6 +20,39 @@ const codedInputSchema = baseInputSchema.extend({
   display: z.string().trim().min(1),
 });
 
+/**
+ * Medication resources publish a SNOMED CT primary coding plus an optional
+ * RxNorm coding. SNOMED remains the gating code so an unmapped RxNorm product
+ * still publishes.
+ */
+const medicationCodedInputSchema = codedInputSchema.extend({
+  rxNormCode: z.string().trim().min(1).nullish(),
+});
+
+function medicationCodeableConcept(value: {
+  code: string;
+  display: string;
+  rxNormCode?: string | null;
+}) {
+  return {
+    coding: dualCoding(
+      {
+        system: CLINICAL_SYSTEM.snomed,
+        code: value.code,
+        display: value.display,
+      },
+      value.rxNormCode
+        ? {
+            system: CLINICAL_SYSTEM.rxNorm,
+            code: value.rxNormCode,
+            display: value.display,
+          }
+        : null
+    ),
+    text: value.display,
+  };
+}
+
 export function mapLabServiceRequest(
   input: z.infer<typeof codedInputSchema> & { orderedAt: Date }
 ) {
@@ -26,7 +66,7 @@ export function mapLabServiceRequest(
       {
         coding: [
           {
-            system: "http://snomed.info/sct",
+            system: CLINICAL_SYSTEM.snomed,
             code: "108252007",
             display: "Laboratory procedure",
           },
@@ -36,7 +76,7 @@ export function mapLabServiceRequest(
     code: {
       coding: [
         {
-          system: "http://snomed.info/sct",
+          system: CLINICAL_SYSTEM.snomed,
           code: value.code,
           display: value.display,
         },
@@ -71,7 +111,7 @@ export function mapLabResultObservation(
           valueQuantity: {
             value: numeric,
             unit: value.unit,
-            system: "http://unitsofmeasure.org",
+            system: CLINICAL_SYSTEM.ucum,
             code: value.unit,
           },
         }
@@ -84,8 +124,7 @@ export function mapLabResultObservation(
       {
         coding: [
           {
-            system:
-              "http://terminology.hl7.org/CodeSystem/observation-category",
+            system: HL7_SYSTEM.observationCategory,
             code: "laboratory",
           },
         ],
@@ -94,7 +133,7 @@ export function mapLabResultObservation(
     code: {
       coding: [
         {
-          system: "http://loinc.org",
+          system: CLINICAL_SYSTEM.loinc,
           code: value.code,
           display: value.display,
         },
@@ -146,7 +185,7 @@ function mapDosage(value: z.infer<typeof structuredDosageSchema>) {
               boundsDuration: {
                 value: value.durationValue,
                 unit: value.durationUnit,
-                system: "http://unitsofmeasure.org",
+                system: CLINICAL_SYSTEM.ucum,
                 code: value.durationUnit,
               },
             }
@@ -180,7 +219,7 @@ function mapDosage(value: z.infer<typeof structuredDosageSchema>) {
         doseQuantity: {
           value: value.doseValue,
           unit: value.doseUnit,
-          system: "http://unitsofmeasure.org",
+          system: CLINICAL_SYSTEM.ucum,
           code: value.doseUnit,
         },
       },
@@ -192,7 +231,7 @@ function coverageReference(value: string) {
   return value.startsWith("Coverage/") ? value : `Coverage/${value}`;
 }
 
-const medicationRequestInputSchema = codedInputSchema.extend({
+const medicationRequestInputSchema = medicationCodedInputSchema.extend({
   authoredAt: z.date(),
   groupIdentifier: z.string().min(1),
   coverageReference: z.string().min(1),
@@ -208,29 +247,20 @@ export function mapMedicationRequest(
     id: value.id,
     status: "active",
     intent: "order",
-    medicationCodeableConcept: {
-      coding: [
-        {
-          system: "http://snomed.info/sct",
-          code: value.code,
-          display: value.display,
-        },
-      ],
-      text: value.display,
-    },
+    medicationCodeableConcept: medicationCodeableConcept(value),
     subject: { reference: `Patient/${value.patientReference}` },
     encounter: { reference: `Encounter/${value.encounterReference}` },
     authoredOn: value.authoredAt.toISOString(),
     requester: { reference: `Practitioner/${value.practitionerReference}` },
     groupIdentifier: {
-      system: "https://carelogic.rw/prescriptions",
+      system: CARELOGIC_SYSTEM.prescriptionGroup,
       value: value.groupIdentifier,
     },
     insurance: [{ reference: coverageReference(value.coverageReference) }],
     dosageInstruction: [mapDosage(value.dosage)],
     extension: [
       {
-        url: "http://fhir.rw/StructureDefinition/prescribing-location",
+        url: EXTENSION_URL.prescribingLocation,
         valueReference: { reference: value.locationReference },
       },
     ],
@@ -238,7 +268,7 @@ export function mapMedicationRequest(
   };
 }
 
-const medicationDispenseInputSchema = codedInputSchema.extend({
+const medicationDispenseInputSchema = medicationCodedInputSchema.extend({
   handedOverAt: z.date(),
   quantity: z.number().positive(),
   unit: z.string().min(1),
@@ -254,16 +284,7 @@ export function mapMedicationDispense(
     resourceType: "MedicationDispense" as const,
     id: value.id,
     status: "completed",
-    medicationCodeableConcept: {
-      coding: [
-        {
-          system: "http://snomed.info/sct",
-          code: value.code,
-          display: value.display,
-        },
-      ],
-      text: value.display,
-    },
+    medicationCodeableConcept: medicationCodeableConcept(value),
     subject: { reference: `Patient/${value.patientReference}` },
     encounter: { reference: `Encounter/${value.encounterReference}` },
     performer: [
@@ -282,7 +303,7 @@ export function mapMedicationDispense(
   };
 }
 
-const medicationAdministrationInputSchema = codedInputSchema.extend({
+const medicationAdministrationInputSchema = medicationCodedInputSchema.extend({
   effectiveAt: z.date(),
   reason: z.string().min(1),
   medicationRequestReference: z.string().min(1),
@@ -301,16 +322,7 @@ export function mapMedicationAdministration(
     resourceType: "MedicationAdministration" as const,
     id: value.id,
     status: "completed",
-    medicationCodeableConcept: {
-      coding: [
-        {
-          system: "http://snomed.info/sct",
-          code: value.code,
-          display: value.display,
-        },
-      ],
-      text: value.display,
-    },
+    medicationCodeableConcept: medicationCodeableConcept(value),
     subject: { reference: `Patient/${value.patientReference}` },
     context: { reference: `Encounter/${value.encounterReference}` },
     effectiveDateTime: value.effectiveAt.toISOString(),
@@ -339,13 +351,13 @@ export function mapMedicationAdministration(
       dose: {
         value: value.dosage.doseValue,
         unit: value.dosage.doseUnit,
-        system: "http://unitsofmeasure.org",
+        system: CLINICAL_SYSTEM.ucum,
         code: value.dosage.doseUnit,
       },
     },
     extension: [
       {
-        url: "http://fhir.rw/StructureDefinition/administration-location",
+        url: EXTENSION_URL.administrationLocation,
         valueReference: { reference: value.locationReference },
       },
     ],
@@ -363,7 +375,7 @@ export function mapProcedure(input: z.infer<typeof procedureInputSchema>) {
     code: {
       coding: [
         {
-          system: "ICHI",
+          system: CLINICAL_SYSTEM.ichi,
           code: value.code,
           display: value.display,
         },

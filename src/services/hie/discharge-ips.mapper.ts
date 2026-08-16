@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CARELOGIC_SYSTEM, CLINICAL_SYSTEM } from "./terminology";
 
 const dischargeIpsInputSchema = z.object({
   id: z.string().uuid(),
@@ -51,7 +52,7 @@ export function mapDischargeIpsBundle(
     type: "document" as const,
     timestamp: value.authoredAt.toISOString(),
     identifier: {
-      system: "https://carelogic.health/fhir/identifier/discharge-ips",
+      system: CARELOGIC_SYSTEM.dischargeIps,
       value: bundleId,
     },
     entry: [
@@ -64,7 +65,7 @@ export function mapDischargeIpsBundle(
           type: {
             coding: [
               {
-                system: "http://loinc.org",
+                system: CLINICAL_SYSTEM.loinc,
                 code: "18842-5",
                 display: "Discharge summary",
               },

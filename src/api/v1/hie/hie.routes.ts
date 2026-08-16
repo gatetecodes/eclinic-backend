@@ -53,6 +53,7 @@ import {
   createExternalTransfer,
   deferVerification,
   getExternalTransfer,
+  getLiveStatus,
   getMappings,
   getOperationsSummary,
   getPatientConsent,
@@ -73,6 +74,7 @@ import {
   reconcileExternalResource,
   reconcilePatientConsent,
   refreshInboundTransfers,
+  requestPatientUpid,
   resolveIdentityCase,
   retryOutboxEvent,
   retryPendingIdentity,
@@ -116,6 +118,7 @@ import {
   outboxQuerySchema,
   patientParamSchema,
   reconciliationSchema,
+  requestPatientUpidSchema,
   resolveIdentityCaseSchema,
   transferParamSchema,
   transferQuerySchema,
@@ -133,6 +136,13 @@ router.get(
   "/status",
   requirePermission({ resource: "hie", action: "read" }),
   getStatus
+);
+// Same payload as /status, but re-probes the national services first. Declared
+// alongside /status so no later parameterised route can shadow it.
+router.get(
+  "/status/live",
+  requirePermission({ resource: "hie", action: "read" }),
+  getLiveStatus
 );
 router.get(
   "/concepts",
@@ -210,6 +220,12 @@ router.post(
   requirePermission({ resource: "hie", action: "approve" }),
   validate(lookupPatientSchema),
   lookupPatient
+);
+router.post(
+  "/patients/request-upid",
+  requirePermission({ resource: "hie", action: "approve" }),
+  validate(requestPatientUpidSchema),
+  requestPatientUpid
 );
 router.post(
   "/patients/link",

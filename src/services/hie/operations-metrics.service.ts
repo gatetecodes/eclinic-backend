@@ -45,7 +45,9 @@ function buildAlerts(params: {
       count: params.staleActionableCount,
     });
   }
-  if (params.healthStatus === "DEGRADED") {
+  // Anything that is not a confirmed UP is worth surfacing. A tenant whose
+  // probes have never run reads as null, which previously looked healthy.
+  if (params.healthStatus && params.healthStatus !== "UP") {
     alerts.push({ code: "HEALTH_DEGRADED", severity: "WARNING", count: 1 });
   }
   if (params.writeEnabled && params.unverifiedFacilities > 0) {
