@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   type FhirPatient,
   fhirBundleSchema,
@@ -102,6 +103,66 @@ export function formatRwandaAdministrativeAddress(
   return display || null;
 }
 
+/** Contact systems the registry has been seen using for a telephone number. */
+const PHONE_SYSTEMS = new Set(["phone", "sms", "mobile", "tel", "telephone"]);
+const EMAIL_SYSTEMS = new Set(["email", "e-mail", "mail"]);
+/** A value has to hold at least this many digits to be dialable. */
+const MIN_PHONE_DIGITS = 6;
+const NON_DIGIT_PATTERN = /\D/g;
+
+type ContactPoint = FhirPatient["telecom"][number];
+
+/** Every contact point on the patient, then on any related party. */
+function contactPoints(patient: FhirPatient): ContactPoint[] {
+  return [
+    ...patient.telecom,
+    ...patient.contact.flatMap((related) => related.telecom),
+  ];
+}
+
+/**
+ * Picks the first contact point of a kind that actually carries a value.
+ *
+ * The registry regularly sends a well-formed entry with no `value` at all
+ * (`{ system: "phone", use: "mobile" }`). Selecting on `system` alone and then
+ * reading `.value` lets such an entry mask a populated one later in the same
+ * list, which reads downstream as "the citizen has no phone number".
+ */
+function contactValue(
+  patient: FhirPatient,
+  systems: ReadonlySet<string>
+): string | null {
+  for (const point of contactPoints(patient)) {
+    const system = point.system?.trim().toLowerCase();
+    const value = point.value?.trim();
+    if (system && systems.has(system) && value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Last resort for a number whose entry omits `system`: a value that is mostly
+ * digits is a phone number, an address never is.
+ */
+function untypedPhone(patient: FhirPatient): string | null {
+  for (const point of contactPoints(patient)) {
+    const value = point.value?.trim();
+    if (point.system?.trim() || !value || value.includes("@")) {
+      continue;
+    }
+    if (value.replace(NON_DIGIT_PATTERN, "").length >= MIN_PHONE_DIGITS) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function phoneNumber(patient: FhirPatient): string | null {
+  return contactValue(patient, PHONE_SYSTEMS) ?? untypedPhone(patient);
+}
+
 function identifier(patient: FhirPatient, type: string): string | null {
   return (
     patient.identifier.find(
@@ -123,14 +184,63 @@ function toNationalPatient(patient: FhirPatient): NationalPatientMatch {
     lastName: name?.family ?? "",
     birthDate: patient.birthDate ?? null,
     gender: patient.gender ?? null,
-    phoneNumber:
-      patient.telecom.find((item) => item.system === "phone")?.value ?? null,
-    email:
-      patient.telecom.find((item) => item.system === "email")?.value ?? null,
+    phoneNumber: phoneNumber(patient),
+    email: contactValue(patient, EMAIL_SYSTEMS),
     address: formatRwandaAdministrativeAddress(structuredAddress),
     structuredAddress,
     deceased: patient.deceasedBoolean === true,
   };
+}
+
+/**
+ * Fills a missing phone number by reading the patient resource directly.
+ *
+ * The Client Registry's search response is not always the full record: the
+ * `Patient` entries in a search Bundle can arrive with no `telecom` at all, or
+ * with a contact point that carries `system`/`use` but no `value`, for a citizen
+ * whose number the registry does hold. `GET Patient/{id}` returns the complete
+ * resource, so one extra read recovers the number instead of sending reception a
+ * blank field.
+ *
+ * Only performed when the search result actually lacks a phone number, and never
+ * allowed to fail the lookup — a citizen found without a phone number is a far
+ * better outcome than a citizen not found at all.
+ */
+async function completeContactDetails(
+  match: NationalPatientMatch,
+  tenantEnvironment: HieRequestEnvironment,
+  request: typeof rhieRequest,
+  context: { correlationId: string }
+): Promise<NationalPatientMatch> {
+  if (match.phoneNumber) {
+    return match;
+  }
+  try {
+    const response = await request({
+      service: "CLIENT_REGISTRY",
+      method: "GET",
+      path: `Patient/${match.externalPatientId}`,
+      tenantEnvironment,
+    });
+    const parsed = fhirPatientSchema.safeParse(response.data);
+    if (!parsed.success) {
+      return match;
+    }
+    const full = toNationalPatient(parsed.data);
+    return {
+      ...match,
+      phoneNumber: full.phoneNumber,
+      email: match.email ?? full.email,
+      address: match.address ?? full.address,
+      structuredAddress: match.structuredAddress ?? full.structuredAddress,
+    };
+  } catch (error) {
+    logger.warn("hie.registry.patient_read_failed", {
+      correlationId: context.correlationId,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return match;
+  }
 }
 
 export async function lookupNationalPatient(
@@ -152,9 +262,16 @@ export async function lookupNationalPatient(
     query: { identifier: params.nid, birthdate: params.birthDate },
   });
   const bundle = fhirBundleSchema.parse(response.data);
-  const matches = bundle.entry.flatMap((entry) => {
+  const searchMatches = bundle.entry.flatMap((entry) => {
     const parsed = fhirPatientSchema.safeParse(entry.resource);
     if (!parsed.success) {
+      logger.warn("hie.registry.patient_unparsable", {
+        correlationId: response.correlationId,
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+        })),
+      });
       return [];
     }
     const patient = toNationalPatient(parsed.data);
@@ -163,5 +280,12 @@ export async function lookupNationalPatient(
     }
     return [patient];
   });
+  const matches = await Promise.all(
+    searchMatches.map((match) =>
+      completeContactDetails(match, params.tenantEnvironment, request, {
+        correlationId: response.correlationId,
+      })
+    )
+  );
   return { matches, correlationId: response.correlationId };
 }

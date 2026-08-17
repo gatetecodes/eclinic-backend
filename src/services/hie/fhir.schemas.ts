@@ -10,19 +10,53 @@ const humanNameSchema = z.object({
   given: z.array(z.string()).optional(),
 });
 
+/**
+ * `system` and `use` are read as free text rather than enums on purpose.
+ *
+ * Every field of a `Patient` is parsed as one unit, so a single unrecognised
+ * contact channel — `sms`, `SMS`, `mobile`, anything the registry adds later —
+ * would fail the whole resource and silently drop the citizen out of the search
+ * results. A contact point we cannot classify is worth less than the patient it
+ * is attached to; `client-registry.service.ts` decides what counts as a phone.
+ */
 const telecomSchema = z.object({
-  system: z.enum(["phone", "email"]).optional(),
+  system: z.string().optional(),
   value: z.string().optional(),
   use: z.string().optional(),
 });
 
+/**
+ * FHIR types `Address.line` as a list, but the RHIE swagger
+ * (`docs/rhie-swagger-2026-08-11.yaml`) declares a bare string, and the live
+ * registry has been observed sending the list form. Accept both and normalise
+ * to a list so the administrative-address parser has one shape to read — the
+ * alternative is losing the entire patient to an address formatting detail.
+ */
+const addressLineSchema = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((value) => {
+    if (value === undefined) {
+      return;
+    }
+    return Array.isArray(value) ? value : [value];
+  });
+
 const addressSchema = z.object({
-  line: z.array(z.string()).optional(),
+  line: addressLineSchema,
   city: z.string().optional(),
   district: z.string().optional(),
   state: z.string().optional(),
   country: z.string().optional(),
   postalCode: z.string().optional(),
+});
+
+/**
+ * A related party (next of kin, guardian). The registry sometimes carries the
+ * only reachable number here rather than on the patient's own `telecom`.
+ */
+const contactSchema = z.object({
+  telecom: z.array(telecomSchema).default([]),
 });
 
 export const fhirPatientSchema = z
@@ -37,6 +71,7 @@ export const fhirPatientSchema = z
     deceasedBoolean: z.boolean().optional(),
     telecom: z.array(telecomSchema).default([]),
     address: z.array(addressSchema).default([]),
+    contact: z.array(contactSchema).default([]),
   })
   .passthrough();
 

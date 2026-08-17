@@ -100,17 +100,68 @@ async function findExistingPatient(
   return await db.patient.findFirst({ where, select: { id: true } });
 }
 
-async function updateMedicalInfoIfProvided(
+const CONTACT_BACKFILL_FIELDS = [
+  "phoneNumber",
+  "guardianPhoneNumber",
+  "address",
+] as const;
+
+/** The backfilled fields that a phone search can later be run against. */
+const PHONE_FIELDS = new Set(["phoneNumber", "guardianPhoneNumber"]);
+
+/**
+ * Records contact details a returning patient's chart is still missing.
+ *
+ * Check-in used to touch nothing but `medicalInfo` on an existing patient, so a
+ * phone number reception typed in — or one carried over from the national
+ * registry into the prefilled form — was accepted at the desk and then thrown
+ * away. A patient with no reachable number cannot be called back with a result.
+ *
+ * Only blank fields are written. Reception's form is prefilled from the record
+ * itself, so an empty box means the clinic genuinely has no value; a differing
+ * one is an edit to make deliberately on the patient's chart, not a side effect
+ * of checking someone in.
+ */
+async function backfillPatientRecord(
   patientId: number,
-  medicalInfo?: Prisma.JsonValue
+  patientData: VisitSchemaType["patient"],
+  clinicId?: number
 ): Promise<void> {
-  if (!medicalInfo) {
+  const existing = await db.patient.findUnique({
+    where: { id: patientId },
+    select: { phoneNumber: true, guardianPhoneNumber: true, address: true },
+  });
+  if (!existing) {
     return;
   }
-  await db.patient.update({
-    where: { id: patientId },
-    data: { medicalInfo },
-  });
+  const data: Prisma.PatientUpdateInput = {};
+  const filledPhones: string[] = [];
+  for (const field of CONTACT_BACKFILL_FIELDS) {
+    const incoming = patientData[field]?.trim();
+    if (!incoming || existing[field]?.trim()) {
+      continue;
+    }
+    data[field] = incoming;
+    if (PHONE_FIELDS.has(field)) {
+      filledPhones.push(incoming);
+    }
+  }
+  if (patientData.medicalInfo) {
+    data.medicalInfo = patientData.medicalInfo;
+  }
+  if (Object.keys(data).length === 0) {
+    return;
+  }
+  await db.patient.update({ where: { id: patientId }, data });
+  // A newly recorded number has to clear the phone-search cache, or reception's
+  // next search for it keeps missing the patient it now belongs to.
+  if (clinicId && filledPhones.length > 0) {
+    await Promise.all(
+      filledPhones.map((phone) =>
+        invalidateCache(`patients:phone:${clinicId}:${phone}`)
+      )
+    );
+  }
 }
 
 function deriveNationalityAndForeigner(
@@ -142,9 +193,10 @@ export async function getOrCreatePatient(
     selectedPatientId
   );
   if (existingPatient) {
-    await updateMedicalInfoIfProvided(
+    await backfillPatientRecord(
       existingPatient.id,
-      patientData.medicalInfo
+      patientData,
+      user.clinicId ?? user.clinic?.id
     );
     return { patientId: existingPatient.id, isNewPatient: false };
   }
