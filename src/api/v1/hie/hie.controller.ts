@@ -7,7 +7,10 @@ import { AppError, isUniqueViolationOn, notFoundError } from "@/lib/app-error";
 import { logger } from "@/lib/logger";
 import type { AppEnv } from "@/middlewares/auth.middleware";
 import { requestCitizenUpid } from "@/services/hie/citizen-registry.service";
-import { lookupNationalPatient } from "@/services/hie/client-registry.service";
+import {
+  lookupNationalPatient,
+  type NationalPatientMatch,
+} from "@/services/hie/client-registry.service";
 import {
   fhirBundleSchema,
   fhirConsentSchema,
@@ -1091,6 +1094,19 @@ export async function lookupPatient(c: Context<AppEnv>): Promise<Response> {
     email: true,
     address: true,
     updatedAt: true,
+    // Most recent insurance on record. Reception prefills the check-in payment
+    // method from whichever record it settles on, so a candidate reached through
+    // the national-identity path has to carry the same payment context the phone
+    // search returns — otherwise linking a patient silently reads as self-pay.
+    patientInsurance: {
+      orderBy: { createdAt: "desc" },
+      take: 1,
+      select: {
+        insuranceNumber: true,
+        coveragePercentage: true,
+        insuranceCompany: { select: { companyName: true } },
+      },
+    },
   } satisfies Prisma.PatientSelect;
   const identifierHash = hashHieIdentifier(input.nid);
   const linkedCandidates = await db.patient.findMany({
@@ -1121,10 +1137,18 @@ export async function lookupPatient(c: Context<AppEnv>): Promise<Response> {
         select: candidateSelect,
       })
     : [];
+  // `coveragePercentage` is a Prisma Decimal; send it as a string so the wire
+  // shape is explicit rather than relying on Decimal's JSON serialisation.
   const localCandidates = prioritizeLinkedCandidates(
     linkedCandidates,
     demographicCandidates
-  );
+  ).map((candidate) => ({
+    ...candidate,
+    patientInsurance: candidate.patientInsurance.map((insurance) => ({
+      ...insurance,
+      coveragePercentage: insurance.coveragePercentage.toString(),
+    })),
+  }));
   await audit({
     clinicId,
     actorId,
@@ -1279,6 +1303,33 @@ async function linkVerifiedUpid(
   });
 }
 
+/**
+ * The national details a link may write down onto the local patient.
+ *
+ * Fill-only-if-empty, deliberately: the review dialog promises the reviewer that
+ * linking will not overwrite the CareLogic record, and a phone number the clinic
+ * has already verified outranks whatever the registry holds. A number the local
+ * record simply does not have is missing data, not a contradiction, so carrying
+ * it over adds contact detail without ever silently replacing any.
+ *
+ * Returns `null` when there is nothing to write, so the caller can skip the
+ * update entirely rather than bumping `updatedAt` for no reason — reception's
+ * optimistic-concurrency token is built from it.
+ */
+function nationalDetailsToCarryOver(
+  national: NationalPatientMatch,
+  local: { phoneNumber: string | null }
+): Prisma.PatientUpdateInput | null {
+  const data: Prisma.PatientUpdateInput = {};
+  if (national.structuredAddress) {
+    data.structuredAddress = national.structuredAddress;
+  }
+  if (national.phoneNumber && !local.phoneNumber?.trim()) {
+    data.phoneNumber = national.phoneNumber;
+  }
+  return Object.keys(data).length > 0 ? data : null;
+}
+
 export async function linkPatient(c: Context<AppEnv>): Promise<Response> {
   const { clinicId, actorId } = tenant(c);
   const config = await requireCapability(clinicId, "clientRegistryEnabled");
@@ -1381,10 +1432,14 @@ export async function linkPatient(c: Context<AppEnv>): Promise<Response> {
             snapshot,
           });
         }
-        if (nationalPatient.structuredAddress) {
+        const carriedOver = nationalDetailsToCarryOver(
+          nationalPatient,
+          patient
+        );
+        if (carriedOver) {
           await tx.patient.update({
             where: { id: input.patientId },
-            data: { structuredAddress: nationalPatient.structuredAddress },
+            data: carriedOver,
           });
         }
         await resumeBlockedPatientEvents(tx, {
