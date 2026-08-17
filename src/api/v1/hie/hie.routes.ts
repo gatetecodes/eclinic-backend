@@ -102,6 +102,7 @@ import {
   emergencyAccessQuerySchema,
   emergencyAccessReviewSchema,
   emergencyAccessSchema,
+  facilityDirectoryQuerySchema,
   identityCaseParamSchema,
   identityCaseQuerySchema,
   identityParamSchema,
@@ -126,8 +127,18 @@ import {
   upsertDestinationFacilitySchema,
   upsertFacilityLinkSchema,
   upsertPractitionerLinkSchema,
+  verifyDestinationFacilitySchema,
+  verifyFacilityLinkSchema,
+  verifyPractitionerLinkSchema,
   withdrawConsentSchema,
 } from "./hie.validation";
+import {
+  searchRegistryFacilities,
+  syncRegistryFacilities,
+  verifyDestinationFacility,
+  verifyFacilityLink,
+  verifyPractitionerLink,
+} from "./registry.controller";
 
 const router = new Hono<AppEnv>();
 router.use("*", requireFeature("hie"));
@@ -214,6 +225,42 @@ router.put(
   requirePermission({ resource: "hie", action: "update" }),
   validate(upsertDestinationFacilitySchema),
   upsertDestinationFacility
+);
+
+/**
+ * Registry-backed mapping. `read` for the directory search that feeds the
+ * facility picker, `update` for a verification (it mutates a mapping's status,
+ * exactly like the PUTs above), and `process` — CLINIC_ADMIN only — to force a
+ * sweep of the national list.
+ */
+router.get(
+  "/registry/facilities",
+  requirePermission({ resource: "hie", action: "read" }),
+  validate(facilityDirectoryQuerySchema, "query"),
+  searchRegistryFacilities
+);
+router.post(
+  "/registry/facilities/sync",
+  requirePermission({ resource: "hie", action: "process" }),
+  syncRegistryFacilities
+);
+router.post(
+  "/facilities/verify",
+  requirePermission({ resource: "hie", action: "update" }),
+  validate(verifyFacilityLinkSchema),
+  verifyFacilityLink
+);
+router.post(
+  "/destinations/verify",
+  requirePermission({ resource: "hie", action: "update" }),
+  validate(verifyDestinationFacilitySchema),
+  verifyDestinationFacility
+);
+router.post(
+  "/practitioners/verify",
+  requirePermission({ resource: "hie", action: "update" }),
+  validate(verifyPractitionerLinkSchema),
+  verifyPractitionerLink
 );
 router.post(
   "/patients/lookup",

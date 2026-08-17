@@ -162,6 +162,7 @@ model HieDestinationFacility {
   displayName           String
   verificationStatus    HieVerificationStatus @default(PENDING)
   verifiedAt            DateTime?
+  lastRegistryCheckAt   DateTime?
   verificationSource    String?
   verificationReference String?
   verificationActorId   Int?
@@ -237,6 +238,7 @@ model UserExternalIdentity {
   identifierEncrypted   String
   verificationStatus    HieVerificationStatus @default(PENDING)
   verifiedAt            DateTime?
+  lastRegistryCheckAt   DateTime?
   verificationSource    String?
   verificationReference String?
   verificationActorId   Int?
@@ -752,4 +754,55 @@ model HieInboundTransfer {
   @@unique([clinicId, externalEncounterIdHash])
   @@index([clinicId, status, createdAt])
   @@index([patientId, status])
+}
+
+/// Snapshot of the MoH national Facility Registry.
+
+model HieFacilityDirectory {
+  id                    Int            @id @default(autoincrement())
+  environment           HieEnvironment
+  fosaCode              String
+  /// "Location" | "Organization"
+  resourceType          String
+  resourceId            String
+  locationReference     String?
+  organizationReference String?
+  name                  String
+  facilityType          String?
+  province              String?
+  district              String?
+  /// Which identifier system the FOSA code was read from — the evidence we take
+  /// to MoH to pin HIE_FACILITY_REGISTRY_FOSA_SYSTEM.
+  identifierSystem      String?
+  active                Boolean        @default(true)
+  registrySyncedAt      DateTime
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@unique([environment, fosaCode])
+  @@unique([environment, resourceType, resourceId])
+  @@index([environment, active, name])
+  @@index([environment, active, district])
+}
+
+/// One row per sync attempt, so registry availability can be reported truthfully
+/// without probing the upstream on a user-facing request, and so a silent run of
+/// failures is visible. Deliberately not clinic-scoped: HieAuditEvent requires a
+/// clinicId and an actorId, so it cannot record a system cron run.
+model HieRegistrySyncRun {
+  id            Int            @id @default(autoincrement())
+  /// "FACILITY" | "PROVIDER"
+  registry      String
+  environment   HieEnvironment
+  startedAt     DateTime       @default(now())
+  completedAt   DateTime?
+  /// "RUNNING" | "SUCCEEDED" | "FAILED"
+  outcome       String
+  entryCount    Int            @default(0)
+  skippedCount  Int            @default(0)
+  pageCount     Int            @default(0)
+  errorCode     String?
+  correlationId String
+
+  @@index([registry, environment, startedAt])
 }

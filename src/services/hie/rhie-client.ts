@@ -3,6 +3,7 @@ import { AppError } from "@/lib/app-error";
 import { logger } from "@/lib/logger";
 import { operationOutcomeSchema } from "./fhir.schemas";
 import {
+  type EndpointDescriptor,
   type RhieMethod,
   type RhieService,
   resolveRhieEndpoint,
@@ -15,6 +16,12 @@ const DEFAULT_GET_RETRY_BASE_MS = 250;
 const MAX_GET_RETRY_BASE_MS = 5000;
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+/**
+ * Hard upper bound on any endpoint's `maxResponseBytes`. The descriptor field
+ * exists so the facility bundle can exceed the 2MB default; this stops it from
+ * ever being raised to something that would exhaust memory.
+ */
+const ENDPOINT_MAX_RESPONSE_BYTES_CEILING = 16 * 1024 * 1024;
 const FAILURE_THRESHOLD = 5;
 const CIRCUIT_OPEN_MS = 30_000;
 /**
@@ -54,6 +61,8 @@ const circuits: Record<RhieService, CircuitState> = {
   CLIENT_REGISTRY: { failures: 0, openUntil: 0, lastFailureAt: 0 },
   SHR: { failures: 0, openUntil: 0, lastFailureAt: 0 },
   CITIZEN: { failures: 0, openUntil: 0, lastFailureAt: 0 },
+  FACILITY_REGISTRY: { failures: 0, openUntil: 0, lastFailureAt: 0 },
+  PROVIDER_REGISTRY: { failures: 0, openUntil: 0, lastFailureAt: 0 },
 };
 
 /**
@@ -73,6 +82,12 @@ const BASE_URL_ENV_KEY: Record<RhieService, string> = {
   CLIENT_REGISTRY: "HIE_CLIENT_REGISTRY_BASE_URL",
   SHR: "HIE_SHR_BASE_URL",
   CITIZEN: "HIE_CITIZEN_BASE_URL",
+  // Both registry base URLs are unset by default. `configuredBaseUrl` then
+  // raises HIE_NOT_CONFIGURED, which the mapping API reports as
+  // NOT_CONFIGURED so the admin console falls back to manual attestation
+  // instead of offering a Verify action that cannot work.
+  FACILITY_REGISTRY: "HIE_FACILITY_REGISTRY_BASE_URL",
+  PROVIDER_REGISTRY: "HIE_PROVIDER_REGISTRY_BASE_URL",
 };
 
 export class RhieRequestError extends Error {
@@ -164,6 +179,30 @@ function configuredBaseUrl(
   return url;
 }
 
+/**
+ * Presence check that does not throw.
+ *
+ * Health reporting and the mapping API need to answer "is this registry
+ * configured?" without `configuredBaseUrl`'s 503, and must not duplicate the env
+ * key strings to do it.
+ */
+export function isRhieServiceConfigured(service: RhieService): boolean {
+  return Boolean(process.env[BASE_URL_ENV_KEY[service]]?.trim());
+}
+
+/**
+ * Per-endpoint response cap, clamped so no descriptor can request an
+ * out-of-memory read.
+ */
+function endpointMaxResponseBytes(
+  endpoint: EndpointDescriptor | undefined
+): number {
+  return Math.min(
+    endpoint?.maxResponseBytes ?? MAX_RESPONSE_BYTES,
+    ENDPOINT_MAX_RESPONSE_BYTES_CEILING
+  );
+}
+
 function authHeader(): string {
   const username = process.env.HIE_BASIC_AUTH_USERNAME?.trim();
   const password = process.env.HIE_BASIC_AUTH_PASSWORD;
@@ -199,7 +238,10 @@ function responseTooLargeError(response: Response): RhieRequestError {
   });
 }
 
-function validateContentLength(response: Response): void {
+function validateContentLength(
+  response: Response,
+  maxBytes = MAX_RESPONSE_BYTES
+): void {
   const contentLength = response.headers.get("content-length");
   if (contentLength === null) {
     return;
@@ -212,7 +254,7 @@ function validateContentLength(response: Response): void {
       retryable: response.status >= 500,
     });
   }
-  if (Number(contentLength) > MAX_RESPONSE_BYTES) {
+  if (Number(contentLength) > maxBytes) {
     throw responseTooLargeError(response);
   }
 }
@@ -235,9 +277,12 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-export async function readBoundedJson(response: Response): Promise<unknown> {
+export async function readBoundedJson(
+  response: Response,
+  maxBytes = MAX_RESPONSE_BYTES
+): Promise<unknown> {
   try {
-    validateContentLength(response);
+    validateContentLength(response, maxBytes);
   } catch (error) {
     // Rejecting on the header alone means nothing will ever read this body, and
     // an undrained response holds its connection out of the pool. Release it the
@@ -256,7 +301,7 @@ export async function readBoundedJson(response: Response): Promise<unknown> {
     let result = await reader.read();
     while (!result.done) {
       byteLength += result.value.byteLength;
-      if (byteLength > MAX_RESPONSE_BYTES) {
+      if (byteLength > maxBytes) {
         await cancelReader(reader);
         throw responseTooLargeError(response);
       }
@@ -483,7 +528,10 @@ async function executeRequest(params: {
         : JSON.stringify(params.request.body),
     signal: params.signal,
   });
-  const data = await readBoundedJson(response);
+  const data = await readBoundedJson(
+    response,
+    endpointMaxResponseBytes(resolveRhieEndpoint(params.request))
+  );
   if (!response.ok) {
     throw failureError(response, data);
   }

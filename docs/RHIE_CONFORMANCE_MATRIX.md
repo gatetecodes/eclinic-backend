@@ -57,7 +57,15 @@ keys. Empty 2xx bodies are accepted only where the pinned Swagger permits them.
 
 ## External go-live gates
 
-UPID allocation, authoritative Facility/Practitioner/Coverage/NPC identifiers,
+Facility identifiers are no longer purely external: `GET /facility-registry/fhir`
+is wired through openHIM with the existing basic credentials, snapshotted, and used
+to grant `VERIFIED` on a branch or destination mapping. Three items remain open
+with MoH and are tracked in `docs/RWANDA_HIE.md`: which `identifier.system` carries
+the FOSA code, whether the bundle publishes `Location` or only `Organization`
+resources, and whether the list honours `page`/`limit`. The Provider Registry has
+no confirmed gateway route, so practitioner identifiers are still external.
+
+UPID allocation, authoritative Practitioner/Coverage/NPC identifiers,
 insurance behavior for self-pay, legal approval for consent and break glass,
 secure production networking and credentials, rate limits/SLA/incident contacts,
 profile and idempotency clarifications, DPIA approval, training, and production

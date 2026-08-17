@@ -11,6 +11,7 @@ import {
   lookupNationalPatient,
   type NationalPatientMatch,
 } from "@/services/hie/client-registry.service";
+import { facilityRegistryAvailability } from "@/services/hie/facility-registry.service";
 import {
   fhirBundleSchema,
   fhirConsentSchema,
@@ -39,9 +40,16 @@ import {
   resumeBlockedPatientEvents,
   retryHieEvent,
 } from "@/services/hie/outbox.service";
+import { providerRegistryMode } from "@/services/hie/provider-registry.service";
 import { RhieRequestError, rhieRequest } from "@/services/hie/rhie-client";
 import { getInternationalPatientSummaryView } from "@/services/hie/shared-record.service";
 import type { Prisma } from "../../../../generated/prisma/client";
+import {
+  audit,
+  branchAdminScope,
+  resumeReferenceBlockedEvents,
+  tenant,
+} from "./hie.shared";
 import type {
   auditQuerySchema,
   cancelTransferSchema,
@@ -336,33 +344,6 @@ function assertHieActivationReady(config: EffectiveHieConfig) {
   assertHieEndpointsReady(config);
 }
 
-function tenant(c: Context<AppEnv>) {
-  const clinicId = c.get("clinicId");
-  const user = c.get("user");
-  if (!(clinicId && user)) {
-    throw new AppError({
-      status: 403,
-      code: "HIE_TENANT_REQUIRED",
-      message: "A clinic context is required",
-    });
-  }
-  return { clinicId, user, actorId: Number(user.id) };
-}
-
-function branchAdminScope(user: ReturnType<typeof tenant>["user"]) {
-  if (user.role !== "BRANCH_ADMIN") {
-    return;
-  }
-  if (!user.branchId) {
-    throw new AppError({
-      status: 403,
-      code: "HIE_BRANCH_CONTEXT_REQUIRED",
-      message: "A branch context is required",
-    });
-  }
-  return user.branchId;
-}
-
 function transferBranchScope(user: ReturnType<typeof tenant>["user"]) {
   if (!["BRANCH_ADMIN", "DOCTOR"].includes(user.role)) {
     return;
@@ -403,25 +384,6 @@ async function requireCapability(
     });
   }
   return config;
-}
-
-async function resumeReferenceBlockedEvents(
-  clinicId: number,
-  errorCodes: string[]
-) {
-  await db.hieOutboxEvent.updateMany({
-    where: {
-      clinicId,
-      status: "BLOCKED",
-      lastErrorCode: { in: errorCodes },
-    },
-    data: {
-      status: "PENDING",
-      dependencyReason: null,
-      nextAttemptAt: new Date(),
-      lockedAt: null,
-    },
-  });
 }
 
 async function scopedPatient(clinicId: number, patientId: number) {
@@ -470,31 +432,6 @@ async function requireActiveConsent(clinicId: number, patientId: number) {
     });
   }
   return consent;
-}
-
-async function audit(params: {
-  clinicId: number;
-  actorId: number;
-  patientId?: number;
-  action: string;
-  capability: string;
-  outcome: string;
-  correlationId: string;
-  metadata?: Record<string, string | number | boolean>;
-}) {
-  await db.hieAuditEvent.create({
-    data: {
-      clinicId: params.clinicId,
-      actorId: params.actorId,
-      patientId: params.patientId,
-      action: params.action,
-      capability: params.capability,
-      purposeOfUse: "TREATMENT",
-      outcome: params.outcome,
-      correlationId: params.correlationId,
-      metadata: params.metadata,
-    },
-  });
 }
 
 async function recordIdentityConflict(params: {
@@ -745,6 +682,16 @@ export async function updateConfig(c: Context<AppEnv>): Promise<Response> {
 export async function getMappings(c: Context<AppEnv>): Promise<Response> {
   const { clinicId, user } = tenant(c);
   const branchId = branchAdminScope(user);
+  // Reported for the clinic's own environment: a TEST directory must not be
+  // presented as the basis for PRODUCTION verification. A clinic with no HIE
+  // config row yet reads as TEST, which is the safe default.
+  const config = await db.hieTenantConfig.findUnique({
+    where: { clinicId },
+    select: { environment: true },
+  });
+  const facilityRegistry = await facilityRegistryAvailability(
+    config?.environment ?? "TEST"
+  );
   const [branches, practitioners, destinations] = await Promise.all([
     db.branch.findMany({
       where: { clinicId, ...(branchId ? { id: branchId } : {}) },
@@ -792,6 +739,7 @@ export async function getMappings(c: Context<AppEnv>): Promise<Response> {
             identifierEncrypted: true,
             verificationStatus: true,
             verifiedAt: true,
+            lastRegistryCheckAt: true,
             verificationSource: true,
             verificationReference: true,
             verificationExpiresAt: true,
@@ -809,6 +757,7 @@ export async function getMappings(c: Context<AppEnv>): Promise<Response> {
         displayName: true,
         verificationStatus: true,
         verifiedAt: true,
+        lastRegistryCheckAt: true,
         verificationSource: true,
         verificationReference: true,
         verificationExpiresAt: true,
@@ -839,6 +788,7 @@ export async function getMappings(c: Context<AppEnv>): Promise<Response> {
                 )}`,
                 verificationStatus: identity.verificationStatus,
                 verifiedAt: identity.verifiedAt,
+                lastRegistryCheckAt: identity.lastRegistryCheckAt,
                 verificationSource: identity.verificationSource,
                 verificationReference: identity.verificationReference,
                 verificationExpiresAt: identity.verificationExpiresAt,
@@ -847,6 +797,17 @@ export async function getMappings(c: Context<AppEnv>): Promise<Response> {
         };
       }),
       destinations,
+      // Which mode the mapping screen is in, so it learns whether to offer
+      // registry search and Verify without a second round-trip.
+      registry: {
+        facility: {
+          mode: facilityRegistry.mode,
+          stale: facilityRegistry.stale,
+          lastSyncedAt: facilityRegistry.lastSyncedAt,
+          entryCount: facilityRegistry.entryCount,
+        },
+        provider: { mode: providerRegistryMode() },
+      },
     },
   });
 }
@@ -1173,10 +1134,13 @@ export async function lookupPatient(c: Context<AppEnv>): Promise<Response> {
 /**
  * Resolves the 4-digit FOSA code for the branch making a national request.
  *
- * The HIE attributes every citizen lookup to a facility, so an unmapped or
- * unverified branch must not be able to query the national registry.
+ * The HIE attributes every citizen lookup to a facility, so an unmapped branch
+ * must not be able to query the national registry. A registry-granted
+ * `VERIFIED` and an audited `MANUAL_ATTESTED` both satisfy that — the same pair
+ * every outbox publish path accepts. Requiring `VERIFIED` alone made this
+ * unreachable, because no endpoint can write that status.
  */
-async function requireVerifiedFosaCode(params: {
+async function requireMappedFosaCode(params: {
   clinicId: number;
   branchId: number | null;
 }) {
@@ -1184,7 +1148,7 @@ async function requireVerifiedFosaCode(params: {
     where: {
       clinicId: params.clinicId,
       ...(params.branchId ? { branchId: params.branchId } : {}),
-      verificationStatus: "VERIFIED",
+      verificationStatus: { in: ["VERIFIED", "MANUAL_ATTESTED"] },
     },
     select: { fosaCode: true },
   });
@@ -1192,7 +1156,7 @@ async function requireVerifiedFosaCode(params: {
     throw new AppError({
       status: 409,
       code: "HIE_FACILITY_NOT_VERIFIED",
-      message: "Verify the branch HIE facility mapping first",
+      message: "Verify or attest the branch HIE facility mapping first",
       exposeMessage: true,
     });
   }
@@ -1215,7 +1179,7 @@ export async function requestPatientUpid(
   const { clinicId, actorId } = tenant(c);
   const config = await requireCapability(clinicId, "clientRegistryEnabled");
   const input = c.get("validatedJson") as RequestUpidInput;
-  const fosaid = await requireVerifiedFosaCode({
+  const fosaid = await requireMappedFosaCode({
     clinicId,
     branchId: c.get("branchId") ?? null,
   });
@@ -3042,7 +3006,7 @@ export async function createExternalTransfer(
       where: {
         id: input.destinationFacilityId,
         clinicId,
-        verificationStatus: "VERIFIED",
+        verificationStatus: { in: ["VERIFIED", "MANUAL_ATTESTED"] },
       },
     }),
   ]);
@@ -3066,7 +3030,7 @@ export async function createExternalTransfer(
     throw new AppError({
       status: 409,
       code: "HIE_TRANSFER_DESTINATION_NOT_VERIFIED",
-      message: "Select a verified national destination facility",
+      message: "Select a verified or attested national destination facility",
       exposeMessage: true,
     });
   }
@@ -3074,7 +3038,7 @@ export async function createExternalTransfer(
     where: {
       clinicId,
       branchId: visit.branchId,
-      verificationStatus: "VERIFIED",
+      verificationStatus: { in: ["VERIFIED", "MANUAL_ATTESTED"] },
     },
     select: { fosaCode: true, locationReference: true },
   });
@@ -3082,7 +3046,7 @@ export async function createExternalTransfer(
     throw new AppError({
       status: 409,
       code: "HIE_TRANSFER_SOURCE_NOT_VERIFIED",
-      message: "Verify the source branch HIE facility mapping first",
+      message: "Verify or attest the source branch HIE facility mapping first",
       exposeMessage: true,
     });
   }

@@ -132,6 +132,44 @@ export const upsertDestinationFacilitySchema = manualAttestationSchema.extend({
   displayName: z.string().trim().min(2).max(200),
 });
 
+/**
+ * Registry-backed verification.
+ *
+ * These carry identifiers only — deliberately no `verificationStatus`,
+ * `verificationSource`, `verificationReference` or `verificationExpiresAt`.
+ * Those are provenance the server derives from the registry match, and keeping
+ * them off the request surface is what makes "VERIFIED implies the server
+ * matched this against the registry" an invariant rather than a convention.
+ */
+export const facilityDirectoryQuerySchema = z.object({
+  search: z.string().trim().min(1).max(100).optional(),
+  district: z.string().trim().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const verifyFacilityLinkSchema = z.object({
+  branchId: z.number().int().positive(),
+});
+
+export const verifyDestinationFacilitySchema = z.object({
+  id: z.number().int().positive(),
+});
+
+export const verifyPractitionerLinkSchema = z.object({
+  userId: z.number().int().positive(),
+});
+
+export type FacilityDirectoryQuery = z.infer<
+  typeof facilityDirectoryQuerySchema
+>;
+export type VerifyFacilityInput = z.infer<typeof verifyFacilityLinkSchema>;
+export type VerifyDestinationInput = z.infer<
+  typeof verifyDestinationFacilitySchema
+>;
+export type VerifyPractitionerInput = z.infer<
+  typeof verifyPractitionerLinkSchema
+>;
+
 export const coverageMappingSchema = manualAttestationSchema.extend({
   patientInsuranceId: z.number().int().positive(),
   coverageReference: z
