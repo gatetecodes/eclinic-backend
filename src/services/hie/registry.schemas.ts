@@ -68,13 +68,14 @@ export const registryLocationSchema = fhirResourceSchema("Location").extend({
 export type RegistryLocation = z.infer<typeof registryLocationSchema>;
 
 /**
- * A facility published as an `Organization` rather than a `Location`.
+ * A facility as the live registry publishes it.
  *
- * The collection gives no sample response for the facility list, so we cannot
- * assume which it is (see docs/RWANDA_HIE.md, open questions). An Organization
- * carries no `Location/…` reference, and our mappings need one — so these map to
- * a directory row with a null `locationReference`, letting the console say
- * "listed nationally, but not mappable" rather than fabricating a reference.
+ * Confirmed against the MoH test gateway: every one of the 3,212 entries is an
+ * `Organization`, never a `Location`, shaped as
+ * `{ id: "org-2684", identifier: [{ system: "urn:frpr:facility-code", value:
+ * "2684" }], name: "Mutanda HP", extension: [{ url: "urn:frpr:org-category",
+ * valueString: "Health Post" }] }`. No address is published, so province and
+ * district stay null.
  */
 export const registryOrganizationSchema = fhirResourceSchema(
   "Organization"
@@ -85,7 +86,24 @@ export const registryOrganizationSchema = fhirResourceSchema(
   identifier: z.array(registryIdentifierSchema).optional(),
   type: z.array(registryCodeableConceptSchema).optional(),
   address: z.array(registryAddressSchema).optional(),
+  /**
+   * The live registry carries the facility category here rather than in `type`,
+   * as `{ url: "urn:frpr:org-category", valueString: "Health Post" }`.
+   */
+  extension: z
+    .array(
+      z
+        .object({
+          url: z.string().optional(),
+          valueString: z.string().optional(),
+        })
+        .passthrough()
+    )
+    .optional(),
 });
+
+/** Extension URL carrying the facility category in the live registry. */
+export const FRPR_ORG_CATEGORY_URL = "urn:frpr:org-category";
 
 export type RegistryOrganization = z.infer<typeof registryOrganizationSchema>;
 

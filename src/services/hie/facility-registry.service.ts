@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import type { HieEnvironment } from "../../../generated/prisma/client";
 import { fhirBundleSchema } from "./fhir.schemas";
 import {
+  FRPR_ORG_CATEGORY_URL,
   registryLocationSchema,
   registryOrganizationSchema,
 } from "./registry.schemas";
@@ -367,6 +368,7 @@ export function mapRegistryLocation(resource: unknown): MappedFacility | null {
       coding?: readonly { display?: string }[];
     }[];
     address?: { state?: string; district?: string };
+    extension?: readonly { url?: string; valueString?: string }[];
   } = asLocation.success
     ? asLocation.data
     : {
@@ -383,6 +385,9 @@ export function mapRegistryLocation(resource: unknown): MappedFacility | null {
 
   const isLocation = asLocation.success;
   const facilityType =
+    value.extension
+      ?.find((entry) => entry.url === FRPR_ORG_CATEGORY_URL)
+      ?.valueString?.trim() ??
     value.type?.[0]?.text?.trim() ??
     value.type?.[0]?.coding?.[0]?.display?.trim() ??
     null;
@@ -390,11 +395,21 @@ export function mapRegistryLocation(resource: unknown): MappedFacility | null {
     fosaCode: fosa.fosaCode,
     resourceType: isLocation ? "Location" : "Organization",
     resourceId,
-    // Only a Location yields a reference our mappings can store.
-    locationReference: isLocation ? `Location/${resourceId}` : null,
+    // The registry publishes facilities as Organization and never as Location,
+    // but our mappings — and the Encounter payloads built from them — reference
+    // `Location/<fosaCode>`, which is MoH's own convention in the reference
+    // collection (`"reference": "Location/0424"` alongside
+    // `identifier.value: "0424"`). So the reference is derived from the FOSA
+    // code rather than the resource id: following the documented convention, not
+    // inventing an identifier. A real Location resource keeps its own id.
+    locationReference: isLocation
+      ? `Location/${resourceId}`
+      : `Location/${fosa.fosaCode}`,
     organizationReference: isLocation ? null : `Organization/${resourceId}`,
     name,
     facilityType,
+    // The live payload carries no address at all; these stay null rather than
+    // being parsed out of the display name.
     province: value.address?.state?.trim() ?? null,
     district: value.address?.district?.trim() ?? null,
     identifierSystem: fosa.identifierSystem,
@@ -681,6 +696,10 @@ async function performSync(params: {
       });
     });
 
+    // Kept as one stored number for the schema, but logged apart: the live
+    // registry publishes ~3,200 entries under ~1,800 distinct FOSA codes, so
+    // most of this is expected de-duplication, not lost data. Conflating it with
+    // unparseable entries made a healthy sync look like a 43% failure.
     const skippedCount = fetched.skipped + duplicates;
     await db.hieRegistrySyncRun.update({
       where: { id: runRow.id },
@@ -697,7 +716,8 @@ async function performSync(params: {
     logger.info("hie.facility_directory.synced", {
       environment,
       entryCount: unique.length,
-      skippedCount,
+      duplicateFosaCodes: duplicates,
+      unusableEntries: fetched.skipped,
       pageCount: fetched.pages,
       observedIdentifierSystems: [...fetched.observedSystems],
       correlationId,

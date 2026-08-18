@@ -72,9 +72,11 @@ describe("mapRegistryLocation", () => {
     expect(mapped?.fosaCode).toBe("0424");
   });
 
-  it("maps an Organization but publishes no location reference", () => {
-    // The console must be able to say "listed nationally, but not mappable"
-    // rather than fabricate a Location reference our mappings would store.
+  it("maps an Organization to a FOSA-derived Location reference", () => {
+    // The registry publishes only Organizations, but our mappings and the
+    // Encounter payloads built from them reference `Location/<fosaCode>` — MoH's
+    // own convention. Keeping the Organization reference too preserves the trail
+    // back to the source record.
     const mapped = mapRegistryLocation({
       resourceType: "Organization",
       id: "org-1",
@@ -83,8 +85,10 @@ describe("mapRegistryLocation", () => {
       address: [{ state: "Kigali", district: "Kicukiro" }],
     });
     expect(mapped?.resourceType).toBe("Organization");
-    expect(mapped?.locationReference).toBeNull();
+    expect(mapped?.locationReference).toBe("Location/0001");
     expect(mapped?.organizationReference).toBe("Organization/org-1");
+    // Read from the list form when an address is present, though the live
+    // registry publishes none.
     expect(mapped?.district).toBe("Kicukiro");
   });
 
@@ -133,5 +137,62 @@ describe("mapRegistryLocation", () => {
       location({ type: [{ coding: [{ display: "Health Post" }] }] })
     );
     expect(mapped?.facilityType).toBe("Health Post");
+  });
+});
+
+describe("live registry payload", () => {
+  // Verbatim from the MoH test gateway: every one of its 3,212 entries is an
+  // Organization with no address and the category in an extension. Locking the
+  // real shape in means a change on their side fails here rather than silently
+  // emptying the picker.
+  const liveOrganization = {
+    resourceType: "Organization",
+    id: "org-2684",
+    extension: [{ url: "urn:frpr:org-category", valueString: "Health Post" }],
+    identifier: [{ system: "urn:frpr:facility-code", value: "2684" }],
+    name: "Mutanda HP",
+  };
+
+  it("maps the live Organization shape to a mappable facility", () => {
+    const mapped = mapRegistryLocation(liveOrganization);
+    expect(mapped).toEqual({
+      fosaCode: "2684",
+      resourceType: "Organization",
+      resourceId: "org-2684",
+      // Derived from the FOSA code, matching MoH's own Encounter convention
+      // (`Location/0424` alongside `identifier.value: "0424"`).
+      locationReference: "Location/2684",
+      organizationReference: "Organization/org-2684",
+      name: "Mutanda HP",
+      facilityType: "Health Post",
+      province: null,
+      district: null,
+      identifierSystem: "urn:frpr:facility-code",
+    });
+  });
+
+  it("reads the category from the extension, not from type", () => {
+    const mapped = mapRegistryLocation(liveOrganization);
+    expect(mapped?.facilityType).toBe("Health Post");
+  });
+
+  it("still prefers a real Location's own id when one is published", () => {
+    const mapped = mapRegistryLocation({
+      resourceType: "Location",
+      id: "1163f2b9-08b0-4333-8e60-6a6fadc91f4f",
+      name: "Kibagabaga",
+      identifier: [{ system: "urn:frpr:facility-code", value: "0022" }],
+    });
+    expect(mapped?.locationReference).toBe(
+      "Location/1163f2b9-08b0-4333-8e60-6a6fadc91f4f"
+    );
+  });
+
+  it("ignores an unrelated extension", () => {
+    const mapped = mapRegistryLocation({
+      ...liveOrganization,
+      extension: [{ url: "urn:frpr:something-else", valueString: "nope" }],
+    });
+    expect(mapped?.facilityType).toBeNull();
   });
 });
