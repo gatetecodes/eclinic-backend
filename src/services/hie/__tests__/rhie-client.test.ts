@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import {
   getMaxAttempts,
+  isRhieServiceConfigured,
   RhieRequestError,
   readBoundedJson,
   requestTimeoutMs,
   resetCircuitBreakers,
   rhieRequest,
 } from "../rhie-client";
-import { resolveRhieEndpoint } from "../rhie-endpoints";
+import {
+  FACILITY_BUNDLE_MAX_RESPONSE_BYTES,
+  resolveRhieEndpoint,
+} from "../rhie-endpoints";
 
 const originalRequestTimeout = process.env.HIE_REQUEST_TIMEOUT_MS;
 const originalGetMaxAttempts = process.env.HIE_GET_MAX_ATTEMPTS;
@@ -443,6 +447,119 @@ describe("typed RHIE endpoint registry", () => {
         path: "Patient",
       })
     ).toBeUndefined();
+  });
+
+  it("admits the facility directory list", () => {
+    expect(
+      resolveRhieEndpoint({
+        service: "FACILITY_REGISTRY",
+        method: "GET",
+        path: "fhir",
+      })
+    ).toBeDefined();
+  });
+
+  it("raises the response cap only for the facility bundle", () => {
+    const facility = resolveRhieEndpoint({
+      service: "FACILITY_REGISTRY",
+      method: "GET",
+      path: "fhir",
+    });
+    const patient = resolveRhieEndpoint({
+      service: "CLIENT_REGISTRY",
+      method: "GET",
+      path: "Patient",
+    });
+    expect(facility?.maxResponseBytes).toBe(FACILITY_BUNDLE_MAX_RESPONSE_BYTES);
+    expect(patient?.maxResponseBytes).toBeUndefined();
+  });
+
+  it("admits a practitioner licence status but not a bare Practitioner read", () => {
+    expect(
+      resolveRhieEndpoint({
+        service: "PROVIDER_REGISTRY",
+        method: "GET",
+        path: "Practitioner/LIC-00785348/status",
+      })
+    ).toBeDefined();
+    expect(
+      resolveRhieEndpoint({
+        service: "PROVIDER_REGISTRY",
+        method: "GET",
+        path: "Practitioner/LIC-00785348",
+      })
+    ).toBeUndefined();
+  });
+
+  it("does not let the licence-status pattern swallow its sibling path", () => {
+    // The status regex must resolve to the list endpoint's own descriptor, not
+    // match it — otherwise the list would be validated against the wrong schema.
+    const list = resolveRhieEndpoint({
+      service: "PROVIDER_REGISTRY",
+      method: "GET",
+      path: "_practitioner-list-with-roles",
+    });
+    expect(list?.path).toBe("_practitioner-list-with-roles");
+  });
+
+  it("keeps registry paths off the other services", () => {
+    expect(
+      resolveRhieEndpoint({ service: "SHR", method: "GET", path: "fhir" })
+    ).toBeUndefined();
+    expect(
+      resolveRhieEndpoint({
+        service: "FACILITY_REGISTRY",
+        method: "GET",
+        path: "Patient",
+      })
+    ).toBeUndefined();
+  });
+});
+
+describe("registry service configuration", () => {
+  const originalFacilityUrl = process.env.HIE_FACILITY_REGISTRY_BASE_URL;
+  const originalProviderUrl = process.env.HIE_PROVIDER_REGISTRY_BASE_URL;
+
+  afterEach(() => {
+    process.env.HIE_FACILITY_REGISTRY_BASE_URL = originalFacilityUrl;
+    process.env.HIE_PROVIDER_REGISTRY_BASE_URL = originalProviderUrl;
+  });
+
+  it("reports an unset registry as unconfigured without throwing", () => {
+    process.env.HIE_FACILITY_REGISTRY_BASE_URL = "";
+    process.env.HIE_PROVIDER_REGISTRY_BASE_URL = "";
+    expect(isRhieServiceConfigured("FACILITY_REGISTRY")).toBe(false);
+    expect(isRhieServiceConfigured("PROVIDER_REGISTRY")).toBe(false);
+  });
+
+  it("treats whitespace as unconfigured", () => {
+    process.env.HIE_FACILITY_REGISTRY_BASE_URL = "   ";
+    expect(isRhieServiceConfigured("FACILITY_REGISTRY")).toBe(false);
+  });
+
+  it("reports a configured registry", () => {
+    process.env.HIE_FACILITY_REGISTRY_BASE_URL =
+      "https://rhie.test/facility-registry/";
+    expect(isRhieServiceConfigured("FACILITY_REGISTRY")).toBe(true);
+  });
+
+  it("raises HIE_NOT_CONFIGURED rather than calling an unset registry", async () => {
+    configureRequestTest();
+    process.env.HIE_FACILITY_REGISTRY_BASE_URL = "";
+    let fetched = false;
+    globalThis.fetch = () => {
+      fetched = true;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    };
+    await expect(
+      rhieRequest({
+        service: "FACILITY_REGISTRY",
+        method: "GET",
+        path: "fhir",
+        tenantEnvironment: "TEST",
+      })
+    ).rejects.toMatchObject({ code: "HIE_NOT_CONFIGURED" });
+    expect(fetched).toBe(false);
   });
 });
 

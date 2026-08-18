@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { logger } from "@/lib/logger";
+import { syncFacilityDirectoryIfDue } from "@/services/hie/facility-registry.service";
 import { refreshAllTenantHealth } from "@/services/hie/health.service";
 import { monitorHieOperations } from "@/services/hie/operations-metrics.service";
 import {
@@ -34,6 +35,17 @@ function probeHealthOnStartup() {
  */
 const HIE_TASK_OPTIONS = { noOverlap: true } as const;
 
+/**
+ * The directory is national reference data with no tenant, so the sweep runs
+ * against the deployment's own environment. `rhieRequest` then asserts that this
+ * matches the endpoint and credential environments, as it does for every call.
+ */
+function deploymentHieEnvironment(): "TEST" | "PRODUCTION" {
+  return process.env.HIE_DEPLOYMENT_ENVIRONMENT === "PRODUCTION"
+    ? "PRODUCTION"
+    : "TEST";
+}
+
 export function startHieOutboxCron() {
   probeHealthOnStartup();
   cron.schedule(
@@ -59,6 +71,25 @@ export function startHieOutboxCron() {
         await processHieOutbox();
       } catch (error) {
         logger.error("hie.outbox.cron_failed", { error });
+      }
+    },
+    HIE_TASK_OPTIONS
+  );
+  // Nightly, and only when a registry is configured and the snapshot is due —
+  // an unconfigured deployment makes zero network calls. Deliberately not on the
+  // five-minute tick: this endpoint returns the whole national facility list.
+  cron.schedule(
+    "15 3 * * *",
+    async () => {
+      try {
+        const result = await syncFacilityDirectoryIfDue(
+          deploymentHieEnvironment()
+        );
+        if (!result.skipped) {
+          logger.info("hie.facility_directory.sync_completed", result);
+        }
+      } catch (error) {
+        logger.error("hie.facility_directory.sync_failed", { error });
       }
     },
     HIE_TASK_OPTIONS

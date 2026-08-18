@@ -18,8 +18,14 @@ import {
   fhirProcedureSchema,
   fhirServiceRequestSchema,
 } from "./fhir.schemas";
+import { practitionerLicenseStatusSchema } from "./registry.schemas";
 
-export type RhieService = "CLIENT_REGISTRY" | "SHR" | "CITIZEN";
+export type RhieService =
+  | "CLIENT_REGISTRY"
+  | "SHR"
+  | "CITIZEN"
+  | "FACILITY_REGISTRY"
+  | "PROVIDER_REGISTRY";
 export type RhieMethod = "GET" | "POST" | "DELETE";
 
 /**
@@ -29,7 +35,7 @@ export type RhieMethod = "GET" | "POST" | "DELETE";
  */
 export type RhieMediaType = "fhir" | "json";
 
-type EndpointDescriptor = {
+export type EndpointDescriptor = {
   service: RhieService;
   method: RhieMethod;
   path: string | RegExp;
@@ -37,7 +43,21 @@ type EndpointDescriptor = {
   responseSchema?: z.ZodType;
   allowEmptySuccess?: boolean;
   mediaType?: RhieMediaType;
+  /**
+   * Raises this endpoint's response byte cap above the 2MB default.
+   *
+   * Only the facility list needs it. The sync pages that endpoint precisely so
+   * it stays small, but we cannot assume the gateway honours `page`/`limit` — if
+   * it ignores them and returns the whole national list, a 2MB cap would turn
+   * the entire feature into RESPONSE_TOO_LARGE. The client clamps this to
+   * ENDPOINT_MAX_RESPONSE_BYTES_CEILING so a descriptor cannot be edited into
+   * an out-of-memory condition.
+   */
+  maxResponseBytes?: number;
 };
+
+/** Headroom for a facility bundle whose paging the gateway ignored. */
+export const FACILITY_BUNDLE_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 const resourceId = (resource: string) =>
   new RegExp(`^${resource}/[A-Za-z0-9.-]+$`);
@@ -496,6 +516,41 @@ const ENDPOINTS: readonly EndpointDescriptor[] = [
     method: "GET",
     path: resourceId("AuditEvent"),
     responseSchema: fhirAuditEventSchema,
+  },
+
+  // Facility Registry. Reached through the same openHIM gateway and basic
+  // credentials as the other services — the collection's `verify-facility`
+  // operation is only published on the direct facility host behind a JWT, so
+  // verification matches a FOSA code against this authoritative list instead.
+  {
+    // The base URL carries the `/facility-registry/` prefix, the same way
+    // HIE_CLIENT_REGISTRY_BASE_URL already carries `/clientregistry/`.
+    service: "FACILITY_REGISTRY",
+    method: "GET",
+    path: "fhir",
+    responseSchema: fhirBundleSchema,
+    maxResponseBytes: FACILITY_BUNDLE_MAX_RESPONSE_BYTES,
+  },
+
+  // Provider Registry. Paths are as documented on the direct host; the openHIM
+  // prefix is unconfirmed by MoH, so HIE_PROVIDER_REGISTRY_BASE_URL ships unset
+  // and these two descriptors plus that variable are the only places to change
+  // once it is. See docs/RWANDA_HIE.md.
+  {
+    service: "PROVIDER_REGISTRY",
+    method: "GET",
+    path: "_practitioner-list-with-roles",
+    responseSchema: fhirBundleSchema,
+  },
+  {
+    // The regex character class excludes `/`, so it cannot swallow the sibling
+    // `_practitioner-list-with-roles` path and needs no RESERVED_OPERATION_PATHS
+    // entry.
+    service: "PROVIDER_REGISTRY",
+    method: "GET",
+    path: /^Practitioner\/[A-Za-z0-9.-]+\/status$/,
+    responseSchema: practitionerLicenseStatusSchema,
+    mediaType: "json",
   },
 ] as const;
 
